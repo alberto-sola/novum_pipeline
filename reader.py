@@ -34,8 +34,8 @@ def load_predictions(input_file):
 def main():
     args = parse_args()  # Read the file path passed by the user.
     df = load_predictions(args.input_file)  # Load the input file into a DataFrame.
-    print(df.to_string(max_rows=30))  # Print the first five rows as a quick check.
+    print(df.to_string(max_rows=30))
 
 
-if __name__ == "__main__":
-    main()  # Run the script only when this file is executed directly.
+
+main()
