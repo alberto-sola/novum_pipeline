@@ -1,6 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+
+# environments
+.env/
+venv/
+conda-env/
+*.egg-info/
+.snakemake/
+
 # IDE
 .idea/
 .vscode/
 
-# test files
+# OS
+.DS_Store
+Thumbs.db
+
+# data (adjust carefully)
+data/raw/
+data/tmp/
+
+# results
+results/
 *.tsv
+
+# logs
+*.log
