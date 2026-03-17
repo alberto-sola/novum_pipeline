@@ -7,16 +7,16 @@ import subprocess
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument('-q', type=str, required=True, help='query file')
-    parser.add_argument('-t', type=str, required=True, help='target file')
+    parser.add_argument('-q', '--query', type=str, required=True, help='query file')
+    parser.add_argument('-t', '--target', type=str, required=True, help='target file')
     parser.add_argument('-s', type=str, required=True, help='(3utr_fly|3utr_worm|3utr_human)')
-    parser.add_argument('-C', '--cores', type=int, required=True, help='<number of cores>')
+    parser.add_argument('-j', '--cores', type=int, required=True, help='<number of cores>')
     parser.add_argument('output_file', help='output file')
     parser.add_argument('-b', type=int, required=False, help='<number of hits per target>')
     parser.add_argument('-u', type=int, required=False, help='<max internal loop size (per side)>')
     parser.add_argument('-v', type=int, required=False, help='<max bulge loop size>')
-    parser.add_argument('-e', type=int, required=False, help='<energy cut-off>')
-    parser.add_argument('-p', type=float, required=False, help='<p-value cut-off>')
+    parser.add_argument('-e', '--energy', type=int, required=False, help='<energy cut-off>')
+    parser.add_argument('-p', '--pvalue', type=float, required=False, help='<p-value cut-off>')
     return parser.parse_args()
 
 
@@ -81,23 +81,18 @@ def main():
     output_pattern = "output_chunk_*.tsv"
     optional_args = []
 
-    for path in Path(".").glob(output_pattern):
+    for path in Path("../..").glob(output_pattern):
         path.unlink()
-    for path in Path(".").glob(f"{chunk_prefix}*"):
+    for path in Path("../..").glob(f"{chunk_prefix}*"):
         path.unlink()
 
-    if args.b is not None:
-        optional_args.extend(["-b", str(args.b)])
-    if args.u is not None:
-        optional_args.extend(["-u", str(args.u)])
-    if args.v is not None:
-        optional_args.extend(["-v", str(args.v)])
-    if args.e is not None:
-        optional_args.extend(["-e", str(args.e)])
-    if args.p is not None:
-        optional_args.extend(["-p", str(args.p)])
+    if args.b is not None:optional_args.extend(["-b", str(args.b)])
+    if args.u is not None:optional_args.extend(["-u", str(args.u)])
+    if args.v is not None:optional_args.extend(["-v", str(args.v)])
+    if args.energy is not None:optional_args.extend(["-e", str(args.energy)])
+    if args.pvalue is not None:optional_args.extend(["-p", str(args.pvalue)])
 
-    chunk_paths = write_fasta_chunks(args.t, chunk_prefix)
+    chunk_paths = write_fasta_chunks(args.target, chunk_prefix)
     optional_arg_string = " ".join(shlex.quote(arg) for arg in optional_args)
     command_template = (
         f"RNAhybrid -q {{1}} -t {{2}} -s {{3}} -c -m 50000 {optional_arg_string} > output_{{2/.}}.tsv"
@@ -109,7 +104,7 @@ def main():
             shlex.quote(str(args.cores)),
             shlex.quote(command_template),
             ":::",
-            shlex.quote(args.q),
+            shlex.quote(args.query),
             ":::",
             *[shlex.quote(str(chunk_path)) for chunk_path in chunk_paths],
             ":::",
@@ -119,18 +114,18 @@ def main():
 
     subprocess.run(command_run, shell=True, check=True)
 
-    output_files = sorted(Path(".").glob(output_pattern))
+    output_files = sorted(Path("../..").glob(output_pattern))  # Collect per-chunk RNAhybrid outputs in stable order.
     if not output_files:
-        raise RuntimeError("No output files were produced by RNAhybrid.")
+        raise RuntimeError("No output files were produced by RNAhybrid.")  # Fail if the parallel run produced nothing.
 
-    with open(args.output_file, "w") as merged_output:
+    with open(args.output_file, "w") as merged_output:  # Open the final merged output file.
         for output_file in output_files:
-            merged_output.write(output_file.read_text())
+            merged_output.write(output_file.read_text())  # Append each chunk result to the final output.
 
-    for path in Path(".").glob(output_pattern):
-        path.unlink()
-    for path in Path(".").glob(f"{chunk_prefix}*"):
-        path.unlink()
+    for path in Path("../..").glob(output_pattern):
+        path.unlink()  # Remove temporary per-chunk RNAhybrid output files.
+    for path in Path("../..").glob(f"{chunk_prefix}*"):
+        path.unlink()  # Remove temporary FASTA chunk files.
 
 
 if __name__ == "__main__":
