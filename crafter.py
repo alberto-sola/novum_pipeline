@@ -81,9 +81,9 @@ def main():  # Parse CLI inputs, run RNAhybrid in parallel, and merge temporary 
     output_pattern = "output_chunk_*.tsv"  # Glob pattern matching temporary RNAhybrid outputs.
     optional_args = []  # Accumulate optional CLI flags that should be forwarded to RNAhybrid.
 
-    for path in Path("..").glob(output_pattern):  # Remove stale output files from previous runs.
+    for path in Path(".").glob(output_pattern):  # Remove stale output files from previous runs.
         path.unlink()  # Delete the matching temporary output file.
-    for path in Path("..").glob(f"{chunk_prefix}*"):  # Remove stale FASTA chunk files from previous runs.
+    for path in Path(".").glob(f"{chunk_prefix}*"):  # Remove stale FASTA chunk files from previous runs.
         path.unlink()  # Delete the matching temporary chunk file.
 
     if args.b is not None: optional_args.extend(["-b", str(args.b)])  # Forward the optional hit-count limit if provided.
@@ -95,7 +95,7 @@ def main():  # Parse CLI inputs, run RNAhybrid in parallel, and merge temporary 
     chunk_paths = write_fasta_chunks(args.target, chunk_prefix)  # Split the target FASTA into manageable chunk files.
     optional_arg_string = " ".join(shlex.quote(arg) for arg in optional_args)  # Turn optional arguments into a shell-safe string.
     command_template = (  # Build the per-job GNU parallel command template.
-        f"RNAhybrid -q {{1}} -t {{2}} -s {{3}} -c -m 50000 {optional_arg_string} > output_{{2/.}}.tsv"  # Run RNAhybrid on one chunk and redirect to a chunk-specific TSV.
+        f"RNAhybrid -q {{1}} -t {{2}} -s {{3}} -c -m 500000 {optional_arg_string} > output_{{2/.}}.tsv"  # Run RNAhybrid on one chunk and redirect to a chunk-specific TSV.
     ).strip()  # Remove extra whitespace if no optional arguments were added.
     command_run = " ".join(  # Assemble the full GNU parallel command line as a single shell string.
         [  # Build the command from individually quoted shell tokens.
@@ -114,7 +114,7 @@ def main():  # Parse CLI inputs, run RNAhybrid in parallel, and merge temporary 
 
     subprocess.run(command_run, shell=True, check=True)  # Execute the GNU parallel command and raise if it fails.
 
-    output_files = sorted(Path("..").glob(output_pattern))  # Collect per-chunk RNAhybrid outputs in stable order.
+    output_files = sorted(Path(".").glob(output_pattern))  # Collect per-chunk RNAhybrid outputs in stable order.
     if not output_files:  # Guard against silent failures that produced no output files.
         raise RuntimeError("No output files were produced by RNAhybrid.")  # Fail if the parallel run produced nothing.
 
@@ -122,12 +122,11 @@ def main():  # Parse CLI inputs, run RNAhybrid in parallel, and merge temporary 
         for output_file in output_files:  # Visit each temporary RNAhybrid output file in order.
             merged_output.write(output_file.read_text())  # Append each chunk result to the final output.
 
-    for path in Path("..").glob(output_pattern):  # Clean up all temporary RNAhybrid output files.
+    for path in Path(".").glob(output_pattern):  # Clean up all temporary RNAhybrid output files.
         path.unlink()  # Remove the temporary per-chunk RNAhybrid output file.
-    for path in Path("..").glob(f"{chunk_prefix}*"):  # Clean up all temporary FASTA chunk files.
+    for path in Path(".").glob(f"{chunk_prefix}*"):  # Clean up all temporary FASTA chunk files.
         path.unlink()  # Remove the temporary FASTA chunk file.
 
 
 if __name__ == "__main__":  # Run the CLI entry point only when the file is executed as a script.
     main()  # Start the program.
-

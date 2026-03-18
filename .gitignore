@@ -18,8 +18,8 @@ conda-env/
 Thumbs.db
 
 # data (adjust carefully)
-data/raw/
 data/tmp/
+data/results
 
 # results
 results/
