@@ -6,16 +6,16 @@ import pandas as pd
 
 COLUMNS = [
     "Gene",
-    "Boh1",
+    "Gene_length",
     "miRNA",
     "miRNA_length",
     "Energy",
     "P_value",
-    "Boh2",
+    "dontknow",
     "miRNA_unmatches",
     "miRNA_matches",
-    "target_matches",
-    "target_unmatches",
+    "Target_matches",
+    "Target_unmatches",
 ]
 
 
