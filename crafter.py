@@ -84,7 +84,7 @@ def build_optional_args(hits=None, u=None, v=None, energy=None, pvalue=None, see
     return optional_args
 
 
-def build_parallel_command(query, chunk_paths, species, cores, optional_args):
+def build_parallel_command(query, chunk_paths, species, optional_args):
     job_template = " ".join(
         [
             "RNAhybrid",
@@ -105,8 +105,8 @@ def build_parallel_command(query, chunk_paths, species, cores, optional_args):
 
     return [
         "parallel",
-        "-j",
-        str(cores),
+        "-j0",
+        "--load=100%",
         job_template,
         ":::",
         query,
@@ -127,7 +127,7 @@ def merge_output_files(output_pattern, merged_output_path):
             merged_output.write(output_file.read_text())
 
 
-def run_crafter(query, target, species, cores, output_file, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None):
+def run_crafter(query, target, species, output_file, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None):
     chunk_prefix = "chunk_"
     output_pattern = "output_chunk_*.tsv"
 
@@ -148,7 +148,6 @@ def run_crafter(query, target, species, cores, output_file, hits=None, u=None, v
             query=query,
             chunk_paths=chunk_paths,
             species=species,
-            cores=cores,
             optional_args=optional_args,
         )
 

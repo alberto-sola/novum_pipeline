@@ -7,7 +7,7 @@ search <- c(
   file_name = './miR_1224_5p.txt'
 )
 
-df <- tibble(read.csv2('./output_compact.tsv', header = FALSE, sep = ':', col.names = c('Gene', 'Boh1', 'miRNA', 'miRNA_length', 'Energy', 'P_value', 'Boh2', 'miRNA_unmatches', 'miRNA_matches', 'target_matches', 'target_unmatches')))
+df <- tibble(read.csv2('./output_compact.tsv', header = FALSE, sep = ':', col.names = c('Gene', 'Gene_length', 'miRNA', 'miRNA_length', 'Energy', 'P_value', 'Position', 'miRNA_unmatches', 'miRNA_matches', 'target_matches', 'target_unmatches')))
 
 df |>
   mutate(Energy = as.double(Energy), P_value = as.double(P_value)) |>

@@ -11,7 +11,6 @@ def parse_args():
     parser.add_argument("-q", "--query", required=True, help="Query FASTA file.")
     parser.add_argument("-t", "--target", required=True, help="Target FASTA file.")
     parser.add_argument("-s", required=True, help="RNAhybrid species model (3utr_fly|3utr_worm|3utr_human).")
-    parser.add_argument("-j", "--cores", type=int, required=True, help="Number of cores.")
     parser.add_argument("-b", "--hits", type=int, help="Number of hits per target.")
     parser.add_argument("-u", type=int, help="Max internal loop size (per side).")
     parser.add_argument("-v", type=int, help="Max bulge loop size.")
@@ -52,20 +51,17 @@ def run_crafter_stage(args):
         query=args.query,
         target=args.target,
         species=args.s,
-        cores=args.cores,
         output_file=args.intermediate_output,
         hits=args.hits,
         u=args.u,
         v=args.v,
         energy=args.energy,
         pvalue=args.pvalue,
-        seed=args.seed,
+        seed=args.seed
     )
 
     if not intermediate_output.exists():
-        raise RuntimeError(
-            f"crafter.py completed but did not produce the expected file: {intermediate_output}"
-        )
+        raise RuntimeError(f"crafter.py completed but did not produce the expected file: {intermediate_output}")
 
 
 def main():

@@ -11,7 +11,7 @@ COLUMNS = [
     "miRNA_length",
     "Energy",
     "P_value",
-    "dontknow",
+    "Position",
     "miRNA_unmatches",
     "miRNA_matches",
     "Target_matches",
