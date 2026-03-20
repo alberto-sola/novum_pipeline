@@ -3,6 +3,8 @@ from pathlib import Path
 
 from crafter import run_crafter as execute_crafter
 
+DEFAULT_ARRANGER_SCRIPT = Path(__file__).with_name("arranger.R")
+
 
 def parse_args():
     parser = ArgumentParser(description="Run the novum pipeline by orchestrating crafter.py and arranger.R.")
@@ -23,7 +25,7 @@ def parse_args():
     parser.add_argument("--final-output", help="Reserved for the future arranger.R output path.")
 
     # Future arranger.R parameters
-    parser.add_argument("--arranger-script", default="arranger.R", help="Path to arranger.R. Parsed now for future orchestration.")
+    parser.add_argument("--arranger-script", default=str(DEFAULT_ARRANGER_SCRIPT), help="Path to arranger.R. Parsed now for future orchestration.")
     parser.add_argument("--dry-run-arranger", action="store_true", help="Print the future arranger.R command instead of running it.")
 
     return parser.parse_args()
