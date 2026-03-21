@@ -1,18 +1,10 @@
 configfile: "Config/config.yaml"
 
-def format_optional_args(**kwargs):
-    parts = []
-    for flag, value in kwargs.items():
-        if value is not None:
-            parts.extend([flag, str(value)])
-    return " ".join(parts)
-
 query = config["query"]
 target = config["target"]
 species = config.get("species", "3utr_human")
 
 rnahybrid_config = config.get("rnahybrid", {})
-tidy_rnahybrid_config = config.get("tidy_rnahybrid", {})
 outputs_config = config.get("outputs", {})
 
 compact_output = outputs_config.get("compact", "Data/results/rnahybrid_compact.tsv")

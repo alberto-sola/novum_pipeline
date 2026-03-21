@@ -1,9 +1,7 @@
 from argparse import ArgumentParser
-import os
 from pathlib import Path
 import shutil
 import subprocess
-import sys
 
 
 def parse_args():
@@ -13,8 +11,6 @@ def parse_args():
     parser.add_argument("-o", "--output", required=True, help="Path for the merged compact RNAhybrid output.")
     parser.add_argument("-s", "--species", default="3utr_human", help="RNAhybrid species model (3utr_fly|3utr_worm|3utr_human).")
     parser.add_argument("--threads", type=int, default=1, help="Number of GNU parallel jobs to run.")
-    parser.add_argument("--parallel-executable", help="Path to the GNU parallel executable.")
-    parser.add_argument("--rnahybrid-executable", help="Path to the RNAhybrid executable.")
     parser.add_argument("-b", "--hits", type=int, help="Number of hits per target.")
     parser.add_argument("-u", type=int, help="Max internal loop size (per side).")
     parser.add_argument("-v", type=int, help="Max bulge loop size.")
@@ -73,53 +69,19 @@ def write_fasta_chunks(target_file, chunk_prefix, max_lines=800):
     return chunk_paths
 
 
-def ensure_dependencies(parallel_executable=None, rnahybrid_executable=None):
-    resolved = {}
-    if parallel_executable is not None:
-        resolved["parallel"] = parallel_executable
-    if rnahybrid_executable is not None:
-        resolved["rnahybrid"] = rnahybrid_executable
+def ensure_dependencies():
+    parallel_executable = shutil.which("parallel")
+    if parallel_executable is None:
+        raise RuntimeError("Required executable not found in PATH: parallel")
 
-    candidates = {
-        "parallel": ["parallel"],
-        "rnahybrid": ["RNAhybrid", "rnahybrid"],
+    rnahybrid_executable = shutil.which("RNAhybrid") or shutil.which("rnahybrid")
+    if rnahybrid_executable is None:
+        raise RuntimeError("Required executable not found in PATH: RNAhybrid")
+
+    return {
+        "parallel": parallel_executable,
+        "rnahybrid": rnahybrid_executable,
     }
-    candidate_bin_dirs = []
-    conda_prefix = os.environ.get("CONDA_PREFIX")
-    if conda_prefix:
-        candidate_bin_dirs.append(Path(conda_prefix) / "bin")
-    candidate_bin_dirs.append(Path(sys.executable).resolve().parent)
-
-    for dependency_name, executable_names in candidates.items():
-        if dependency_name in resolved:
-            continue
-        for executable_name in executable_names:
-            executable_path = shutil.which(executable_name)
-            if executable_path is None:
-                for candidate_bin_dir in candidate_bin_dirs:
-                    candidate_path = candidate_bin_dir / executable_name
-                    if candidate_path.exists():
-                        executable_path = str(candidate_path)
-                        break
-            if executable_path is not None:
-                resolved[dependency_name] = executable_path
-                break
-        else:
-            if dependency_name != "rnahybrid":
-                raise RuntimeError(f"Required executable not found in PATH: {dependency_name}")
-
-    parallel_bin_dir = Path(resolved["parallel"]).resolve().parent
-    if "rnahybrid" not in resolved:
-        for executable_name in candidates["rnahybrid"]:
-            candidate_path = parallel_bin_dir / executable_name
-            if candidate_path.exists():
-                resolved["rnahybrid"] = str(candidate_path)
-                break
-
-    if "rnahybrid" not in resolved:
-        raise RuntimeError("Required executable not found in PATH: rnahybrid")
-
-    return resolved
 
 
 def cleanup_temp_files(chunk_prefix, output_pattern):
@@ -191,17 +153,14 @@ def merge_output_files(output_pattern, merged_output_path):
             merged_output.write(output_file.read_text())
 
 
-def run_rnahybrid(query, target, species, output_file, threads=1, parallel_executable=None, rnahybrid_executable=None, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None):
+def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None):
     chunk_prefix = "chunk_"
     output_pattern = "output_chunk_*.tsv"
 
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    executables = ensure_dependencies(
-        parallel_executable=parallel_executable,
-        rnahybrid_executable=rnahybrid_executable,
-    )
+    executables = ensure_dependencies()
     cleanup_temp_files(chunk_prefix, output_pattern)
 
     try:
@@ -238,8 +197,6 @@ def main():
         species=args.species,
         output_file=args.output,
         threads=args.threads,
-        parallel_executable=args.parallel_executable,
-        rnahybrid_executable=args.rnahybrid_executable,
         hits=args.hits,
         u=args.u,
         v=args.v,
