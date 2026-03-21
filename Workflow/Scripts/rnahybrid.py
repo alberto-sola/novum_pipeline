@@ -1,7 +1,9 @@
 from argparse import ArgumentParser
+import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 
 
 def parse_args():
@@ -11,6 +13,8 @@ def parse_args():
     parser.add_argument("-o", "--output", required=True, help="Path for the merged compact RNAhybrid output.")
     parser.add_argument("-s", "--species", default="3utr_human", help="RNAhybrid species model (3utr_fly|3utr_worm|3utr_human).")
     parser.add_argument("--threads", type=int, default=1, help="Number of GNU parallel jobs to run.")
+    parser.add_argument("--parallel-executable", help="Path to the GNU parallel executable.")
+    parser.add_argument("--rnahybrid-executable", help="Path to the RNAhybrid executable.")
     parser.add_argument("-b", "--hits", type=int, help="Number of hits per target.")
     parser.add_argument("-u", type=int, help="Max internal loop size (per side).")
     parser.add_argument("-v", type=int, help="Max bulge loop size.")
@@ -20,7 +24,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def write_fasta_chunks(target_file, chunk_prefix, max_lines=650):
+def write_fasta_chunks(target_file, chunk_prefix, max_lines=800):
     """Split a FASTA file into chunk files while preserving full records."""
     chunk_paths = []
     current_chunk_index = 0
@@ -69,10 +73,53 @@ def write_fasta_chunks(target_file, chunk_prefix, max_lines=650):
     return chunk_paths
 
 
-def ensure_dependencies():
-    for executable in ("parallel", "RNAhybrid"):
-        if shutil.which(executable) is None:
-            raise RuntimeError(f"Required executable not found in PATH: {executable}")
+def ensure_dependencies(parallel_executable=None, rnahybrid_executable=None):
+    resolved = {}
+    if parallel_executable is not None:
+        resolved["parallel"] = parallel_executable
+    if rnahybrid_executable is not None:
+        resolved["rnahybrid"] = rnahybrid_executable
+
+    candidates = {
+        "parallel": ["parallel"],
+        "rnahybrid": ["RNAhybrid", "rnahybrid"],
+    }
+    candidate_bin_dirs = []
+    conda_prefix = os.environ.get("CONDA_PREFIX")
+    if conda_prefix:
+        candidate_bin_dirs.append(Path(conda_prefix) / "bin")
+    candidate_bin_dirs.append(Path(sys.executable).resolve().parent)
+
+    for dependency_name, executable_names in candidates.items():
+        if dependency_name in resolved:
+            continue
+        for executable_name in executable_names:
+            executable_path = shutil.which(executable_name)
+            if executable_path is None:
+                for candidate_bin_dir in candidate_bin_dirs:
+                    candidate_path = candidate_bin_dir / executable_name
+                    if candidate_path.exists():
+                        executable_path = str(candidate_path)
+                        break
+            if executable_path is not None:
+                resolved[dependency_name] = executable_path
+                break
+        else:
+            if dependency_name != "rnahybrid":
+                raise RuntimeError(f"Required executable not found in PATH: {dependency_name}")
+
+    parallel_bin_dir = Path(resolved["parallel"]).resolve().parent
+    if "rnahybrid" not in resolved:
+        for executable_name in candidates["rnahybrid"]:
+            candidate_path = parallel_bin_dir / executable_name
+            if candidate_path.exists():
+                resolved["rnahybrid"] = str(candidate_path)
+                break
+
+    if "rnahybrid" not in resolved:
+        raise RuntimeError("Required executable not found in PATH: rnahybrid")
+
+    return resolved
 
 
 def cleanup_temp_files(chunk_prefix, output_pattern):
@@ -101,10 +148,10 @@ def build_optional_args(hits=None, u=None, v=None, energy=None, pvalue=None, see
     return optional_args
 
 
-def build_parallel_command(query, chunk_paths, species, optional_args, threads):
+def build_parallel_command(query, chunk_paths, species, optional_args, threads, parallel_executable, rnahybrid_executable):
     job_template = " ".join(
         [
-            "RNAhybrid",
+            rnahybrid_executable,
             "-q",
             "{1}",
             "-t",
@@ -121,7 +168,7 @@ def build_parallel_command(query, chunk_paths, species, optional_args, threads):
     )
 
     return [
-        "parallel",
+        parallel_executable,
         f"-j{max(1, threads)}",
         "--load=100%",
         job_template,
@@ -144,14 +191,17 @@ def merge_output_files(output_pattern, merged_output_path):
             merged_output.write(output_file.read_text())
 
 
-def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None):
+def run_rnahybrid(query, target, species, output_file, threads=1, parallel_executable=None, rnahybrid_executable=None, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None):
     chunk_prefix = "chunk_"
     output_pattern = "output_chunk_*.tsv"
 
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    ensure_dependencies()
+    executables = ensure_dependencies(
+        parallel_executable=parallel_executable,
+        rnahybrid_executable=rnahybrid_executable,
+    )
     cleanup_temp_files(chunk_prefix, output_pattern)
 
     try:
@@ -170,6 +220,8 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
             species=species,
             optional_args=optional_args,
             threads=threads,
+            parallel_executable=executables["parallel"],
+            rnahybrid_executable=executables["rnahybrid"],
         )
 
         subprocess.run(command, check=True)
@@ -186,6 +238,8 @@ def main():
         species=args.species,
         output_file=args.output,
         threads=args.threads,
+        parallel_executable=args.parallel_executable,
+        rnahybrid_executable=args.rnahybrid_executable,
         hits=args.hits,
         u=args.u,
         v=args.v,
@@ -195,5 +249,23 @@ def main():
     )
 
 
-if __name__ == "__main__":
+def run_from_snakemake(snakemake):
+    run_rnahybrid(
+        query=snakemake.input.query,
+        target=snakemake.input.target,
+        species=snakemake.params.species,
+        output_file=snakemake.output.compact,
+        threads=snakemake.threads,
+        hits=snakemake.params.hits,
+        u=snakemake.params.u,
+        v=snakemake.params.v,
+        energy=snakemake.params.energy,
+        pvalue=snakemake.params.pvalue,
+        seed=snakemake.params.seed,
+    )
+
+
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)
+elif __name__ == "__main__":
     main()

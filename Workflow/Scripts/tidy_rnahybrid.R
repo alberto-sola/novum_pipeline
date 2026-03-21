@@ -1,10 +1,8 @@
+library(tidyverse)
+
+
 parse_args <- function(args) {
-  parsed <- list(
-    input = NULL,
-    output = NULL,
-    mirna = NULL,
-    pvalue_cutoff = NULL
-  )
+  parsed <- list(input = NULL, output = NULL)
 
   i <- 1
   while (i <= length(args)) {
@@ -16,16 +14,9 @@ parse_args <- function(args) {
     } else if (arg %in% c("-o", "--output")) {
       i <- i + 1
       parsed$output <- args[[i]]
-    } else if (arg == "--mirna") {
-      i <- i + 1
-      parsed$mirna <- args[[i]]
-    } else if (arg == "--pvalue-cutoff") {
-      i <- i + 1
-      parsed$pvalue_cutoff <- as.numeric(args[[i]])
     } else {
       stop(sprintf("Unknown argument: %s", arg), call. = FALSE)
     }
-
     i <- i + 1
   }
 
@@ -54,39 +45,25 @@ main <- function() {
     "Target_unmatches"
   )
 
-  df <- read.table(
-    args$input,
-    sep = ":",
-    header = FALSE,
-    col.names = columns,
-    stringsAsFactors = FALSE,
-    quote = ""
-  )
+  # df <- read.table(
+  #   args$input,
+  #   sep = ":",
+  #   header = FALSE,
+  #   col.names = columns,
+  #   stringsAsFactors = FALSE,
+  #   quote = ""
+  # )
 
-  df$Energy <- as.numeric(df$Energy)
-  df$P_value <- as.numeric(df$P_value)
+  df <- tibble(read.csv2(args$input, header = FALSE, sep = ':', col.names = columns))
 
-  if (!is.null(args$mirna)) {
-    df <- df[df$miRNA == args$mirna, , drop = FALSE]
-  }
+  df |>
+  mutate(Energy = as.double(Energy), P_value = as.double(P_value)) |>
+  filter(P_value <= 0.05) |>
+  arrange(P_value) |>
+  distinct(Gene, miRNA) |>
+  select(Gene) -> miRNA_genes_extracted
 
-  if (!is.null(args$pvalue_cutoff)) {
-    df <- df[df$P_value <= args$pvalue_cutoff, , drop = FALSE]
-  }
-
-  output_dir <- dirname(args$output)
-  if (!dir.exists(output_dir)) {
-    dir.create(output_dir, recursive = TRUE, showWarnings = FALSE)
-  }
-
-  write.table(
-    df,
-    file = args$output,
-    sep = "\t",
-    quote = FALSE,
-    row.names = FALSE,
-    col.names = TRUE
-  )
+  write_csv(miRNA_genes_extracted, args$output, col_names = FALSE)
 }
 
 

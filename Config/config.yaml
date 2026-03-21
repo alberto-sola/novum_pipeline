@@ -1,2 +1,18 @@
-# Snakemake runtime configuration placeholder.
-# Populate this file when the workflow rules are defined.
+query: Data/raw/validated_miRNAs.fa
+target: Data/raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+species: 3utr_human
+
+rnahybrid:
+  threads: 1
+  hits: null
+  u: null
+  v: null
+  energy: null
+  pvalue: null
+  seed: null
+
+tidy_rnahybrid: {}
+
+outputs:
+  compact: Data/results/compact_output.tsv
+  tidy: Data/results/rnahybrid_tidy.csv
