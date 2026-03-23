@@ -45,15 +45,6 @@ main <- function() {
     "Target_unmatches"
   )
 
-  # df <- read.table(
-  #   args$input,
-  #   sep = ":",
-  #   header = FALSE,
-  #   col.names = columns,
-  #   stringsAsFactors = FALSE,
-  #   quote = ""
-  # )
-
   df <- tibble(read.csv2(args$input, header = FALSE, sep = ':', col.names = columns))
 
   df |>
