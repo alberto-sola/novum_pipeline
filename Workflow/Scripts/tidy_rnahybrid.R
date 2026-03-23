@@ -61,7 +61,7 @@ main <- function() {
   arrange(Energy) |>
   select(miRNA, Gene, Energy, P_value) -> extracted
 
-  write_csv(extracted, args$output, col_names = FALSE)
+  write_csv(extracted, args$output)
 }
 
 

@@ -18,4 +18,4 @@ annotate_rnahybrid: {}
 outputs:
   compact: Data/Results/rnahybrid_output.tsv
   tidy: Data/Results/tidy_output.csv
-  annotated: Data/Results/rnahybrid_named.csv
+  annotated: Data/Results/rnahybrid_annotated.csv

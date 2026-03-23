@@ -10,7 +10,7 @@ run_rnahybrid_config = config.get("run_rnahybrid", {})
 outputs_config = config.get("outputs", {})
 compact_output = outputs_config.get("compact", "Data/Results/rnahybrid_compact.tsv")
 tidy_output = outputs_config.get("tidy", "Data/Results/rnahybrid_tidy.csv")
-annotated_output = outputs_config.get("named","Data/Results/rnahybrid_annotated.csv")
+annotated_output = outputs_config.get("annotated","Data/Results/rnahybrid_annotated.csv")
 
 
 rule all:
