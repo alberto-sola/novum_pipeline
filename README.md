@@ -51,3 +51,33 @@ conda activate snakemake-modern
 ```bash
 snakemake --use-conda --cores N
 ```
+
+## Configuration
+
+Edit [`Config/config.yaml`](/home/alber/Documents/novum_pipeline/Config/config.yaml) to change inputs, RNAhybrid parameters, and output file names.
+
+Example:
+
+```yaml
+query: Data/Raw/validated_miRNAs.fa
+target: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+
+run_rnahybrid:
+  threads: 16
+  species: 3utr_human
+  hits: 3
+  u: 3
+  v: 3
+  energy: -18
+  pvalue: null
+  seed: null
+
+tidy_rnahybrid: {}
+
+annotate_rnahybrid: {}
+
+outputs:
+  compact: Data/Results/rnahybrid_output.tsv
+  tidy: Data/Results/tidy_output.csv
+  annotated: Data/Results/rnahybrid_named.csv
+```
