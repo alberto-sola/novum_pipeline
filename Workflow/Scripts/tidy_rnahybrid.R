@@ -58,12 +58,10 @@ main <- function() {
 
   df |>
   mutate(Energy = as.double(Energy), P_value = as.double(P_value)) |>
-  filter(P_value <= 0.05) |>
-  arrange(P_value) |>
-  distinct(Gene, miRNA) |>
-  select(Gene) -> miRNA_genes_extracted
+  arrange(Energy) |>
+  select(miRNA, Gene, Energy, P_value) -> extracted
 
-  write_csv(miRNA_genes_extracted, args$output, col_names = FALSE)
+  write_csv(extracted, args$output, col_names = FALSE)
 }
 
 

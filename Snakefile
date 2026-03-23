@@ -2,21 +2,23 @@ configfile: "Config/config.yaml"
 
 query = config["query"]
 target = config["target"]
-species = config.get("species", "3utr_human")
 
-rnahybrid_config = config.get("rnahybrid", {})
+run_rnahybrid_config = config.get("run_rnahybrid", {})
+# tidy_rnahybrid_config = config.get("tidy_rnahybrid", {})
+# annotate_rnahybrid = config.get("annotate_rnahybrid", {})
+
 outputs_config = config.get("outputs", {})
-
-compact_output = outputs_config.get("compact", "Data/results/rnahybrid_compact.tsv")
-tidy_output = outputs_config.get("tidy", "Data/results/rnahybrid_tidy.csv")
+compact_output = outputs_config.get("compact", "Data/Results/rnahybrid_compact.tsv")
+tidy_output = outputs_config.get("tidy", "Data/Results/rnahybrid_tidy.csv")
+annotated_output = outputs_config.get("named","Data/Results/rnahybrid_annotated.csv")
 
 
 rule all:
     input:
-        tidy_output
+        annotated_output
 
 
-rule rnahybrid:
+rule run_rnahybrid:
     input:
         query=query,
         target=target
@@ -25,15 +27,15 @@ rule rnahybrid:
     conda:
         "Workflow/Envs/rnahybrid.yaml"
     params:
-        species=species,
-        hits=rnahybrid_config.get("hits"),
-        u=rnahybrid_config.get("u"),
-        v=rnahybrid_config.get("v"),
-        energy=rnahybrid_config.get("energy"),
-        pvalue=rnahybrid_config.get("pvalue"),
-        seed=rnahybrid_config.get("seed")
+        species=run_rnahybrid_config.get("species", "3utr_human"),
+        hits=run_rnahybrid_config.get("hits"),
+        u=run_rnahybrid_config.get("u"),
+        v=run_rnahybrid_config.get("v"),
+        energy=run_rnahybrid_config.get("energy"),
+        pvalue=run_rnahybrid_config.get("pvalue"),
+        seed=run_rnahybrid_config.get("seed")
     threads:
-        int(rnahybrid_config.get("threads", 1))
+        int(run_rnahybrid_config.get("threads", 1))
     script:
         "Workflow/Scripts/rnahybrid.py"
 
@@ -47,7 +49,15 @@ rule tidy_rnahybrid:
         script="Workflow/Scripts/tidy_rnahybrid.R"
     shell:
         """
-        Rscript {params.script} \
-          --input {input.compact} \
-          --output {output.tidy}
+        Rscript {params.script} --input {input.compact} --output {output.tidy}
         """
+
+
+rule annotate_rnahybrid:
+    input:
+        tidy=tidy_output,
+        target=target
+    output:
+        annotated=annotated_output
+    script:
+        "Workflow/Scripts/annotate_rnahybrid.py"

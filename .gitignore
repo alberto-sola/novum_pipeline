@@ -18,12 +18,12 @@ conda-env/
 Thumbs.db
 
 # data (adjust carefully)
-Data/tmp/
-Data/results
+#Data/Tmp/
+#Data/Results
 
-# results
-results/
+# Results
 *.tsv
+*.csv
 
 # logs
 *.log

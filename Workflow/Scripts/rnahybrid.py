@@ -1,23 +1,6 @@
-from argparse import ArgumentParser
 from pathlib import Path
 import shutil
 import subprocess
-
-
-def parse_args():
-    parser = ArgumentParser(description="Run RNAhybrid on chunked FASTA targets and merge the compact output.")
-    parser.add_argument("-q", "--query", required=True, help="Query FASTA file.")
-    parser.add_argument("-t", "--target", required=True, help="Target FASTA file.")
-    parser.add_argument("-o", "--output", required=True, help="Path for the merged compact RNAhybrid output.")
-    parser.add_argument("-s", "--species", default="3utr_human", help="RNAhybrid species model (3utr_fly|3utr_worm|3utr_human).")
-    parser.add_argument("--threads", type=int, default=1, help="Number of GNU parallel jobs to run.")
-    parser.add_argument("-b", "--hits", type=int, help="Number of hits per target.")
-    parser.add_argument("-u", type=int, help="Max internal loop size (per side).")
-    parser.add_argument("-v", type=int, help="Max bulge loop size.")
-    parser.add_argument("-e", "--energy", type=int, help="Energy cut-off.")
-    parser.add_argument("-p", "--pvalue", type=float, help="P-value cut-off.")
-    parser.add_argument("-f", "--seed", help="Helix constraint: 'from,to'.")
-    return parser.parse_args()
 
 
 def write_fasta_chunks(target_file, chunk_prefix, max_lines=800):
@@ -189,30 +172,13 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
         cleanup_temp_files(chunk_prefix, output_pattern)
 
 
-def main():
-    args = parse_args()
-    run_rnahybrid(
-        query=args.query,
-        target=args.target,
-        species=args.species,
-        output_file=args.output,
-        threads=args.threads,
-        hits=args.hits,
-        u=args.u,
-        v=args.v,
-        energy=args.energy,
-        pvalue=args.pvalue,
-        seed=args.seed,
-    )
-
-
 def run_from_snakemake(snakemake):
     run_rnahybrid(
         query=snakemake.input.query,
         target=snakemake.input.target,
-        species=snakemake.params.species,
         output_file=snakemake.output.compact,
         threads=snakemake.threads,
+        species=snakemake.params.species,
         hits=snakemake.params.hits,
         u=snakemake.params.u,
         v=snakemake.params.v,
@@ -222,7 +188,4 @@ def run_from_snakemake(snakemake):
     )
 
 
-if "snakemake" in globals():
-    run_from_snakemake(snakemake)
-elif __name__ == "__main__":
-    main()
+run_from_snakemake(snakemake)
