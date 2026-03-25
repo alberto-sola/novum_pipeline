@@ -29,17 +29,13 @@ def parse_fasta_annotations(fasta_path):
                     "Gene": gene_id,
                     "gene_name": fields.get("gene"),
                     "locus_tag": fields.get("locus_tag"),
-                    "protein_name": fields.get("protein"),
+                    "protein_name": fields.get("protein") or fields.get("product"),
                     "protein_id": fields.get("protein_id"),
                 }
             )
 
     annotations = pd.DataFrame(records).drop_duplicates(subset=["Gene"])
-    annotations["display_name"] = (
-        annotations["gene_name"]
-        .fillna(annotations["locus_tag"])
-        .fillna(annotations["protein_name"])
-    )
+    # annotations["display_name"] = (annotations["gene_name"].fillna(annotations["locus_tag"]).fillna(annotations["protein_name"]))
 
     return annotations
 
@@ -50,11 +46,28 @@ def annotate_results(tidy_csv_path, fasta_path, output_path):
 
     annotated = tidy.merge(annotations, on="Gene", how="left")
 
-    unmatched_rows = annotated["display_name"].isna().sum()
-    if unmatched_rows:
-        print(
-            f"Warning: {unmatched_rows} result row(s) could not be matched to FASTA annotations."
-        )
+    #----- Insert the annotations after P_value variable -----#
+    fasta_columns = [column for column in annotations.columns if column != "Gene"]
+    insert_after = "P_value"
+    ordered_columns = []
+
+    for column in tidy.columns:
+        ordered_columns.append(column)
+        if column == insert_after:
+            ordered_columns.extend(fasta_columns)
+
+    # Fallback for unexpected input schemas where P_value is absent.
+    if insert_after not in tidy.columns:
+        ordered_columns = list(tidy.columns) + fasta_columns
+
+    annotated = annotated[ordered_columns]
+
+    #----- If the fallback variable/column is empty, then say it -----#
+    # unmatched_rows = annotated["display_name"].isna().sum()
+    # if unmatched_rows:
+    #     print(
+    #         f"Warning: {unmatched_rows} result row(s) could not be matched to FASTA annotations."
+    #     )
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

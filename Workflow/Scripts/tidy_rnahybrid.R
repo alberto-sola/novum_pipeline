@@ -50,7 +50,7 @@ main <- function() {
   df |>
   mutate(Energy = as.double(Energy), P_value = as.double(P_value)) |>
   arrange(Energy) |>
-  select(miRNA, Gene, Energy, P_value) -> extracted
+  select(miRNA, Gene, Energy, P_value, miRNA_unmatches, miRNA_matches, Target_matches, Target_unmatches) -> extracted
 
   write_csv(extracted, args$output)
 }

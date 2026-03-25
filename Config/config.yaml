@@ -1,13 +1,13 @@
-query: Data/Raw/validated_miRNAs.fa
+query: Data/Raw/validated_escherichia.fa
 target: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
 run_rnahybrid:
   threads: 16
   species: 3utr_human
-  hits: 3
-  u: 3
-  v: 3
-  energy: -18
+  hits: 5
+  u: 2
+  v: 2
+  energy: -20
   pvalue: null
   seed: null
 
@@ -16,6 +16,7 @@ tidy_rnahybrid: {}
 annotate_rnahybrid: {}
 
 outputs:
-  compact: Data/Results/rnahybrid_output.tsv
-  tidy: Data/Results/tidy_output.csv
-  annotated: Data/Results/rnahybrid_annotated.csv
+  compact: Data/Results/03_25/009_/escherichia_coli/rnahybrid_output.tsv
+  tidy: Data/Results/03_25/009_/escherichia_coli/tidy_output.csv
+  annotated: Data/Results/03_25/009_/escherichia_coli/rnahybrid_annotated.csv
+  enhanced: Data/Results/03_25/009_/escherichia_coli/rnahybrid_enhanced.txt

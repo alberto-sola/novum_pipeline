@@ -10,12 +10,13 @@ run_rnahybrid_config = config.get("run_rnahybrid", {})
 outputs_config = config.get("outputs", {})
 compact_output = outputs_config.get("compact", "Data/Results/rnahybrid_compact.tsv")
 tidy_output = outputs_config.get("tidy", "Data/Results/rnahybrid_tidy.csv")
-annotated_output = outputs_config.get("annotated","Data/Results/rnahybrid_annotated.csv")
+annotated_output = outputs_config.get("annotated", "Data/Results/rnahybrid_annotated.csv")
+enhanced_output = outputs_config.get("enhanced", "Data/Results/rnahybrid_enhanced.txt")
 
 
 rule all:
     input:
-        annotated_output
+        enhanced_output
 
 
 rule run_rnahybrid:
@@ -61,3 +62,11 @@ rule annotate_rnahybrid:
         annotated=annotated_output
     script:
         "Workflow/Scripts/annotate_rnahybrid.py"
+
+rule enhance:
+    input:
+        annotated=annotated_output
+    output:
+        enhanced=enhanced_output
+    script:
+        "Workflow/Scripts/enhance_rnahybrid.py"

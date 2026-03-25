@@ -19,7 +19,7 @@ Thumbs.db
 
 # data (adjust carefully)
 #Data/Tmp/
-#Data/Results
+Data/Results
 
 # Results
 *.tsv
