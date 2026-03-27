@@ -74,7 +74,7 @@ def cleanup_temp_files(chunk_prefix, output_pattern):
         path.unlink()
 
 
-def build_optional_args(hits=None, u=None, v=None, energy=None, pvalue=None, seed=None):
+def build_optional_args(hits=None, u=None, v=None, energy=None, pvalue=None, seed=None, distribution=None):
     optional_args = []
 
     if hits is not None:
@@ -89,11 +89,33 @@ def build_optional_args(hits=None, u=None, v=None, energy=None, pvalue=None, see
         optional_args.extend(["-p", str(pvalue)])
     if seed is not None:
         optional_args.extend(["-f", str(seed)])
+    if distribution is not None:
+        optional_args.extend(["-d", str(distribution)])
 
     return optional_args
 
+#----- If distribution is set, then species will not be considered -----#
+def validate_rnahybrid_args(species=None, distribution=None):
+    if distribution is None and species is None:
+        raise ValueError("Either 'species' or 'distribution' must be provided for RNAhybrid.")
+
+    if distribution is not None:
+        return None
+
+    return species
+
 
 def build_parallel_command(query, chunk_paths, species, optional_args, threads, parallel_executable, rnahybrid_executable):
+    species_args = []
+    command = [
+        parallel_executable,
+        f"-j{max(1, threads)}",
+        "--load=100%",
+    ]
+
+    if species is not None:
+        species_args = ["-s", "{3}"]
+
     job_template = " ".join(
         [
             rnahybrid_executable,
@@ -101,29 +123,22 @@ def build_parallel_command(query, chunk_paths, species, optional_args, threads, 
             "{1}",
             "-t",
             "{2}",
-            "-s",
-            "{3}",
+            *species_args,
             "-c",
             "-m",
-            "500000",
+            "50000",
             *optional_args,
             ">",
             "output_{2/.}.tsv",
         ]
     )
 
-    return [
-        parallel_executable,
-        f"-j{max(1, threads)}",
-        "--load=100%",
-        job_template,
-        ":::",
-        query,
-        ":::",
-        *[str(chunk_path) for chunk_path in chunk_paths],
-        ":::",
-        species,
-    ]
+    command.extend([job_template, ":::", query, ":::", *[str(chunk_path) for chunk_path in chunk_paths]])
+
+    if species is not None:
+        command.extend([":::", species])
+
+    return command
 
 
 def merge_output_files(output_pattern, merged_output_path):
@@ -136,7 +151,7 @@ def merge_output_files(output_pattern, merged_output_path):
             merged_output.write(output_file.read_text())
 
 
-def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None):
+def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None, distribution=None):
     chunk_prefix = "chunk_"
     output_pattern = "output_chunk_*.tsv"
 
@@ -148,6 +163,7 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
 
     try:
         chunk_paths = write_fasta_chunks(target, chunk_prefix)
+        species = validate_rnahybrid_args(species=species, distribution=distribution)
         optional_args = build_optional_args(
             hits=hits,
             u=u,
@@ -155,6 +171,7 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
             energy=energy,
             pvalue=pvalue,
             seed=seed,
+            distribution=distribution
         )
         command = build_parallel_command(
             query=query,
@@ -185,6 +202,7 @@ def run_from_snakemake(snakemake):
         energy=snakemake.params.energy,
         pvalue=snakemake.params.pvalue,
         seed=snakemake.params.seed,
+        distribution=snakemake.params.distribution
     )
 
 

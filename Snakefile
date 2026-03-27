@@ -34,7 +34,8 @@ rule run_rnahybrid:
         v=run_rnahybrid_config.get("v"),
         energy=run_rnahybrid_config.get("energy"),
         pvalue=run_rnahybrid_config.get("pvalue"),
-        seed=run_rnahybrid_config.get("seed")
+        seed=run_rnahybrid_config.get("seed"),
+        distribution=run_rnahybrid_config.get("distribution")
     threads:
         int(run_rnahybrid_config.get("threads", 1))
     script:

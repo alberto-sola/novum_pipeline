@@ -7,16 +7,17 @@ run_rnahybrid:
   hits: 5
   u: 2
   v: 2
-  energy: -20
+  energy: -22
   pvalue: null
   seed: null
+  distribution: null
 
 tidy_rnahybrid: {}
 
 annotate_rnahybrid: {}
 
 outputs:
-  compact: Data/Results/03_25/009_/escherichia_coli/rnahybrid_output.tsv
-  tidy: Data/Results/03_25/009_/escherichia_coli/tidy_output.csv
-  annotated: Data/Results/03_25/009_/escherichia_coli/rnahybrid_annotated.csv
-  enhanced: Data/Results/03_25/009_/escherichia_coli/rnahybrid_enhanced.txt
+  compact: Data/Results/03_27/001_/escherichia_coli/rnahybrid_output.tsv
+  tidy: Data/Results/03_27/001_/escherichia_coli/tidy_output.csv
+  annotated: Data/Results/03_27/001_/escherichia_coli/rnahybrid_annotated.csv
+  enhanced: Data/Results/03_27/001_/escherichia_coli/rnahybrid_enhanced.txt
