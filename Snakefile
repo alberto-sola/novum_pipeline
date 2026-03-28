@@ -1,34 +1,33 @@
 configfile: "Config/config.yaml"
 
 query = config["query"]
-target = config["target"]
+targets = config.get("targets")
+
+if targets is None:
+    targets = {"default": config["target"]}
 
 run_rnahybrid_config = config.get("run_rnahybrid", {})
 # tidy_rnahybrid_config = config.get("tidy_rnahybrid", {})
 # annotate_rnahybrid = config.get("annotate_rnahybrid", {})
 
-outputs_config = config.get("outputs", {})
-compact_output = outputs_config.get("compact", "Data/Results/rnahybrid_compact.tsv")
-tidy_output = outputs_config.get("tidy", "Data/Results/rnahybrid_tidy.csv")
-annotated_output = outputs_config.get("annotated", "Data/Results/rnahybrid_annotated.csv")
-enhanced_output = outputs_config.get("enhanced", "Data/Results/rnahybrid_enhanced.txt")
+results_dir = config.get("results_dir", "Data/Results")
 
 
 rule all:
     input:
-        enhanced_output
+        expand(f"{results_dir}" + "/{sample}/rnahybrid_enhanced.txt", sample=targets.keys())
 
 
 rule run_rnahybrid:
     input:
         query=query,
-        target=target
+        target=lambda wc: targets[wc.sample]
     output:
-        compact=compact_output
+        compact=f"{results_dir}" + "/{sample}/rnahybrid_output.tsv"
     conda:
         "Workflow/Envs/rnahybrid.yaml"
     params:
-        species=run_rnahybrid_config.get("species", "3utr_human"),
+        species=run_rnahybrid_config.get("species"),
         hits=run_rnahybrid_config.get("hits"),
         u=run_rnahybrid_config.get("u"),
         v=run_rnahybrid_config.get("v"),
@@ -44,9 +43,9 @@ rule run_rnahybrid:
 
 rule tidy_rnahybrid:
     input:
-        compact=compact_output
+        compact=f"{results_dir}" + "/{sample}/rnahybrid_output.tsv"
     output:
-        tidy=tidy_output
+        tidy=f"{results_dir}" + "/{sample}/tidy_output.csv"
     params:
         script="Workflow/Scripts/tidy_rnahybrid.R"
     shell:
@@ -57,17 +56,17 @@ rule tidy_rnahybrid:
 
 rule annotate_rnahybrid:
     input:
-        tidy=tidy_output,
-        target=target
+        tidy=f"{results_dir}" + "/{sample}/tidy_output.csv",
+        target=lambda wc: targets[wc.sample]
     output:
-        annotated=annotated_output
+        annotated=f"{results_dir}" + "/{sample}/rnahybrid_annotated.csv"
     script:
         "Workflow/Scripts/annotate_rnahybrid.py"
 
 rule enhance:
     input:
-        annotated=annotated_output
+        annotated=f"{results_dir}" + "/{sample}/rnahybrid_annotated.csv"
     output:
-        enhanced=enhanced_output
+        enhanced=f"{results_dir}" + "/{sample}/rnahybrid_enhanced.txt"
     script:
         "Workflow/Scripts/enhance_rnahybrid.py"

@@ -1,13 +1,17 @@
-query: Data/Raw/validated_escherichia.fa
-target: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+query: Data/Raw/validated_miRNAs.fa
+
+targets:
+#  escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+#  fusobacterium_nucleatum: Data/Raw/GCF_003019295.1_ASM301929v1_rna_from_genomic_fusobacterium_nucleatum.fna
+  lacticaseibacillus_rhamnosus: Data/Raw/GCF_000026505.1_ASM2650v1_cds_from_genomic_lacticaseibacillus_rhamnosus.fna
 
 run_rnahybrid:
   threads: 16
   species: 3utr_human
-  hits: 5
-  u: 2
-  v: 2
-  energy: -22
+  hits: 3
+  u: 3
+  v: 3
+  energy: -20
   pvalue: null
   seed: null
   distribution: null
@@ -16,8 +20,4 @@ tidy_rnahybrid: {}
 
 annotate_rnahybrid: {}
 
-outputs:
-  compact: Data/Results/03_27/001_/escherichia_coli/rnahybrid_output.tsv
-  tidy: Data/Results/03_27/001_/escherichia_coli/tidy_output.csv
-  annotated: Data/Results/03_27/001_/escherichia_coli/rnahybrid_annotated.csv
-  enhanced: Data/Results/03_27/001_/escherichia_coli/rnahybrid_enhanced.txt
+results_dir: Data/Results/03_27/004_
