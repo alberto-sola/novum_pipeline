@@ -39,10 +39,10 @@ main <- function() {
     "Energy",
     "P_value",
     "Position",
-    "miRNA_unmatches",
-    "miRNA_matches",
+    "Target_unmatches",
     "Target_matches",
-    "Target_unmatches"
+    "miRNA_matches",
+    "miRNA_unmatches"
   )
 
   df <- tibble(read.csv2(args$input, header = FALSE, sep = ':', col.names = columns))

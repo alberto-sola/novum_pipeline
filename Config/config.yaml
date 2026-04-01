@@ -1,14 +1,22 @@
-query: Data/Raw/validated_miRNAs.fa
+#----- miRNAs -----#
+query: Data/Raw/validated_escherichia.fa
 
+#----- Genomes, even more than one -----#
 targets:
-#  escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
-#  fusobacterium_nucleatum: Data/Raw/GCF_003019295.1_ASM301929v1_rna_from_genomic_fusobacterium_nucleatum.fna
-  lacticaseibacillus_rhamnosus: Data/Raw/GCF_000026505.1_ASM2650v1_cds_from_genomic_lacticaseibacillus_rhamnosus.fna
+  escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
-run_rnahybrid:
+#----- Parameters for RNAcalibrate -----#
+calibration:
+  enabled: true
+  k: 5000
+  max_target_length: 50000
+  randomize_targets: false
+
+#----- Parameters for RNAhybrid -----#
+rnahybrid:
   threads: 16
   species: 3utr_human
-  hits: 3
+  hits: null
   u: 3
   v: 3
   energy: -20
@@ -16,8 +24,11 @@ run_rnahybrid:
   seed: null
   distribution: null
 
+#----- Parameters for tidying outputs -----#
 tidy_rnahybrid: {}
 
+#----- Parameters for annotating outputs -----#
 annotate_rnahybrid: {}
 
-results_dir: Data/Results/03_27/004_
+#----- Where outputs should be generated -----#
+results_dir: Data/Results/04_01/003_

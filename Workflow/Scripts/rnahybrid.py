@@ -1,10 +1,11 @@
 from pathlib import Path
+import json
 import shutil
 import subprocess
 
 
+#----- Split a FASTA file into chunk files while preserving full records -----#
 def write_fasta_chunks(target_file, chunk_prefix, max_lines=800):
-    """Split a FASTA file into chunk files while preserving full records."""
     chunk_paths = []
     current_chunk_index = 0
     current_chunk_line_total = 0
@@ -52,6 +53,7 @@ def write_fasta_chunks(target_file, chunk_prefix, max_lines=800):
     return chunk_paths
 
 
+#----- Displays messages if RNAhybrid or GNU Parallel are not installed or present in the env -----#
 def ensure_dependencies():
     parallel_executable = shutil.which("parallel")
     if parallel_executable is None:
@@ -67,6 +69,7 @@ def ensure_dependencies():
     }
 
 
+#----- Purges chunk files -----#
 def cleanup_temp_files(chunk_prefix, output_pattern):
     for path in Path(".").glob(output_pattern):
         path.unlink()
@@ -74,6 +77,7 @@ def cleanup_temp_files(chunk_prefix, output_pattern):
         path.unlink()
 
 
+#----- If optional parameters are set, includes them in the future command -----#
 def build_optional_args(hits=None, u=None, v=None, energy=None, pvalue=None, seed=None, distribution=None):
     optional_args = []
 
@@ -94,6 +98,25 @@ def build_optional_args(hits=None, u=None, v=None, energy=None, pvalue=None, see
 
     return optional_args
 
+
+#----- -----#
+def resolve_distribution(distribution=None, distribution_file=None):
+    if distribution_file is None:
+        return distribution
+
+    distribution_path = Path(distribution_file)
+    if not distribution_path.exists():
+        raise RuntimeError(f"Calibration distribution file not found: {distribution_file}")
+
+    payload = json.loads(distribution_path.read_text())
+    calibrated_distribution = payload["calibration"]["distribution"]
+    if not calibrated_distribution:
+        raise RuntimeError(f"No distribution found in calibration file: {distribution_file}")
+
+
+    return calibrated_distribution
+
+
 #----- If distribution is set, then species will not be considered -----#
 def validate_rnahybrid_args(species=None, distribution=None):
     if distribution is None and species is None:
@@ -105,6 +128,7 @@ def validate_rnahybrid_args(species=None, distribution=None):
     return species
 
 
+#----- Uses GNU Parallel to split the work on multiple CPUs; takes target as multiple chunks -----#
 def build_parallel_command(query, chunk_paths, species, optional_args, threads, parallel_executable, rnahybrid_executable):
     species_args = []
     command = [
@@ -141,6 +165,7 @@ def build_parallel_command(query, chunk_paths, species, optional_args, threads, 
     return command
 
 
+#----- Initially, RNAhybrid outputs are split, thus they need to be merged in a single file -----#
 def merge_output_files(output_pattern, merged_output_path):
     output_files = sorted(Path(".").glob(output_pattern))
     if not output_files:
@@ -151,7 +176,8 @@ def merge_output_files(output_pattern, merged_output_path):
             merged_output.write(output_file.read_text())
 
 
-def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None, distribution=None):
+#----- Runs the combined Parallel + RNAhybrid bash command -----#
+def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None, distribution=None, distribution_file=None):
     chunk_prefix = "chunk_"
     output_pattern = "output_chunk_*.tsv"
 
@@ -163,6 +189,7 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
 
     try:
         chunk_paths = write_fasta_chunks(target, chunk_prefix)
+        distribution = resolve_distribution(distribution=distribution, distribution_file=distribution_file)
         species = validate_rnahybrid_args(species=species, distribution=distribution)
         optional_args = build_optional_args(
             hits=hits,
@@ -202,8 +229,8 @@ def run_from_snakemake(snakemake):
         energy=snakemake.params.energy,
         pvalue=snakemake.params.pvalue,
         seed=snakemake.params.seed,
-        distribution=snakemake.params.distribution
+        distribution=snakemake.params.distribution,
+        distribution_file=snakemake.params.distribution_file
     )
-
 
 run_from_snakemake(snakemake)

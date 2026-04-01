@@ -3,10 +3,10 @@ import pandas as pd
 
 
 ALIGNMENT_COLUMNS = [
-    "miRNA_unmatches",
-    "miRNA_matches",
-    "Target_matches",
     "Target_unmatches",
+    "Target_matches",
+    "miRNA_matches",
+    "miRNA_unmatches"
 ]
 
 #----- If a field in ALIGNMENT_COLUMNS is empty (NA), print it as a string -----#

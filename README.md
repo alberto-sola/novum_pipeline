@@ -1,6 +1,6 @@
 # Novum Pipeline
 
-Minimal Snakemake workflow for running RNAhybrid on miRNA queries against bacterial coding sequences, then tidying and annotating the results.
+Minimal Snakemake workflow for optionally calibrating RNAhybrid statistics with RNAcalibrate, then running RNAhybrid on miRNA queries against bacterial coding sequences, tidying the output, and annotating the hits.
 
 ## Dependencies
 
@@ -54,15 +54,22 @@ snakemake --use-conda --cores N
 
 ## Configuration
 
-Edit [`Config/config.yaml`](/home/alber/Documents/novum_pipeline/Config/config.yaml) to change inputs, RNAhybrid parameters, and output file names.
+Edit [`Config/config.yaml`](/home/alber/Documents/novum_pipeline/Config/config.yaml) to change inputs, optional RNAcalibrate settings, RNAhybrid parameters, and output file names.
 
 Example:
 
 ```yaml
 query: Data/Raw/validated_miRNAs.fa
-target: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+targets:
+  escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
-run_rnahybrid:
+calibration:
+  enabled: false
+  k: 5000
+  max_target_length: 50000
+  randomize_targets: false
+
+rnahybrid:
   threads: 16
   species: 3utr_human
   hits: 3
@@ -71,13 +78,13 @@ run_rnahybrid:
   energy: -18
   pvalue: null
   seed: null
+  distribution: 2.769859,0.233703
 
 tidy_rnahybrid: {}
 
 annotate_rnahybrid: {}
 
-outputs:
-  compact: Data/Results/rnahybrid_output.tsv
-  tidy: Data/Results/tidy_output.csv
-  annotated: Data/Results/rnahybrid_named.csv
+results_dir: Data/Results/run_001
 ```
+
+When `calibration.enabled: true`, the workflow writes one calibration artifact per target at `.../{sample}/rnacalibrate.json`. RNAhybrid will read the mean `xi/theta` distribution from that file and override the static `rnahybrid.distribution` value for that sample. `calibration.randomize_targets` maps to the RNAcalibrate `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
