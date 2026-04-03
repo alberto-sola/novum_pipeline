@@ -9,6 +9,9 @@ conda-env/
 *.egg-info/
 .snakemake/
 
+# Codex
+.codex
+
 # IDE
 .idea/
 .vscode/
@@ -21,7 +24,7 @@ Thumbs.db
 #Data/Tmp/
 Data/*
 
-# Results
+# Files
 *.tsv
 *.csv
 

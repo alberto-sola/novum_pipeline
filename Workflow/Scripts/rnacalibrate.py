@@ -55,7 +55,18 @@ def compute_target_length_stats(target_file):
     }
 
 
+def build_length_arg(stats):
+    mean_length = int(round(stats["mean"]))
+    std_length = int(round(stats["std"]))
+    return {
+        "mean": mean_length,
+        "std": std_length,
+        "value": f"{mean_length},{std_length}",
+    }
+
+
 def build_command(executable, query, target, k, max_target_length, stats, randomize_targets=False, u=None, v=None, seed=None):
+    length_arg = build_length_arg(stats)
     command = [
         executable,
         "-k",
@@ -66,19 +77,9 @@ def build_command(executable, query, target, k, max_target_length, stats, random
         str(target),
         "-m",
         str(max_target_length),
+        "-l",
+        length_arg["value"],
     ]
-
-    # RNAcalibrate appears to be sensitive to argument order here:
-    # with some builds, `-s` must appear before `-l` to avoid NaN fits.
-    if randomize_targets:
-        command.append("-s")
-
-    command.extend(
-        [
-            "-l",
-            f"{stats['mean']:.6f},{stats['std']:.6f}",
-        ]
-    )
 
     if u is not None:
         command.extend(["-u", str(u)])
@@ -86,6 +87,8 @@ def build_command(executable, query, target, k, max_target_length, stats, random
         command.extend(["-v", str(v)])
     if seed is not None:
         command.extend(["-f", str(seed)])
+    if randomize_targets:
+        command.append("-s")
 
     return command
 
@@ -107,6 +110,8 @@ def parse_rnacalibrate_output(stdout):
         sample_size = int(fields[1])
         xi = float(fields[2])
         theta = float(fields[3])
+        if math.isnan(xi) or math.isnan(theta):
+            raise RuntimeError(f"RNAcalibrate produced NaN parameters: {raw_line}")
         per_query.append(
             {
                 "query": query_name,
@@ -133,6 +138,7 @@ def parse_rnacalibrate_output(stdout):
 def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize_targets=False, u=None, v=None, seed=None):
     executable = ensure_dependency()
     stats = compute_target_length_stats(target)
+    length_arg = build_length_arg(stats)
     command = build_command(
         executable=executable,
         query=query,
@@ -156,6 +162,7 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
             {
                 "command": command,
                 "target_length_stats": stats,
+                "target_length_argument": length_arg,
                 "calibration": parsed_output,
                 "raw_stdout": completed.stdout,
             },
