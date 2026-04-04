@@ -5,6 +5,7 @@ import subprocess
 from pathlib import Path
 
 
+#----- Launches a message error if RNAcalibrate is not installed -----#
 def ensure_dependency():
     executable = shutil.which("RNAcalibrate")
     if executable is None:
@@ -34,7 +35,7 @@ def iter_fasta_lengths(path):
         yield current_length
 
 
-#----- Calculates the mean length of the annotations and the standard deviation... -----#
+#----- Calculates mean of length and standard deviation of the annotations in the target FASTA file -----#
 def compute_target_length_stats(target_file):
     lengths = list(iter_fasta_lengths(target_file))
     if not lengths:
@@ -55,9 +56,11 @@ def compute_target_length_stats(target_file):
     }
 
 
+#----- Rounds mean and std values and return them in the <x>,<y> format -----#
 def build_length_arg(stats):
     mean_length = int(round(stats["mean"]))
     std_length = int(round(stats["std"]))
+
     return {
         "mean": mean_length,
         "std": std_length,
@@ -65,6 +68,7 @@ def build_length_arg(stats):
     }
 
 
+#----- Builds the RNAcalibrate bash command -----#
 def build_command(executable, query, target, k, max_target_length, stats, randomize_targets=False, u=None, v=None, seed=None):
     length_arg = build_length_arg(stats)
     command = [
@@ -80,7 +84,6 @@ def build_command(executable, query, target, k, max_target_length, stats, random
         "-l",
         length_arg["value"],
     ]
-
     if u is not None:
         command.extend(["-u", str(u)])
     if v is not None:
@@ -93,7 +96,7 @@ def build_command(executable, query, target, k, max_target_length, stats, random
     return command
 
 
-#----- -----#
+#----- Parses the calibration values from the RNAcalibrate bash output and returns a dictionary of both per-query and total values -----#
 def parse_rnacalibrate_output(stdout):
     per_query = []
 
@@ -110,8 +113,11 @@ def parse_rnacalibrate_output(stdout):
         sample_size = int(fields[1])
         xi = float(fields[2])
         theta = float(fields[3])
+
+        # Launches an error message is NaN is output
         if math.isnan(xi) or math.isnan(theta):
             raise RuntimeError(f"RNAcalibrate produced NaN parameters: {raw_line}")
+
         per_query.append(
             {
                 "query": query_name,
@@ -120,7 +126,7 @@ def parse_rnacalibrate_output(stdout):
                 "theta": theta,
             }
         )
-
+    # Launches an error message if RNAcalibrate output is empty
     if not per_query:
         raise RuntimeError("RNAcalibrate did not produce any calibration rows.")
 
@@ -135,6 +141,7 @@ def parse_rnacalibrate_output(stdout):
     }
 
 
+#----- Runs RNAcalibrate and craft a JSON file -----#
 def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize_targets=False, u=None, v=None, seed=None):
     executable = ensure_dependency()
     stats = compute_target_length_stats(target)
@@ -152,23 +159,21 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
         seed=seed,
     )
 
+    # Here RNAcalibrate is run and the output is stored
     completed = subprocess.run(command, check=True, capture_output=True, text=True)
     parsed_output = parse_rnacalibrate_output(completed.stdout)
 
+    # Craft a JSON file containing metadata of RNAcalibrate command + distribution values both per-query and total
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(
-            {
-                "command": command,
-                "target_length_stats": stats,
-                "target_length_argument": length_arg,
-                "calibration": parsed_output,
-                "raw_stdout": completed.stdout,
-            },
-            indent=2,
-        )
-        + "\n"
+    output_path.write_text(json.dumps(
+        {
+            "command": command,
+            "target_length_stats": stats,
+            "target_length_argument": length_arg,
+            "calibration": parsed_output,
+            "raw_stdout": completed.stdout
+            }, indent=2) + "\n"
     )
 
 

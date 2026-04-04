@@ -4,7 +4,7 @@ import shutil
 import subprocess
 
 
-#----- Split a FASTA file into chunk files while preserving full records -----#
+#----- Split a FASTA file into chunk files while maintaining full records -----#
 def write_fasta_chunks(target_file, chunk_prefix, max_lines=800):
     chunk_paths = []
     current_chunk_index = 0
