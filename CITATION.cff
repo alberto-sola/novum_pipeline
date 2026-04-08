@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+title: Novum Pipeline
+message: >-
+  If you use this software, please cite it using the
+  metadata from this file.
+type: software
+authors:
+  - given-names: Alberto
+    family-names: Sola
+    email: albertosola2002@gmail.com
+    affiliation: Università degli Studi di Torino (UniTo)
+identifiers:
+  - type: doi
+    value: 10.1093/nar/gkl243
+    description: RNAhybrid official paper
+  - type: doi
+    value: 10.5281/zenodo.16303
+    description: GNU Parallel official paper
+  - type: url
+    value: 'http://www.gnu.org/s/parallel'
+    description: GNU Parallel official website
+repository-code: 'https://github.com/alberto-sola/novum_pipeline'
+abstract: >-
+  Minimal Snakemake workflow for optionally calibrating
+  RNAhybrid statistics with RNAcalibrate, then running
+  RNAhybrid on miRNA queries against bacterial coding
+  sequences, tidying the output, and annotating the hits.
+keywords:
+  - snakemake
+  - pipeline
+  - RNAhybrid
+  - miRNAs
+  - genomes
+  - bacteria
+  - python
+  - tidyverse

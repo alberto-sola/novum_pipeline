@@ -1,13 +1,13 @@
 #----- miRNAs -----#
-query: Data/Raw/validated_akkermansia.fa
+query: Data/Raw/validated_lacticaseibacillus.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  validated_akkermansia_w_calibration: Data/Raw/GCF_000020225.1_ASM2022v1_cds_from_genomic_akkermansia_muciniphila.fna
+  validated_akkermansia_wo_calibration: Data/Raw/GCF_000016825.1_ASM1682v1_cds_from_genomic_lactobacillus_reuteri.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
-  enabled: true
+  enabled: false
   k: 10000
   max_target_length: 50000
   randomize_targets: true
@@ -31,4 +31,4 @@ tidy_rnahybrid: {}
 annotate_rnahybrid: {}
 
 #----- Where outputs should be generated -----#
-results_dir: Data/Results/04_04/002_
+results_dir: Data/Results/04_07/001_

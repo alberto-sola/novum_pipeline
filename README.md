@@ -88,3 +88,10 @@ results_dir: Data/Results/run_001
 ```
 
 When `calibration.enabled: true`, the workflow writes one calibration artifact per target at `.../{sample}/rnacalibrate.json`. RNAhybrid will read the mean `xi/theta` distribution from that file and override the static `rnahybrid.distribution` value for that sample. `calibration.randomize_targets` maps to the RNAcalibrate `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
+
+## Citation
+
+If you use this workflow in a publication, cite this repository as appropriate and cite the external tools used for the analysis:
+
+- RNAhybrid: Kruger, J. and Rehmsmeier, M. (2006). RNAhybrid: microRNA target prediction easy, fast and flexible. *Nucleic Acids Research*, 34(Web Server issue), W451-W454. https://doi.org/10.1093/nar/gkl243
+- GNU Parallel: Tange, O. (2023, November 22). GNU Parallel 20231122 ('Grindavik'). Zenodo. https://doi.org/10.5281/zenodo.10199085
