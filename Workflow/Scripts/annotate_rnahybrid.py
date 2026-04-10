@@ -8,6 +8,7 @@ import pandas as pd
 FIELD_RE = re.compile(r"\[([^=\]]+)=([^\]]*)\]")
 
 
+#----- Takes metadata from the FASTA target genome and returns them as list -----#
 def parse_fasta_annotations(fasta_path):
     records = []
 
@@ -40,13 +41,14 @@ def parse_fasta_annotations(fasta_path):
     return annotations
 
 
+#----- Adds metadata to the table -----#
 def annotate_results(tidy_csv_path, fasta_path, output_path):
     tidy = pd.read_csv(tidy_csv_path)
     annotations = parse_fasta_annotations(fasta_path)
 
     annotated = tidy.merge(annotations, on="Gene", how="left")
 
-    #----- Insert the annotations after P_value variable -----#
+    # Insert annotations after the P_value variable
     fasta_columns = [column for column in annotations.columns if column != "Gene"]
     insert_after = "P_value"
     ordered_columns = []
@@ -80,6 +82,5 @@ def run_from_snakemake(snakemake):
         fasta_path=snakemake.input.target,
         output_path=snakemake.output.annotated,
     )
-
 
 run_from_snakemake(snakemake)

@@ -134,8 +134,7 @@ def build_parallel_command(query, chunk_paths, species, optional_args, threads, 
     command = [
         parallel_executable,
         f"-j{max(1, threads)}",
-        "--load=100%",
-        # "--citation"
+        "--load=100%"
     ]
 
     if species is not None:
@@ -151,7 +150,7 @@ def build_parallel_command(query, chunk_paths, species, optional_args, threads, 
             *species_args,
             "-c",
             "-m",
-            "50000",
+            "2000000",
             *optional_args,
             ">",
             "output_{2/.}.tsv"

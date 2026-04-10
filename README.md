@@ -1,6 +1,42 @@
 # Novum Pipeline
 
-Minimal Snakemake workflow for optionally calibrating RNAhybrid statistics with RNAcalibrate, then running RNAhybrid on miRNA queries against bacterial coding sequences, tidying the output, and annotating the hits.
+Minimal Snakemake workflow for optionally calibrating RNAhybrid statistics with RNAcalibrate, then running RNAhybrid on miRNA queries against bacterial coding sequences, tidying the output, annotating the hits, and enhancing them with alignment visualizations.
+
+## Workflow
+
+```text
+         query.fa ─────────────────────┐
+            │                          │
+            ▼                          ▼
+   ┌─────────────────┐        ┌─────────────────┐
+   │  rnacalibrate   │ ──────▶│    rnahybrid    │ 
+   │  (optional)     │  xi/θ  │  (GNU Parallel) │
+   └─────────────────┘        └────────┬────────┘
+                                       │
+                                       ▼
+                              ┌─────────────────┐
+                              │ tidy_rnahybrid  │
+                              │     (R)         │
+                              └────────┬────────┘
+                                       │
+                                       ▼
+                              ┌──────────────────┐
+                              │annotate_rnahybrid│
+                              │    (Python)      │
+                              └────────┬─────────┘
+                                       │
+                                       ▼
+                              ┌──────────────────┐
+                              │enhance_rnahybrid │
+                              │    (Python)      │
+                              └──────────────────┘
+```
+
+1. **rnacalibrate** (optional) — estimates extreme-value distribution parameters (xi, theta) from the target sequence.
+2. **rnahybrid** — runs RNAhybrid in parallel via GNU Parallel across all query/target pairs.
+3. **tidy_rnahybrid** — filters, selects, and arranges raw RNAhybrid output into a tidy CSV.
+4. **annotate_rnahybrid** — parses FASTA headers from the target genome and merges metadata with the tidy output.
+5. **enhance_rnahybrid** — adds human-readable alignment visualizations to the annotated results.
 
 ## Dependencies
 
@@ -9,8 +45,7 @@ Commands below assume a Linux bash shell on Debian/Ubuntu.
 ### GNU Parallel
 
 ```bash
-sudo apt update
-sudo apt install -y parallel
+sudo apt update && sudo apt install -y parallel
 ```
 
 ### Conda
@@ -54,7 +89,7 @@ snakemake --use-conda --cores N
 
 ## Configuration
 
-Edit [`Config/config.yaml`](/home/alber/Documents/novum_pipeline/Config/config.yaml) to change inputs, optional RNAcalibrate settings, RNAhybrid parameters, and output file names.
+Edit [`Config/config.yaml`](Config/config.yaml) to change inputs, optional RNAcalibrate settings, RNAhybrid parameters, and output file names.
 
 Example:
 
@@ -63,7 +98,7 @@ query: Data/Raw/validated_miRNAs.fa
 targets:
   escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
-calibration:
+rnacalibrate:
   enabled: false
   k: 5000
   max_target_length: 50000
@@ -87,11 +122,11 @@ annotate_rnahybrid: {}
 results_dir: Data/Results/run_001
 ```
 
-When `calibration.enabled: true`, the workflow writes one calibration artifact per target at `.../{sample}/rnacalibrate.json`. RNAhybrid will read the mean `xi/theta` distribution from that file and override the static `rnahybrid.distribution` value for that sample. `calibration.randomize_targets` maps to the RNAcalibrate `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
+When `rnacalibrate.enabled: true`, the workflow writes one calibration artifact per target at `{results_dir}/{sample}/rnacalibrate.json`. RNAhybrid will read the estimated xi/theta distribution from that file, overriding the static `rnahybrid.distribution` value for that sample. The `rnacalibrate.randomize_targets` option maps to the RNAcalibrate `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
 
 ## Citation
 
-If you use this workflow in a publication, cite this repository as appropriate and cite the external tools used for the analysis:
+If you use this workflow in a publication, please cite this repository and the external tools it relies on:
 
-- RNAhybrid: Kruger, J. and Rehmsmeier, M. (2006). RNAhybrid: microRNA target prediction easy, fast and flexible. *Nucleic Acids Research*, 34(Web Server issue), W451-W454. https://doi.org/10.1093/nar/gkl243
-- GNU Parallel: Tange, O. (2023, November 22). GNU Parallel 20231122 ('Grindavik'). Zenodo. https://doi.org/10.5281/zenodo.10199085
+- **RNAhybrid**: Kruger, J. and Rehmsmeier, M. (2006). RNAhybrid: microRNA target prediction easy, fast and flexible. *Nucleic Acids Research*, 34(Web Server issue), W451--W454. https://doi.org/10.1093/nar/gkl243
+- **GNU Parallel**: Tange, O. (2023, November 22). GNU Parallel 20231122 ('Grindavik'). Zenodo. https://doi.org/10.5281/zenodo.10199085

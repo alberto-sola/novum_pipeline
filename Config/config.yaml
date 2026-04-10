@@ -1,9 +1,9 @@
 #----- miRNAs -----#
-query: Data/Raw/validated_lacticaseibacillus.fa
+query: Data/Raw/validated_lactobacillus_reuteri.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  validated_akkermansia_wo_calibration: Data/Raw/GCF_000016825.1_ASM1682v1_cds_from_genomic_lactobacillus_reuteri.fna
+  lactobacillus_reuteri_wo_calibration: Data/Raw/GCF_000016825.1_ASM1682v1_genomic_lactobacillus_reuteri.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
@@ -19,9 +19,10 @@ rnahybrid:
   hits: null
   u: null
   v: null
-  energy: -20
+  energy: -18
   pvalue: null
   seed: null
+
   distribution: null
 
 #----- Parameters for tidying outputs -----#
@@ -31,4 +32,4 @@ tidy_rnahybrid: {}
 annotate_rnahybrid: {}
 
 #----- Where outputs should be generated -----#
-results_dir: Data/Results/04_07/001_
+results_dir: Data/Results/04_09/001_
