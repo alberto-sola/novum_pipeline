@@ -9,7 +9,7 @@ Minimal Snakemake workflow for optionally calibrating RNAhybrid statistics with 
             │                          │
             ▼                          ▼
    ┌─────────────────┐        ┌─────────────────┐
-   │  rnacalibrate   │ ──────▶│    rnahybrid    │ 
+   │  rnacalibrate   │ ─────▶ │    rnahybrid    │ 
    │  (optional)     │  xi/θ  │  (GNU Parallel) │
    └─────────────────┘        └────────┬────────┘
                                        │

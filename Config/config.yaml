@@ -1,14 +1,14 @@
 #----- miRNAs -----#
-query: Data/Raw/validated_lactobacillus_reuteri.fa
+query: Data/Raw/validated_fusobacterium.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  lactobacillus_reuteri_wo_calibration: Data/Raw/GCF_000016825.1_ASM1682v1_genomic_lactobacillus_reuteri.fna
+  fusobacterium_nucleatum_wo_calibration: Data/Raw/GCF_037900625.1_ASM3790062v1_rna_from_genomic_fusobacterium_nucleatum.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
   enabled: false
-  k: 10000
+  k: 50000
   max_target_length: 50000
   randomize_targets: true
 
@@ -17,8 +17,8 @@ rnahybrid:
   threads: 16
   species: 3utr_human
   hits: null
-  u: null
-  v: null
+  u: 2
+  v: 1
   energy: -18
   pvalue: null
   seed: null
@@ -32,4 +32,4 @@ tidy_rnahybrid: {}
 annotate_rnahybrid: {}
 
 #----- Where outputs should be generated -----#
-results_dir: Data/Results/04_09/001_
+results_dir: Data/Results/04_15/001_
