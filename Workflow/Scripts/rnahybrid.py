@@ -150,7 +150,7 @@ def build_parallel_command(query, chunk_paths, species, optional_args, threads, 
             *species_args,
             "-c",
             "-m",
-            "2000000",
+            "50000",
             *optional_args,
             ">",
             "output_{2/.}.tsv"

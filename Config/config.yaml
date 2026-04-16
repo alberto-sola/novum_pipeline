@@ -1,9 +1,9 @@
 #----- miRNAs -----#
-query: Data/Raw/validated_fusobacterium.fa
+query: Data/Raw/validated_escherichia.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  fusobacterium_nucleatum_wo_calibration: Data/Raw/GCF_037900625.1_ASM3790062v1_rna_from_genomic_fusobacterium_nucleatum.fna
+  escherichia_coli_wo_calibration: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
@@ -17,12 +17,11 @@ rnahybrid:
   threads: 16
   species: 3utr_human
   hits: null
-  u: 2
-  v: 1
+  u: null
+  v: null
   energy: -18
   pvalue: null
   seed: null
-
   distribution: null
 
 #----- Parameters for tidying outputs -----#
@@ -32,4 +31,4 @@ tidy_rnahybrid: {}
 annotate_rnahybrid: {}
 
 #----- Where outputs should be generated -----#
-results_dir: Data/Results/04_15/001_
+results_dir: Data/Results/04_15/escherichia_coli_4747
