@@ -3,11 +3,11 @@ query: Data/Raw/validated_escherichia.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  escherichia_coli_wo_calibration: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+  escherichia_coli_w_calibration: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
-  enabled: false
+  enabled: true
   k: 50000
   max_target_length: 50000
   randomize_targets: true

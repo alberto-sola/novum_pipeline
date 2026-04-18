@@ -69,6 +69,8 @@ rule tidy_rnahybrid:
         compact=f"{results_dir}" + "/{sample}/rnahybrid_output.tsv"
     output:
         tidy=f"{results_dir}" + "/{sample}/tidy_output.csv"
+    conda:
+        "Workflow/Envs/postprocess.yaml"
     params:
         script="Workflow/Scripts/tidy_rnahybrid.R"
     shell:
@@ -83,6 +85,8 @@ rule annotate_rnahybrid:
         target=lambda wc: targets[wc.sample]
     output:
         annotated=f"{results_dir}" + "/{sample}/rnahybrid_annotated.csv"
+    conda:
+        "Workflow/Envs/postprocess.yaml"
     script:
         "Workflow/Scripts/annotate_rnahybrid.py"
 
@@ -92,5 +96,7 @@ rule enhance_rnahybrid:
         annotated=f"{results_dir}" + "/{sample}/rnahybrid_annotated.csv"
     output:
         enhanced=f"{results_dir}" + "/{sample}/rnahybrid_enhanced.txt"
+    conda:
+        "Workflow/Envs/postprocess.yaml"
     script:
         "Workflow/Scripts/enhance_rnahybrid.py"

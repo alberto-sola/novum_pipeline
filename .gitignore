@@ -2,15 +2,16 @@
 __pycache__/
 *.pyc
 
-# environments
+# Environments
 .env/
 venv/
 conda-env/
 *.egg-info/
 .snakemake/
 
-# Codex
+# Models
 .codex
+.claude
 
 # IDE
 .idea/
@@ -20,8 +21,6 @@ conda-env/
 .DS_Store
 Thumbs.db
 
-# data (adjust carefully)
-#Data/Tmp/
 Data/*
 
 # Files

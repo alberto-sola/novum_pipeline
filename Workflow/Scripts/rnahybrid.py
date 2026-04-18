@@ -2,10 +2,14 @@ from pathlib import Path
 import json
 import shutil
 import subprocess
+import tempfile
 
 
 #----- Split a FASTA file into chunk files while maintaining full records -----#
-def write_fasta_chunks(target_file, chunk_prefix, max_lines=800):
+def write_fasta_chunks(target_file, chunk_dir, chunk_prefix="chunk_", max_lines=800):
+    chunk_dir = Path(chunk_dir)
+    chunk_dir.mkdir(parents=True, exist_ok=True)
+
     chunk_paths = []
     current_chunk_index = 0
     current_chunk_line_total = 0
@@ -17,9 +21,8 @@ def write_fasta_chunks(target_file, chunk_prefix, max_lines=800):
         if not current_chunk_records:
             return
 
-        first_letter = chr(ord("a") + ((current_chunk_index // 26) % 26))
-        second_letter = chr(ord("a") + (current_chunk_index % 26))
-        chunk_path = Path(f"{chunk_prefix}{first_letter}{second_letter}")
+        # Zero-padded numeric suffix so we do not silently wrap around on large targets.
+        chunk_path = chunk_dir / f"{chunk_prefix}{current_chunk_index:06d}"
         chunk_path.write_text("".join(current_chunk_records))
         chunk_paths.append(chunk_path)
         current_chunk_index += 1
@@ -69,12 +72,11 @@ def ensure_dependencies():
     }
 
 
-#----- Purges chunk files -----#
-def cleanup_temp_files(chunk_prefix, output_pattern):
-    for path in Path(".").glob(output_pattern):
-        path.unlink()
-    for path in Path(".").glob(f"{chunk_prefix}*"):
-        path.unlink()
+#----- Purges the per-sample temp directory -----#
+def cleanup_temp_dir(tmp_dir):
+    tmp_dir = Path(tmp_dir)
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
 #----- If optional parameters are set, includes them in the future command -----#
@@ -129,7 +131,7 @@ def validate_rnahybrid_args(species=None, distribution=None):
 
 
 #----- Uses GNU Parallel to split the work on multiple CPUs; takes target as multiple chunks -----#
-def build_parallel_command(query, chunk_paths, species, optional_args, threads, parallel_executable, rnahybrid_executable):
+def build_parallel_command(query, chunk_paths, output_dir, species, optional_args, threads, parallel_executable, rnahybrid_executable):
     species_args = []
     command = [
         parallel_executable,
@@ -139,6 +141,9 @@ def build_parallel_command(query, chunk_paths, species, optional_args, threads, 
 
     if species is not None:
         species_args = ["-s", "{3}"]
+
+    # Keep the '{2/}' parallel replacement literal — build the template as a plain string.
+    output_template = f"{Path(output_dir).as_posix()}/output_{{2/}}.tsv"
 
     job_template = " ".join(
         [
@@ -153,11 +158,11 @@ def build_parallel_command(query, chunk_paths, species, optional_args, threads, 
             "50000",
             *optional_args,
             ">",
-            "output_{2/.}.tsv"
+            output_template,
         ]
     )
 
-    command.extend([job_template, ":::", query, ":::", *[str(chunk_path) for chunk_path in chunk_paths]])
+    command.extend([job_template, ":::", str(query), ":::", *[str(chunk_path) for chunk_path in chunk_paths]])
 
     if species is not None:
         command.extend([":::", species])
@@ -166,8 +171,8 @@ def build_parallel_command(query, chunk_paths, species, optional_args, threads, 
 
 
 #----- Initially, RNAhybrid outputs are split, thus they need to be merged in a single file -----#
-def merge_output_files(output_pattern, merged_output_path):
-    output_files = sorted(Path(".").glob(output_pattern))
+def merge_output_files(output_dir, output_pattern, merged_output_path):
+    output_files = sorted(Path(output_dir).glob(output_pattern))
     if not output_files:
         raise RuntimeError("No output files were produced by RNAhybrid.")
 
@@ -178,17 +183,21 @@ def merge_output_files(output_pattern, merged_output_path):
 
 #----- Runs the combined Parallel + RNAhybrid bash command -----#
 def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None, distribution=None, distribution_file=None):
-    chunk_prefix = "chunk_"
     output_pattern = "output_chunk_*.tsv"
 
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     executables = ensure_dependencies()
-    cleanup_temp_files(chunk_prefix, output_pattern)
+
+    # Per-sample tmp dir next to the final output so parallel samples never collide.
+    tmp_dir = Path(tempfile.mkdtemp(prefix=".rnahybrid_", dir=output_path.parent))
+    chunk_dir = tmp_dir / "chunks"
+    split_output_dir = tmp_dir / "outputs"
+    split_output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        chunk_paths = write_fasta_chunks(target, chunk_prefix)
+        chunk_paths = write_fasta_chunks(target, chunk_dir)
         distribution = resolve_distribution(distribution=distribution, distribution_file=distribution_file)
         species = validate_rnahybrid_args(species=species, distribution=distribution)
         optional_args = build_optional_args(
@@ -203,6 +212,7 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
         command = build_parallel_command(
             query=query,
             chunk_paths=chunk_paths,
+            output_dir=split_output_dir,
             species=species,
             optional_args=optional_args,
             threads=threads,
@@ -211,9 +221,9 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
         )
 
         subprocess.run(command, check=True)
-        merge_output_files(output_pattern, output_path)
+        merge_output_files(split_output_dir, output_pattern, output_path)
     finally:
-        cleanup_temp_files(chunk_prefix, output_pattern)
+        cleanup_temp_dir(tmp_dir)
 
 
 def run_from_snakemake(snakemake):
