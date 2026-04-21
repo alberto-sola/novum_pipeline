@@ -101,7 +101,7 @@ def build_optional_args(hits=None, u=None, v=None, energy=None, pvalue=None, see
     return optional_args
 
 
-#----- -----#
+#----- Scrapes distribution xi and theta from calibration.json file -----#
 def resolve_distribution(distribution=None, distribution_file=None):
     if distribution_file is None:
         return distribution
@@ -114,7 +114,6 @@ def resolve_distribution(distribution=None, distribution_file=None):
     calibrated_distribution = payload["calibration"]["distribution"]
     if not calibrated_distribution:
         raise RuntimeError(f"No distribution found in calibration file: {distribution_file}")
-
 
     return calibrated_distribution
 

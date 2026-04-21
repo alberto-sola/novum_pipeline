@@ -26,6 +26,5 @@ Data/*
 # Files
 *.tsv
 *.csv
-
-# logs
+*.txt
 *.log

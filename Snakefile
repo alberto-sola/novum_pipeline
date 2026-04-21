@@ -19,7 +19,7 @@ rule all:
     input:
         expand(f"{results_dir}" + "/{sample}/rnahybrid_enhanced.txt", sample=targets.keys())
 
-#----- Dynamically calibrate the statistics based on the target sequence -----#
+#----- Dynamically calibrates the statistics based on the target sequence -----#
 rule rnacalibrate:
     input:
         query=query,
@@ -29,7 +29,7 @@ rule rnacalibrate:
     conda:
         "Workflow/Envs/rnahybrid.yaml"
     params:
-        k=rnacalibrate_config.get("k"),
+        k=rnacalibrate_config.get("k", 5000),
         max_target_length=rnacalibrate_config.get("max_target_length", 50000),
         randomize_targets=rnacalibrate_config.get("randomize_targets", rnacalibrate_config.get("use_target_distribution", False)),
         u=rnahybrid_config.get("u"),
@@ -49,7 +49,7 @@ rule rnahybrid:
     conda:
         "Workflow/Envs/rnahybrid.yaml"
     params:
-        species=rnahybrid_config.get("species"),
+        species=rnahybrid_config.get("species", "3utr_human"),
         hits=rnahybrid_config.get("hits"),
         u=rnahybrid_config.get("u"),
         v=rnahybrid_config.get("v"),

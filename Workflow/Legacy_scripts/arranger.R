@@ -3,69 +3,98 @@ library(ggpubr)
 library(patchwork)
 
 #----- Parses tibbles from files -----#
-uncalib <- tibble(read.csv("Data/Results/04_15/escherichia_coli_1226/escherichia_coli_wo_calibration/rnahybrid_annotated.csv", header = TRUE, sep = ',')) |>
+uncalib7267 <- tibble(read.csv("Data/Results/lacticaseibacillus_rhamnosus/miR-7267/lacticaseibacillus_rhamnosus_wo_calibration/rnahybrid_annotated.csv", header = TRUE, sep = ',')) |>
   mutate(Calibration = "uncalibrated")
-calib <- tibble(read.csv("Data/Results/04_15/escherichia_coli_1226/escherichia_coli_w_calibration/rnahybrid_annotated.csv", header = TRUE, sep = ',')) |>
+calib7267 <- tibble(read.csv("Data/Results/lacticaseibacillus_rhamnosus/miR-7267/lacticaseibacillus_rhamnosus_w_calibration/rnahybrid_annotated.csv", header = TRUE, sep = ',')) |>
   mutate(Calibration = "calibrated")
-merged <- rbind(uncalib, calib)
-remove(uncalib, calib)
+uncalib167a <- tibble(read.csv("Data/Results/lacticaseibacillus_rhamnosus/miR167a/lacticaseibacillus_rhamnosus_wo_calibration/rnahybrid_annotated.csv", header = TRUE, sep = ',')) |>
+  mutate(Calibration = "uncalibrated")
+calib167a <- tibble(read.csv("Data/Results/lacticaseibacillus_rhamnosus/miR167a/lacticaseibacillus_rhamnosus_w_calibration/rnahybrid_annotated.csv", header = TRUE, sep = ',')) |>
+  mutate(Calibration = "calibrated")
+uncalib396e <- tibble(read.csv("Data/Results/lacticaseibacillus_rhamnosus/miR396e/lacticaseibacillus_rhamnosus_wo_calibration/rnahybrid_annotated.csv", header = TRUE, sep = ',')) |>
+  mutate(Calibration = "uncalibrated")
+calib396e <- tibble(read.csv("Data/Results/lacticaseibacillus_rhamnosus/miR396e/lacticaseibacillus_rhamnosus_w_calibration/rnahybrid_annotated.csv", header = TRUE, sep = ',')) |>
+  mutate(Calibration = "calibrated")
+
+#----- Merges the tables and purges unused objects -----#
+merged <- rbind(uncalib, calib) #uncalib167a, calib167a, uncalib396e, calib396e)
+remove(uncalib, calib) #uncalib167a, calib167a, uncalib396e, calib396e)
+
+#----- Data tidying -----#
 merged <- merged |> mutate(Calibration = factor(Calibration, levels = c("uncalibrated", "calibrated")))
 
 #----- Assign pretty labels to the Calibration factor-like variable -----#
 my_labels <- as_labeller(c("uncalibrated" = "Without Calibration",
                            "calibrated" = "With Calibration"))
+
+#----- Plots' text size constant -----#
 basesize <- 12
 
 #----- p-value distribution -----#
 merged |>
   ggplot(aes(x = P_value)) +
   geom_density(color = 'black', fill = '#d1d1d1') +
-  geom_vline(data = merged |> filter(gene_name == "yegH") |> group_by(Calibration) |> slice_min(P_value, n = 1),
-             aes(xintercept = P_value),
-             linetype = "dashed",
-             color = "black"
+  geom_vline(data = merged |> filter((gene_name %in% c('trpA', 'trpB', 'trpC', 'trpD')) |
+                                     (locus_tag %in% c('FE838_RS16085', 'FE838_RS16065', 'FE838_RS16080'))) |> group_by(Calibration) |> arrange(P_value) |> distinct(miRNA, locus_tag, .keep_all = TRUE),
+             aes(xintercept = P_value, color = locus_tag),
+             linetype = "dashed"
   ) +
-  labs(x = 'p-value', y = 'Density', title = 'Distribution of p-values (Y-axis limited)') +
+  scale_color_manual(name = "Validated hits", values = c("FE838_RS16060" = "black", "FE838_RS16090" = "blue", "FE838_RS16070" = "green", "FE838_RS16075" = "lightblue", "FE838_RS16085" = "orange", "FE838_RS16065" = "red", "FE838_RS16080" = "magenta"),
+                     labels = c("FE838_RS16060" = "miR-21 | trpA", "FE838_RS16090" = "miR-21 | trpB", "FE838_RS16070" = "miR-21 | trpC", "FE838_RS16075" = "miR-21 | trpD", "FE838_RS16085" = "miR-21 | trpE", "FE838_RS16065" = "miR-21 | trpF", "FE838_RS16080" = "miR-21 | trpG")) +
+  coord_cartesian(ylim = c(0, 50)) +
   facet_wrap(~Calibration, labeller = my_labels) +
-  coord_cartesian(ylim = c(0, 25)) +
+  labs(x = 'p-value', y = 'Density', title = 'Distribution of p-values (Y-axis 800+)') +
   theme_bw(base_size = basesize) +
-  theme(strip.placement = "outside") -> p1
+  theme(strip.placement = 'outside') -> p1
 
 #----- Position vs p-value ‒ correlation -----#
 merged |>
-  filter(Energy <= -25) |>
-  mutate(highlight = gene_name == "yegH") |>
-  arrange(highlight) |>
   ggplot(aes(x = Position, y = -log10(P_value))) +
-  geom_point(aes(color = highlight), size = 0.3) +
-  scale_color_manual(name = "Transcripts", values = c("FALSE" = "black", "TRUE" = "red"), labels = c("FALSE" = "Others", "TRUE" = "Validated")) +
-  geom_smooth(method = 'lm', alpha = 0.1, linewidth = 0.5) +
+  geom_point(data = merged |> filter(P_value <= 0.01) |>
+    group_by(Calibration),
+             # aes(color = "non_validated")
+             color = "black",
+             size = 0.7
+  ) +
+  geom_point(data = merged |> filter((gene_name %in% c('trpA', 'trpB', 'trpC', 'trpD')) |
+                                     (locus_tag %in% c('FE838_RS16085', 'FE838_RS16065', 'FE838_RS16080'))) |> group_by(Calibration),
+             aes(shape = locus_tag),
+             color = "red"
+  ) +
+  scale_shape_manual(name = "Validated hits", values = c("FE838_RS16060" = 16, "FE838_RS16090" = 17, "FE838_RS16070" = 15, "FE838_RS16075" = 19, "FE838_RS16085" = 20, "FE838_RS16065" = 21, "FE838_RS16080" = 22),
+                     labels = c("FE838_RS16060" = "miR-21 | trpA", "FE838_RS16090" = "miR-21 | trpB", "FE838_RS16070" = "miR-21 | trpC", "FE838_RS16075" = "miR-21 | trpD", "FE838_RS16085" = "miR-21 | trpE", "FE838_RS16065" = "miR-21 | trpF", "FE838_RS16080" = "miR-21 | trpG")) +
+  geom_smooth(method = 'lm', linewidth = 0.5) +
   stat_cor(method = "spearman") +
-  labs(x = "Relative Position", y = "-log10(p-value)", title = "Position vs p-values (energies <= -25KCal/Mol)") +
+  labs(x = "Relative Position", y = "-log10(p-value)", title = "Position vs p-values (\U2264 0.01)") +
   theme_bw(base_size = basesize) +
   facet_wrap(~Calibration, labeller = my_labels) +
   theme(strip.placement = "outside") -> p2
 
-#----- Position vs Energy ‒ correlation -----#
-merged |>
-  filter(Calibration == "calibrated", P_value <= 0.05) |>
-  mutate(highlight = gene_name == "yegH", facet_label = "With/WithOut Calibration") |>
-  arrange(highlight) |>
+#----- Position vs energy -----#
+merged |> filter(Calibration == 'calibrated') |> mutate(facet_label = "With/WithOut Calibration") |>
   ggplot(aes(x = Position, y = Energy)) +
-  geom_point(aes(color = highlight), size = 0.3) +
-  scale_color_manual(name = "Transcripts", values = c("FALSE" = "black", "TRUE" = "red"), labels = c("FALSE" = "Others", "TRUE" = "Validated")) +
-  geom_smooth(method = 'lm', alpha = 0.1, linewidth = 0.5) +
+  geom_point(data = merged |> filter(P_value <= 0.01) |>
+    group_by(Calibration),
+             color = 'black',
+             size = 0.7
+  ) +
+  geom_point(data = merged |> filter((gene_name %in% c('trpA', 'trpB', 'trpC', 'trpD')) |
+                                     (locus_tag %in% c('FE838_RS16085', 'FE838_RS16065', 'FE838_RS16080'))),
+             aes(shape = locus_tag),
+             color = "red"
+  ) +
+  scale_shape_manual(name = "Validated hits", values = c("FE838_RS16060" = 16, "FE838_RS16090" = 17, "FE838_RS16070" = 15, "FE838_RS16075" = 19, "FE838_RS16085" = 20, "FE838_RS16065" = 21, "FE838_RS16080" = 22),
+                     labels = c("FE838_RS16060" = "miR-21 | trpA", "FE838_RS16090" = "miR-21 | trpB", "FE838_RS16070" = "miR-21 | trpC", "FE838_RS16075" = "miR-21 | trpD", "FE838_RS16085" = "miR-21 | trpE", "FE838_RS16065" = "miR-21 | trpF", "FE838_RS16080" = "miR-21 | trpG")) +
+  geom_smooth(method = 'lm', linewidth = 0.5) +
   stat_cor(method = "spearman") +
-  labs(x = "Relative Position", y = "Energy (KCal/Mol)", title = "Position vs Energy (p-values <= 0.78)") +
-  theme_bw(base_size = basesize) +
+  labs(x = "Relative Position", y = "Energy (KCal/Mol)", title = "Position vs Energy (p-value \U2264 0.01)") +
   facet_wrap(~facet_label) +
+  theme_bw(base_size = basesize) +
   theme(strip.placement = "outside") -> p3
 
-
+#----- Saves the plot as PDF file -----#
 ((p1 | p2 | p3) + plot_layout(widths = c(2, 2, 1), guides = "collect")) & theme(legend.position = "bottom")
-#----- Saves the plot as PDF file -----#
-ggsave('Data/Results/04_15/escherichia_coli_1226/plots1.pdf', width = 16.5, height = 5, units = "in")
+ggsave('Data/Results/lacticaseibacillus_rhamnosus/plots1.pdf', width = 18, height = 5, units = "in")
 
-(p1 | p2)
-#----- Saves the plot as PDF file -----#
-ggsave('Data/Results/04_15/escherichia_coli_1226/plots2.pdf', width = 16.5 , height = 5, units = "in")
+(p1 | p2) + plot_layout(guides = 'collect') & theme(legend.position = "bottom")
+ggsave('Data/Results/lacticaseibacillus_rhamnosus/plots2.pdf', width = 18, height = 5, units = "in")
