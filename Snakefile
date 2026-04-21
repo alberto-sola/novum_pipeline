@@ -6,18 +6,48 @@ query = config["query"]
 targets = config["targets"]
 rnacalibrate_config = config["rnacalibrate"]
 rnahybrid_config = config["rnahybrid"]
-results_dir = config.get("results_dir", "Data/Results")
-calibration_enabled = bool(rnacalibrate_config.get("enabled", False))
+results_dir = config.get("results_dir", "Data/Results").rstrip("/")
+
+#----- Resolve which variants to produce -----#
+_MODE_TO_VARIANTS = {
+    "calibrated":   ["w_calibration"],
+    "uncalibrated": ["wo_calibration"],
+    "both":         ["w_calibration", "wo_calibration"],
+}
+
+def _resolve_mode(cfg):
+    mode = cfg.get("mode")
+    if mode is not None:
+        if mode not in _MODE_TO_VARIANTS:
+            raise ValueError(
+                f"rnacalibrate.mode must be one of {list(_MODE_TO_VARIANTS)}, got {mode!r}"
+            )
+        return mode
+    # Deprecated fallback: `enabled: true|false` maps to a single-variant run.
+    enabled = cfg.get("enabled", False)
+    return "calibrated" if enabled else "uncalibrated"
+
+variants = _MODE_TO_VARIANTS[_resolve_mode(rnacalibrate_config)]
 
 
-def get_calibration_output(sample):
-    return f"{results_dir}" + f"/{sample}/rnacalibrate.json"
+wildcard_constraints:
+    variant = r"w_calibration|wo_calibration"
+
+
+def calibration_input(wc):
+    if wc.variant == "w_calibration":
+        return f"{results_dir}/{wc.sample}/w_calibration/rnacalibrate.json"
+    return []
 
 
 #----- output finale ‒ pipeline conclusion -----#
 rule all:
     input:
-        expand(f"{results_dir}" + "/{sample}/rnahybrid_enhanced.txt", sample=targets.keys())
+        expand(
+            f"{results_dir}" + "/{sample}/{variant}/rnahybrid_enhanced.txt",
+            sample=targets.keys(),
+            variant=variants,
+        )
 
 #----- Dynamically calibrates the statistics based on the target sequence -----#
 rule rnacalibrate:
@@ -25,7 +55,7 @@ rule rnacalibrate:
         query=query,
         target=lambda wc: targets[wc.sample]
     output:
-        calibration=f"{results_dir}" + "/{sample}/rnacalibrate.json"
+        calibration=f"{results_dir}" + "/{sample}/w_calibration/rnacalibrate.json"
     conda:
         "Workflow/Envs/rnahybrid.yaml"
     params:
@@ -43,9 +73,9 @@ rule rnahybrid:
     input:
         query=query,
         target=lambda wc: targets[wc.sample],
-        calibration=lambda wc: get_calibration_output(wc.sample) if calibration_enabled else []
+        calibration=calibration_input
     output:
-        compact=f"{results_dir}" + "/{sample}/rnahybrid_output.tsv"
+        compact=f"{results_dir}" + "/{sample}/{variant}/rnahybrid_output.tsv"
     conda:
         "Workflow/Envs/rnahybrid.yaml"
     params:
@@ -66,9 +96,9 @@ rule rnahybrid:
 #----- Filter, select, arrange the RNAhybrid's output -----#
 rule tidy_rnahybrid:
     input:
-        compact=f"{results_dir}" + "/{sample}/rnahybrid_output.tsv"
+        compact=f"{results_dir}" + "/{sample}/{variant}/rnahybrid_output.tsv"
     output:
-        tidy=f"{results_dir}" + "/{sample}/tidy_output.csv"
+        tidy=f"{results_dir}" + "/{sample}/{variant}/tidy_output.csv"
     conda:
         "Workflow/Envs/postprocess.yaml"
     params:
@@ -81,10 +111,10 @@ rule tidy_rnahybrid:
 #----- Parse metadata from the target file (genome) and merge them with the tidied output -----#
 rule annotate_rnahybrid:
     input:
-        tidy=f"{results_dir}" + "/{sample}/tidy_output.csv",
+        tidy=f"{results_dir}" + "/{sample}/{variant}/tidy_output.csv",
         target=lambda wc: targets[wc.sample]
     output:
-        annotated=f"{results_dir}" + "/{sample}/rnahybrid_annotated.csv"
+        annotated=f"{results_dir}" + "/{sample}/{variant}/rnahybrid_annotated.csv"
     conda:
         "Workflow/Envs/postprocess.yaml"
     script:
@@ -93,9 +123,9 @@ rule annotate_rnahybrid:
 #----- Visualize RNAhybrid alignments + all the data -----#
 rule enhance_rnahybrid:
     input:
-        annotated=f"{results_dir}" + "/{sample}/rnahybrid_annotated.csv"
+        annotated=f"{results_dir}" + "/{sample}/{variant}/rnahybrid_annotated.csv"
     output:
-        enhanced=f"{results_dir}" + "/{sample}/rnahybrid_enhanced.txt"
+        enhanced=f"{results_dir}" + "/{sample}/{variant}/rnahybrid_enhanced.txt"
     conda:
         "Workflow/Envs/postprocess.yaml"
     script:

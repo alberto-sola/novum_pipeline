@@ -1,14 +1,14 @@
 #----- miRNAs -----#
-query: Data/Raw/validated_bacteroides.fa
+query: Data/Raw/validated_escherichia.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  bacteroides_thetaiotaomicron_w_calibration: Data/Raw/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
+  porcodio: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
-  enabled: true
-  k: 50000
+  mode: both        # "calibrated" | "uncalibrated" | "both"
+  k: 10000
   max_target_length: 50000
   randomize_targets: true
 
@@ -31,4 +31,4 @@ tidy_rnahybrid: {}
 annotate_rnahybrid: {}
 
 #----- Where outputs should be generated -----#
-results_dir: Data/Results/bacteroides_thetaiotaomicron
+results_dir: Data/Results/

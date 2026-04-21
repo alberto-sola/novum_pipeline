@@ -99,7 +99,7 @@ targets:
   escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
 rnacalibrate:
-  enabled: false
+  mode: both                # "calibrated" | "uncalibrated" | "both"
   k: 5000
   max_target_length: 50000
   randomize_targets: false
@@ -122,7 +122,15 @@ annotate_rnahybrid: {}
 results_dir: Data/Results/run_001
 ```
 
-When `rnacalibrate.enabled: true`, the workflow writes one calibration artifact per target at `{results_dir}/{sample}/rnacalibrate.json`. RNAhybrid will read the estimated xi/theta distribution from that file, overriding the static `rnahybrid.distribution` value for that sample. The `rnacalibrate.randomize_targets` option maps to the RNAcalibrate `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
+`rnacalibrate.mode` selects which variant(s) the pipeline produces in a single invocation:
+
+- `calibrated` — runs `rnacalibrate` first and feeds its xi/theta estimate into `rnahybrid`. Outputs land under `{results_dir}/{sample}/w_calibration/`.
+- `uncalibrated` — skips `rnacalibrate` entirely; `rnahybrid` falls back to `rnahybrid.distribution` (or its built-in default if unset). Outputs land under `{results_dir}/{sample}/wo_calibration/`.
+- `both` — produces both trees in one run, so the two can be compared side by side.
+
+When a calibrated variant runs, the calibration artifact is written at `{results_dir}/{sample}/w_calibration/rnacalibrate.json` and `rnahybrid` reads the estimated xi/theta distribution from it, overriding the static `rnahybrid.distribution` value for that sample. The `rnacalibrate.randomize_targets` option maps to the RNAcalibrate `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
+
+> **Deprecated:** the older `rnacalibrate.enabled: true|false` flag is still honored when `mode` is absent (`true` → `calibrated`, `false` → `uncalibrated`), but new configs should use `mode`. Support for `enabled` will be removed in a future release.
 
 ## Citation
 
