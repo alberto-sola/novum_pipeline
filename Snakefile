@@ -101,12 +101,8 @@ rule tidy_rnahybrid:
         tidy=f"{results_dir}" + "/{sample}/{variant}/tidy_output.csv"
     conda:
         "Workflow/Envs/postprocess.yaml"
-    params:
-        script="Workflow/Scripts/tidy_rnahybrid.R"
-    shell:
-        """
-        Rscript {params.script} --input {input.compact} --output {output.tidy}
-        """
+    script:
+        "Workflow/Scripts/tidy_rnahybrid.py"
 
 #----- Parse metadata from the target file (genome) and merge them with the tidied output -----#
 rule annotate_rnahybrid:
