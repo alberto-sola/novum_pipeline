@@ -17,8 +17,8 @@ calib396e <- tibble(read.csv("Data/Results/lacticaseibacillus_rhamnosus/miR396e/
   mutate(Calibration = "calibrated")
 
 #----- Merges the tables and purges unused objects -----#
-merged <- rbind(uncalib, calib) #uncalib167a, calib167a, uncalib396e, calib396e)
-remove(uncalib, calib) #uncalib167a, calib167a, uncalib396e, calib396e)
+merged <- rbind(uncalib7267, calib7267, uncalib167a, calib167a, uncalib396e, calib396e)
+remove(uncalib7267, calib7267, uncalib167a, calib167a, uncalib396e, calib396e)
 
 #----- Data tidying -----#
 merged <- merged |> mutate(Calibration = factor(Calibration, levels = c("uncalibrated", "calibrated")))
@@ -34,16 +34,17 @@ basesize <- 12
 merged |>
   ggplot(aes(x = P_value)) +
   geom_density(color = 'black', fill = '#d1d1d1') +
-  geom_vline(data = merged |> filter((gene_name %in% c('trpA', 'trpB', 'trpC', 'trpD')) |
-                                     (locus_tag %in% c('FE838_RS16085', 'FE838_RS16065', 'FE838_RS16080'))) |> group_by(Calibration) |> arrange(P_value) |> distinct(miRNA, locus_tag, .keep_all = TRUE),
-             aes(xintercept = P_value, color = locus_tag),
+  geom_vline(data = merged |> filter((locus_tag %in% c('LGG_RS02140', 'LGG_RS02130') & miRNA == 'ath-miR167a-5p') |
+                                     (locus_tag == 'LGG_RS05490' & miRNA == 'mdo-miR-7267-3p') |
+                                     (locus_tag == 'LGG_RS03370' & miRNA == 'gma-miR396e')) |> group_by(Calibration) |> arrange(P_value) |> distinct(miRNA, locus_tag, .keep_all = TRUE),
+             aes(xintercept = P_value, color = miRNA),
              linetype = "dashed"
   ) +
-  scale_color_manual(name = "Validated hits", values = c("FE838_RS16060" = "black", "FE838_RS16090" = "blue", "FE838_RS16070" = "green", "FE838_RS16075" = "lightblue", "FE838_RS16085" = "orange", "FE838_RS16065" = "red", "FE838_RS16080" = "magenta"),
-                     labels = c("FE838_RS16060" = "miR-21 | trpA", "FE838_RS16090" = "miR-21 | trpB", "FE838_RS16070" = "miR-21 | trpC", "FE838_RS16075" = "miR-21 | trpD", "FE838_RS16085" = "miR-21 | trpE", "FE838_RS16065" = "miR-21 | trpF", "FE838_RS16080" = "miR-21 | trpG")) +
-  coord_cartesian(ylim = c(0, 50)) +
+  scale_color_manual(name = "Validated hits", values = c("mdo-miR-7267-3p" = "red", "ath-miR167a-5p" = "blue", "gma-miR396e" = "green"),
+                                              labels = c("mdo-miR-7267-3p" = "miR-7267 | ycnE", "ath-miR167a-5p" = "miR167a | spaC", "gma-miR396e" = "miR396e | lexA")) +
+  coord_cartesian(ylim = c(0, 26)) +
   facet_wrap(~Calibration, labeller = my_labels) +
-  labs(x = 'p-value', y = 'Density', title = 'Distribution of p-values (Y-axis 800+)') +
+  labs(x = 'p-value', y = 'Density', title = 'Distribution of p-values (Y-axis ~60)') +
   theme_bw(base_size = basesize) +
   theme(strip.placement = 'outside') -> p1
 
@@ -56,13 +57,14 @@ merged |>
              color = "black",
              size = 0.7
   ) +
-  geom_point(data = merged |> filter((gene_name %in% c('trpA', 'trpB', 'trpC', 'trpD')) |
-                                     (locus_tag %in% c('FE838_RS16085', 'FE838_RS16065', 'FE838_RS16080'))) |> group_by(Calibration),
-             aes(shape = locus_tag),
+  geom_point(data = merged |> filter((locus_tag %in% c('LGG_RS02140', 'LGG_RS02130') & miRNA == 'ath-miR167a-5p') |
+                                     (locus_tag == 'LGG_RS05490' & miRNA == 'mdo-miR-7267-3p') |
+                                     (locus_tag == 'LGG_RS03370' & miRNA == 'gma-miR396e')) |> group_by(Calibration),
+             aes(shape = miRNA),
              color = "red"
   ) +
-  scale_shape_manual(name = "Validated hits", values = c("FE838_RS16060" = 16, "FE838_RS16090" = 17, "FE838_RS16070" = 15, "FE838_RS16075" = 19, "FE838_RS16085" = 20, "FE838_RS16065" = 21, "FE838_RS16080" = 22),
-                     labels = c("FE838_RS16060" = "miR-21 | trpA", "FE838_RS16090" = "miR-21 | trpB", "FE838_RS16070" = "miR-21 | trpC", "FE838_RS16075" = "miR-21 | trpD", "FE838_RS16085" = "miR-21 | trpE", "FE838_RS16065" = "miR-21 | trpF", "FE838_RS16080" = "miR-21 | trpG")) +
+  scale_shape_manual(name = "Validated hits", values = c("mdo-miR-7267-3p" = 16, "ath-miR167a-5p" = 17, "gma-miR396e" = 15),
+                                              labels = c("mdo-miR-7267-3p" = "miR-7267 | ycnE", "ath-miR167a-5p" = "miR167a | spaC", "gma-miR396e" = "miR396e | lexA")) +
   geom_smooth(method = 'lm', linewidth = 0.5) +
   stat_cor(method = "spearman") +
   labs(x = "Relative Position", y = "-log10(p-value)", title = "Position vs p-values (\U2264 0.01)") +
@@ -78,13 +80,14 @@ merged |> filter(Calibration == 'calibrated') |> mutate(facet_label = "With/With
              color = 'black',
              size = 0.7
   ) +
-  geom_point(data = merged |> filter((gene_name %in% c('trpA', 'trpB', 'trpC', 'trpD')) |
-                                     (locus_tag %in% c('FE838_RS16085', 'FE838_RS16065', 'FE838_RS16080'))),
-             aes(shape = locus_tag),
+  geom_point(data = merged |> filter((locus_tag %in% c('LGG_RS02140', 'LGG_RS02130') & miRNA == 'ath-miR167a-5p') |
+                                     (locus_tag == 'LGG_RS05490' & miRNA == 'mdo-miR-7267-3p') |
+                                     (locus_tag == 'LGG_RS03370' & miRNA == 'gma-miR396e')),
+             aes(shape = miRNA),
              color = "red"
   ) +
-  scale_shape_manual(name = "Validated hits", values = c("FE838_RS16060" = 16, "FE838_RS16090" = 17, "FE838_RS16070" = 15, "FE838_RS16075" = 19, "FE838_RS16085" = 20, "FE838_RS16065" = 21, "FE838_RS16080" = 22),
-                     labels = c("FE838_RS16060" = "miR-21 | trpA", "FE838_RS16090" = "miR-21 | trpB", "FE838_RS16070" = "miR-21 | trpC", "FE838_RS16075" = "miR-21 | trpD", "FE838_RS16085" = "miR-21 | trpE", "FE838_RS16065" = "miR-21 | trpF", "FE838_RS16080" = "miR-21 | trpG")) +
+  scale_shape_manual(name = "Validated hits", values = c("mdo-miR-7267-3p" = 16, "ath-miR167a-5p" = 17, "gma-miR396e" = 15),
+                                              labels = c("mdo-miR-7267-3p" = "miR-7267 | ycnE", "ath-miR167a-5p" = "miR167a | spaC", "gma-miR396e" = "miR396e | lexA")) +
   geom_smooth(method = 'lm', linewidth = 0.5) +
   stat_cor(method = "spearman") +
   labs(x = "Relative Position", y = "Energy (KCal/Mol)", title = "Position vs Energy (p-value \U2264 0.01)") +
