@@ -1,6 +1,6 @@
 # Novum Pipeline
 
-Minimal Snakemake workflow for optionally calibrating RNAhybrid statistics with RNAcalibrate, then running RNAhybrid on miRNA queries against bacterial coding sequences, tidying the output, annotating the hits, and enhancing them with alignment visualizations.
+Minimal Snakemake workflow for optionally calibrating RNAhybrid statistics with RNAcalibrate, then running RNAhybrid on miRNA queries against bacterial coding sequences, tidying the output, annotating the hits, enhancing them with alignment visualizations, and optionally rendering ggplot2 summary PDFs.
 
 ## Workflow
 
@@ -16,7 +16,7 @@ Minimal Snakemake workflow for optionally calibrating RNAhybrid statistics with 
                                        ▼
                               ┌─────────────────┐
                               │ tidy_rnahybrid  │
-                              │     (R)         │
+                              │    (Python)     │
                               └────────┬────────┘
                                        │
                                        ▼
@@ -25,11 +25,12 @@ Minimal Snakemake workflow for optionally calibrating RNAhybrid statistics with 
                               │    (Python)      │
                               └────────┬─────────┘
                                        │
-                                       ▼
-                              ┌──────────────────┐
-                              │enhance_rnahybrid │
-                              │    (Python)      │
-                              └──────────────────┘
+                            ┌──────────┴──────────┐
+                            ▼                     ▼
+                  ┌──────────────────┐  ┌──────────────────┐
+                  │enhance_rnahybrid │  │   build_plots    │
+                  │     (Python)     │  │  (R, optional)   │
+                  └──────────────────┘  └──────────────────┘
 ```
 
 1. **rnacalibrate** (optional) — estimates extreme-value distribution parameters (xi, theta) from the target sequence.
@@ -37,6 +38,7 @@ Minimal Snakemake workflow for optionally calibrating RNAhybrid statistics with 
 3. **tidy_rnahybrid** — filters, selects, and arranges raw RNAhybrid output into a tidy CSV.
 4. **annotate_rnahybrid** — parses FASTA headers from the target genome and merges metadata with the tidy output.
 5. **enhance_rnahybrid** — adds human-readable alignment visualizations to the annotated results.
+6. **build_plots** (optional) — renders configurable ggplot2 PDFs (p-value distribution, position-vs-p-value, position-vs-energy) from the annotated tables. Skipped entirely when `build_plots.type` is unset.
 
 ## Dependencies
 
@@ -120,6 +122,17 @@ tidy_rnahybrid: {}
 annotate_rnahybrid: {}
 
 results_dir: Data/Results/run_001
+
+build_plots:                  # optional; omit the whole block to skip plotting
+  type: all                   # pvalue_distribution | position_pvalue | position_energy | all | comma-separated subset
+  basesize: 12
+  pvalue: 0.01                # cutoff for position_pvalue and position_energy
+  locus:                      # validated-hit locus_tags (highlighted in the plots)
+    - LGG_RS02140
+    - LGG_RS05490
+  gene:                       # validated-hit gene_names (highlighted in the plots)
+    - spaC
+    - lexA
 ```
 
 `rnacalibrate.mode` selects which variant(s) the pipeline produces in a single invocation:
@@ -131,6 +144,15 @@ results_dir: Data/Results/run_001
 When a calibrated variant runs, the calibration artifact is written at `{results_dir}/{sample}/w_calibration/rnacalibrate.json` and `rnahybrid` reads the estimated xi/theta distribution from it, overriding the static `rnahybrid.distribution` value for that sample. The `rnacalibrate.randomize_targets` option maps to the RNAcalibrate `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
 
 > **Deprecated:** the older `rnacalibrate.enabled: true|false` flag is still honored when `mode` is absent (`true` → `calibrated`, `false` → `uncalibrated`), but new configs should use `mode`. Support for `enabled` will be removed in a future release.
+
+The optional `build_plots` block controls a final ggplot2 rule that consumes the annotated CSVs and produces a single PDF per sample. The rule is opt-in: omit the block (or remove `type:`) and no plot job is scheduled, no R env is materialized.
+
+- `type` selects which panels appear in the PDF. Valid values: `pvalue_distribution`, `position_pvalue`, `position_energy`, `all`, or any comma-separated subset (e.g. `"pvalue_distribution,position_pvalue"`). Panels appear in the order listed.
+- `basesize` sets the ggplot2 base font size.
+- `pvalue` is the cutoff applied to the `position_pvalue` and `position_energy` scatter points (the `pvalue_distribution` density plot ignores it).
+- `locus` and `gene` are lists of `locus_tag` and `gene_name` values; matching rows are highlighted as "validated hits" with their own color/shape and listed in a shared legend.
+
+Output filenames bake the type into the name (`plots_<type>.pdf`, with commas in `type` rendered as hyphens), so cycling through types in the same `results_dir` doesn't overwrite earlier PDFs. When `rnacalibrate.mode: both`, each plot is faceted by calibration variant; when only one variant is produced, the facet collapses to a single panel automatically.
 
 ## Citation
 
