@@ -101,13 +101,22 @@ plot_position_pvalue <- function() {
 }
 
 plot_position_energy <- function() {
-  ggplot(merged, aes(x = Position, y = Energy)) +
+  # Energy is independent of p-value calibration: same alignments → same (Position,
+  # Energy) regardless of variant. Pick a single Calibration to avoid plotting each
+  # point twice. The "facet_label" trick (legacy arranger.R) keeps the strip header
+  # for visual consistency with the other plots.
+  pick <- if (any(merged$Calibration == "calibrated")) "calibrated" else "uncalibrated"
+  base_data <- merged |>
+    filter(Calibration == pick) |>
+    mutate(facet_label = "With/WithOut Calibration")
+
+  ggplot(base_data, aes(x = Position, y = Energy)) +
     geom_point(
-      data = merged |> filter(P_value <= pvalue_cutoff),
+      data = base_data |> filter(P_value <= pvalue_cutoff),
       color = "black", size = 0.7
     ) +
     geom_point(
-      data = validated,
+      data = validated |> filter(Calibration == pick),
       aes(shape = locus_tag),
       color = "red"
     ) +
@@ -118,36 +127,58 @@ plot_position_energy <- function() {
       x = "Relative Position", y = "Energy (KCal/Mol)",
       title = sprintf("Position vs Energy (p-value ≤ %g)", pvalue_cutoff)
     ) +
-    facet_wrap(~Calibration, labeller = facet_labels) +
+    facet_wrap(~facet_label) +
     theme_bw(base_size = basesize) +
     theme(strip.placement = "outside")
 }
 
 
-#----- Dispatch on type -----#
-plots <- switch(plot_type,
-  "pvalue_distribution" = list(plot_pvalue_distribution()),
-  "position_pvalue"     = list(plot_position_pvalue()),
-  "position_energy"     = list(plot_position_energy()),
-  "all"                 = list(
-    plot_pvalue_distribution(),
-    plot_position_pvalue(),
-    plot_position_energy()
-  ),
-  stop(sprintf("Unknown build_plots.type: %s", plot_type))
+#----- Plot registry: name -> builder -----#
+plot_builders <- list(
+  pvalue_distribution = plot_pvalue_distribution,
+  position_pvalue     = plot_position_pvalue,
+  position_energy     = plot_position_energy
 )
 
 
-#----- Compose & save -----#
-combined <- if (length(plots) == 1) {
-  plots[[1]]
+#----- Resolve the requested selection -----#
+# "all" -> every plot in registered order; otherwise comma-split + trimmed.
+selected <- if (identical(plot_type, "all")) {
+  names(plot_builders)
 } else {
-  Reduce(`|`, plots) + plot_layout(guides = "collect") &
+  trimws(strsplit(plot_type, ",", fixed = TRUE)[[1]])
+}
+
+unknown <- setdiff(selected, names(plot_builders))
+if (length(unknown) > 0) {
+  stop(sprintf(
+    "Unknown build_plots.type entries: %s. Valid: %s, all, or a comma-separated subset.",
+    paste(unknown, collapse = ", "),
+    paste(names(plot_builders), collapse = ", ")
+  ))
+}
+
+plots <- lapply(selected, function(name) plot_builders[[name]]())
+
+
+#----- Compose & save -----#
+# Page width: 8 in (single), 16 in (double), 18 in (triple = legacy "all").
+# Layout widths: equal for the 2-plot case; (2, 2, 1) for the 3-plot case to
+# preserve the legacy arranger.R aesthetic where position_energy is narrower.
+n <- length(plots)
+if (n == 1) {
+  combined  <- plots[[1]]
+  out_width <- 8
+} else {
+  layout_widths <- if (n == 3) c(2, 2, 1) else rep(1, n)
+  out_width    <- if (n == 2) 16 else 18
+  combined <- (Reduce(`|`, plots) +
+                 plot_layout(widths = layout_widths, guides = "collect")) &
     theme(legend.position = "bottom")
 }
 
 dir.create(dirname(snakemake@output$pdf), showWarnings = FALSE, recursive = TRUE)
 ggsave(
   snakemake@output$pdf, combined,
-  width = 6 * length(plots), height = 5, units = "in"
+  width = out_width, height = 5, units = "in"
 )

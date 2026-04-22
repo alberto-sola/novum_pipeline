@@ -1,9 +1,9 @@
 #----- miRNAs -----#
-query: Data/Raw/validated_escherichia.fa
+query: Data/Raw/validated_bacteroides.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  porcodio: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+  porcodio: Data/Raw/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
@@ -35,12 +35,17 @@ results_dir: Data/Results/
 
 #----- Parameters for plots (optional; omit or set type: null to skip) -----#
 build_plots:
-  type: pvalue_distribution     # pvalue_distribution | position_pvalue | position_energy | all
+  # pvalue_distribution | position_pvalue | position_energy | all
+  # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
+  type: all
   basesize: 12
   pvalue: 0.01                  # cutoff for position_pvalue and position_energy
   locus:                        # YAML list of validated-hit locus_tags
-    - LGG_RS02140
-    - LGG_RS02130
-  gene:                         # YAML list of validated-hit gene_names
-    - yegH
-    - spaC
+    - FE838_RS16060
+    - FE838_RS16090
+    - FE838_RS16070
+    - FE838_RS16075
+    - FE838_RS16085
+    - FE838_RS16065
+    - FE838_RS16080
+  gene:                          # YAML list of validated-hit gene_names

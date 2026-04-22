@@ -12,6 +12,9 @@ results_dir = config.get("results_dir", "Data/Results").rstrip("/")
 build_plots_config  = config.get("build_plots", {}) or {}
 build_plots_type    = build_plots_config.get("type")
 build_plots_enabled = build_plots_type is not None
+# Filename-safe slug: commas become hyphens (commas in filenames are ugly and
+# break a lot of shell quoting). Spaces stripped for the same reason.
+build_plots_slug    = (build_plots_type or "none").replace(",", "-").replace(" ", "")
 
 #----- Resolve which variants to produce -----#
 _MODE_TO_VARIANTS = {
@@ -54,7 +57,7 @@ rule all:
             variant=variants,
         ),
         *(expand(
-            f"{results_dir}" + "/{sample}/plots_" + (build_plots_type or "") + ".pdf",
+            f"{results_dir}" + "/{sample}/plots_" + build_plots_slug + ".pdf",
             sample=targets.keys(),
         ) if build_plots_enabled else [])
 
@@ -144,7 +147,7 @@ rule build_plots:
             variant=variants,
         )
     output:
-        pdf=f"{results_dir}" + "/{sample}/plots_" + (build_plots_type or "none") + ".pdf"
+        pdf=f"{results_dir}" + "/{sample}/plots_" + build_plots_slug + ".pdf"
     conda:
         "Workflow/Envs/plots.yaml"
     params:
