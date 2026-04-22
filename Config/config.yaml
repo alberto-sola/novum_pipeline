@@ -32,3 +32,15 @@ annotate_rnahybrid: {}
 
 #----- Where outputs should be generated -----#
 results_dir: Data/Results/
+
+#----- Parameters for plots (optional; omit or set type: null to skip) -----#
+build_plots:
+  type: pvalue_distribution     # pvalue_distribution | position_pvalue | position_energy | all
+  basesize: 12
+  pvalue: 0.01                  # cutoff for position_pvalue and position_energy
+  locus:                        # YAML list of validated-hit locus_tags
+    - LGG_RS02140
+    - LGG_RS02130
+  gene:                         # YAML list of validated-hit gene_names
+    - yegH
+    - spaC

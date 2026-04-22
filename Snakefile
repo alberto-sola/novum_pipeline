@@ -8,6 +8,11 @@ rnacalibrate_config = config["rnacalibrate"]
 rnahybrid_config = config["rnahybrid"]
 results_dir = config.get("results_dir", "Data/Results").rstrip("/")
 
+#----- Optional plotting configuration -----#
+build_plots_config  = config.get("build_plots", {}) or {}
+build_plots_type    = build_plots_config.get("type")
+build_plots_enabled = build_plots_type is not None
+
 #----- Resolve which variants to produce -----#
 _MODE_TO_VARIANTS = {
     "calibrated":   ["w_calibration"],
@@ -47,7 +52,11 @@ rule all:
             f"{results_dir}" + "/{sample}/{variant}/rnahybrid_enhanced.txt",
             sample=targets.keys(),
             variant=variants,
-        )
+        ),
+        *(expand(
+            f"{results_dir}" + "/{sample}/plots_" + (build_plots_type or "") + ".pdf",
+            sample=targets.keys(),
+        ) if build_plots_enabled else [])
 
 #----- Dynamically calibrates the statistics based on the target sequence -----#
 rule rnacalibrate:
@@ -126,3 +135,23 @@ rule enhance_rnahybrid:
         "Workflow/Envs/postprocess.yaml"
     script:
         "Workflow/Scripts/enhance_rnahybrid.py"
+
+#----- Build configurable ggplot2 plots from the annotated tables -----#
+rule build_plots:
+    input:
+        annotated=expand(
+            f"{results_dir}" + "/{{sample}}/{variant}/rnahybrid_annotated.csv",
+            variant=variants,
+        )
+    output:
+        pdf=f"{results_dir}" + "/{sample}/plots_" + (build_plots_type or "none") + ".pdf"
+    conda:
+        "Workflow/Envs/plots.yaml"
+    params:
+        type=build_plots_type,
+        basesize=build_plots_config.get("basesize", 12),
+        pvalue=build_plots_config.get("pvalue", 0.01),
+        locus=build_plots_config.get("locus", []),
+        gene=build_plots_config.get("gene", [])
+    script:
+        "Workflow/Scripts/build_plots.R"
