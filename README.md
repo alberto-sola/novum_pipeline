@@ -96,7 +96,8 @@ Edit [`Config/config.yaml`](Config/config.yaml) to change inputs, optional RNAca
 Example:
 
 ```yaml
-query: Data/Raw/validated_miRNAs.fa
+queries:
+  escherichia_coli: Data/Raw/validated_miRNAs.fa
 targets:
   escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
@@ -134,6 +135,8 @@ build_plots:                  # optional; omit the whole block to skip plotting
     - spaC
     - lexA
 ```
+
+`queries:` and `targets:` are paired by key — each key names one (query, target) sample run, and the two mappings must use identical keys. The legacy single `query: <path>` form is still accepted: when `queries:` is absent, the same FASTA is broadcast against every entry in `targets:`.
 
 `rnacalibrate.mode` selects which variant(s) the pipeline produces in a single invocation:
 

@@ -1,9 +1,12 @@
-#----- miRNAs -----#
-query: Data/Raw/validated_bacteroides.fa
+#----- miRNAs (one query FASTA per target sample, joined by key) -----#
+queries:
+  bacteroides_thetaiotaomicron: Data/Raw/validated_bacteroides.fa
+  escherichia_coli: Data/Raw/validated_escherichia.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  porcodio: Data/Raw/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
+  bacteroides_thetaiotaomicron: Data/Raw/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
+  escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
@@ -30,17 +33,15 @@ tidy_rnahybrid: {}
 #----- Parameters for annotating outputs -----#
 annotate_rnahybrid: {}
 
-#----- Where outputs should be generated -----#
-results_dir: Data/Results/
-
 #----- Parameters for plots (optional; omit or set type: null to skip) -----#
 build_plots:
   # pvalue_distribution | position_pvalue | position_energy | all
   # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
   type: all
   basesize: 12
-  pvalue: 0.01                  # cutoff for position_pvalue and position_energy
-  locus:                        # YAML list of validated-hit locus_tags
+  pvalue: 0.01
+  locus:
+    - b2063
     - FE838_RS16060
     - FE838_RS16090
     - FE838_RS16070
@@ -48,4 +49,7 @@ build_plots:
     - FE838_RS16085
     - FE838_RS16065
     - FE838_RS16080
-  gene:                          # YAML list of validated-hit gene_names
+  gene:
+
+#----- Where outputs should be generated -----#
+results_dir: Data/Results/

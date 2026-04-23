@@ -2,11 +2,30 @@
 configfile: "Config/config.yaml"
 
 #----- Populate Snakefile variables with the config file -----#
-query = config["query"]
-targets = config["targets"]
+targets             = config["targets"]
 rnacalibrate_config = config["rnacalibrate"]
-rnahybrid_config = config["rnahybrid"]
-results_dir = config.get("results_dir", "Data/Results").rstrip("/")
+rnahybrid_config    = config["rnahybrid"]
+results_dir         = config.get("results_dir", "Data/Results").rstrip("/")
+
+#----- Per-sample query lookup: `queries:` mapping (keys must match `targets:`),
+#      with single `query: <path>` accepted as a legacy broadcast across all targets.
+def _resolve_queries(cfg, target_keys):
+    queries_cfg = cfg.get("queries")
+    if queries_cfg is not None:
+        missing = set(target_keys) - set(queries_cfg)
+        extra   = set(queries_cfg) - set(target_keys)
+        if missing or extra:
+            raise ValueError(
+                "queries/targets keys must match. "
+                f"Missing in queries: {sorted(missing)}; extra in queries: {sorted(extra)}."
+            )
+        return dict(queries_cfg)
+    legacy = cfg.get("query")
+    if legacy is None:
+        raise ValueError("Config must define either `queries:` (mapping) or `query:` (single path).")
+    return {sample: legacy for sample in target_keys}
+
+queries = _resolve_queries(config, targets.keys())
 
 #----- Optional plotting configuration -----#
 build_plots_config  = config.get("build_plots", {}) or {}
@@ -64,7 +83,7 @@ rule all:
 #----- Dynamically calibrates the statistics based on the target sequence -----#
 rule rnacalibrate:
     input:
-        query=query,
+        query=lambda wc: queries[wc.sample],
         target=lambda wc: targets[wc.sample]
     output:
         calibration=f"{results_dir}" + "/{sample}/w_calibration/rnacalibrate.json"
@@ -83,7 +102,7 @@ rule rnacalibrate:
 #----- Run RNAhybrid on multiple cores -----#
 rule rnahybrid:
     input:
-        query=query,
+        query=lambda wc: queries[wc.sample],
         target=lambda wc: targets[wc.sample],
         calibration=calibration_input
     output:
