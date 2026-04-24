@@ -1,48 +1,34 @@
 # Novum Pipeline
 
-Minimal Snakemake workflow for optionally calibrating RNAhybrid statistics with RNAcalibrate, then running RNAhybrid on miRNA queries against bacterial coding sequences, tidying the output, annotating the hits, enhancing them with alignment visualizations, and optionally rendering ggplot2 summary PDFs.
+A Snakemake workflow that runs RNAhybrid on miRNA queries against bacterial coding sequences — optionally calibrated per-miRNA via RNAcalibrate — then tidies, annotates, enhances, and (optionally) plots the results.
 
 ## Workflow
 
-```text
-         query.fa ─────────────────────┐
-            │                          │
-            ▼                          ▼
-   ┌─────────────────┐        ┌─────────────────┐
-   │  rnacalibrate   │ ─────▶ │    rnahybrid    │ 
-   │  (optional)     │  xi/θ  │  (GNU Parallel) │
-   └─────────────────┘        └────────┬────────┘
-                                       │
-                                       ▼
-                              ┌─────────────────┐
-                              │ tidy_rnahybrid  │
-                              │    (Python)     │
-                              └────────┬────────┘
-                                       │
-                                       ▼
-                              ┌──────────────────┐
-                              │annotate_rnahybrid│
-                              │    (Python)      │
-                              └────────┬─────────┘
-                                       │
-                            ┌──────────┴──────────┐
-                            ▼                     ▼
-                  ┌──────────────────┐  ┌──────────────────┐
-                  │enhance_rnahybrid │  │   build_plots    │
-                  │     (Python)     │  │  (R, optional)   │
-                  └──────────────────┘  └──────────────────┘
+```mermaid
+flowchart TD
+    Q["query.fa (miRNAs)"]
+    T["target.fna (CDS)"]
+    Q --> RC[rnacalibrate]
+    T --> RC
+    Q --> RH[rnahybrid]
+    T --> RH
+    RC -- per-miRNA xi / theta --> RH
+    RH --> TR[tidy_rnahybrid]
+    TR --> AR[annotate_rnahybrid]
+    AR --> ER[enhance_rnahybrid]
+    AR --> BP[build_plots]
 ```
 
-1. **rnacalibrate** (optional) — estimates extreme-value distribution parameters (xi, theta) from the target sequence.
-2. **rnahybrid** — runs RNAhybrid in parallel via GNU Parallel across all query/target pairs.
-3. **tidy_rnahybrid** — filters, selects, and arranges raw RNAhybrid output into a tidy CSV.
-4. **annotate_rnahybrid** — parses FASTA headers from the target genome and merges metadata with the tidy output.
-5. **enhance_rnahybrid** — adds human-readable alignment visualizations to the annotated results.
-6. **build_plots** (optional) — renders configurable ggplot2 PDFs (p-value distribution, position-vs-p-value, position-vs-energy) from the annotated tables. Skipped entirely when `build_plots.type` is unset.
+1. **rnacalibrate** *(optional)* — fits an extreme-value distribution to randomized targets and emits one (xi, theta) pair **per query miRNA**.
+2. **rnahybrid** — runs RNAhybrid in parallel via GNU Parallel; in calibrated mode, each (miRNA, target chunk) pair invokes RNAhybrid with that miRNA's own (xi, theta).
+3. **tidy_rnahybrid** — filters, selects, and arranges the raw output into a tidy CSV.
+4. **annotate_rnahybrid** — parses FASTA headers from the target genome and merges metadata onto the tidy rows.
+5. **enhance_rnahybrid** — appends human-readable alignment visualizations.
+6. **build_plots** *(optional)* — renders configurable ggplot2 PDFs from the annotated tables. Skipped entirely when `build_plots.type` is unset.
 
 ## Dependencies
 
-Commands below assume a Linux bash shell on Debian/Ubuntu.
+Commands assume a Linux bash shell on Debian/Ubuntu.
 
 ### GNU Parallel
 
@@ -62,7 +48,7 @@ conda config --add channels bioconda
 conda config --set channel_priority strict
 ```
 
-This produces the recommended channel order:
+Recommended channel order:
 
 ```text
 bioconda
@@ -89,11 +75,15 @@ conda activate snakemake-modern
 snakemake --use-conda --cores N
 ```
 
+To re-render only the plots after editing the `build_plots` block:
+
+```bash
+snakemake --use-conda --cores N --forcerun build_plots
+```
+
 ## Configuration
 
-Edit [`Config/config.yaml`](Config/config.yaml) to change inputs, optional RNAcalibrate settings, RNAhybrid parameters, and output file names.
-
-Example:
+Edit [`Config/config.yaml`](Config/config.yaml). Example:
 
 ```yaml
 queries:
@@ -102,60 +92,95 @@ targets:
   escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
 rnacalibrate:
-  mode: both                # "calibrated" | "uncalibrated" | "both"
-  k: 5000
+  mode: both                  # "calibrated" | "uncalibrated" | "both"
+  k: 10000
   max_target_length: 50000
-  randomize_targets: false
+  randomize_targets: true
 
 rnahybrid:
   threads: 16
   species: 3utr_human
-  hits: 3
-  u: 3
-  v: 3
+  hits: null
+  u: null
+  v: null
   energy: -18
   pvalue: null
   seed: null
-  distribution: 2.769859,0.233703
+  distribution: null          # ignored when calibrated; falls back to "species" otherwise
 
 tidy_rnahybrid: {}
-
 annotate_rnahybrid: {}
 
-results_dir: Data/Results/run_001
-
 build_plots:                  # optional; omit the whole block to skip plotting
-  type: all                   # pvalue_distribution | position_pvalue | position_energy | all | comma-separated subset
+  type: all                   # pvalue_distribution | position_pvalue | position_energy | all
   basesize: 12
   pvalue: 0.01                # cutoff for position_pvalue and position_energy
-  locus:                      # validated-hit locus_tags (highlighted in the plots)
-    - LGG_RS02140
-    - LGG_RS05490
-  gene:                       # validated-hit gene_names (highlighted in the plots)
-    - spaC
-    - lexA
+  locus:
+    - b3704                   # bare: any miRNA hitting this locus
+    - b2063,hsa-miR-1226-5p   # paired: only this miRNA × this locus
+  gene:
+    - yegH,hsa-miR-1226-5p
+    - rnpA,hsa-miR-4747-3p
+  protein:
+    # - "30S ribosomal protein S2,hsa-miR-X"
+
+results_dir: Data/Results/
 ```
+
+### Queries and targets
 
 `queries:` and `targets:` are paired by key — each key names one (query, target) sample run, and the two mappings must use identical keys. The legacy single `query: <path>` form is still accepted: when `queries:` is absent, the same FASTA is broadcast against every entry in `targets:`.
 
+### Calibration mode
+
 `rnacalibrate.mode` selects which variant(s) the pipeline produces in a single invocation:
 
-- `calibrated` — runs `rnacalibrate` first and feeds its xi/theta estimate into `rnahybrid`. Outputs land under `{results_dir}/{sample}/w_calibration/`.
-- `uncalibrated` — skips `rnacalibrate` entirely; `rnahybrid` falls back to `rnahybrid.distribution` (or its built-in default if unset). Outputs land under `{results_dir}/{sample}/wo_calibration/`.
-- `both` — produces both trees in one run, so the two can be compared side by side.
+- **`calibrated`** — runs `rnacalibrate` first and feeds its per-miRNA (xi, theta) into `rnahybrid`. Outputs land under `{results_dir}/{sample}/w_calibration/`.
+- **`uncalibrated`** — skips `rnacalibrate`; `rnahybrid` falls back to `rnahybrid.distribution`, or to its built-in `species` default if unset. Outputs land under `{results_dir}/{sample}/wo_calibration/`.
+- **`both`** — produces both trees in one run for side-by-side comparison.
 
-When a calibrated variant runs, the calibration artifact is written at `{results_dir}/{sample}/w_calibration/rnacalibrate.json` and `rnahybrid` reads the estimated xi/theta distribution from it, overriding the static `rnahybrid.distribution` value for that sample. The `rnacalibrate.randomize_targets` option maps to the RNAcalibrate `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
+When calibration runs, the artifact at `{results_dir}/{sample}/w_calibration/rnacalibrate.json` contains one (xi, theta) row per miRNA in the query FASTA. RNAhybrid is then invoked once per (miRNA, target chunk) pair with that miRNA's own parameters, so every row's p-value reflects its own null model rather than a population mean. The static `rnahybrid.distribution` value is ignored whenever calibration runs.
 
-> **Deprecated:** the older `rnacalibrate.enabled: true|false` flag is still honored when `mode` is absent (`true` → `calibrated`, `false` → `uncalibrated`), but new configs should use `mode`. Support for `enabled` will be removed in a future release.
+`rnacalibrate.randomize_targets` maps to RNAcalibrate's `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
 
-The optional `build_plots` block controls a final ggplot2 rule that consumes the annotated CSVs and produces a single PDF per sample. The rule is opt-in: omit the block (or remove `type:`) and no plot job is scheduled, no R env is materialized.
+> **Deprecated:** `rnacalibrate.enabled: true|false` is still honored when `mode` is absent (`true` → `calibrated`, `false` → `uncalibrated`), but new configs should use `mode`. Support will be removed in a future release.
 
-- `type` selects which panels appear in the PDF. Valid values: `pvalue_distribution`, `position_pvalue`, `position_energy`, `all`, or any comma-separated subset (e.g. `"pvalue_distribution,position_pvalue"`). Panels appear in the order listed.
-- `basesize` sets the ggplot2 base font size.
-- `pvalue` is the cutoff applied to the `position_pvalue` and `position_energy` scatter points (the `pvalue_distribution` density plot ignores it).
-- `locus` and `gene` are lists of `locus_tag` and `gene_name` values; matching rows are highlighted as "validated hits" with their own color/shape and listed in a shared legend.
+### Plots
 
-Output filenames bake the type into the name (`plots_<type>.pdf`, with commas in `type` rendered as hyphens), so cycling through types in the same `results_dir` doesn't overwrite earlier PDFs. When `rnacalibrate.mode: both`, each plot is faceted by calibration variant; when only one variant is produced, the facet collapses to a single panel automatically.
+The `build_plots` block is opt-in: omit it (or remove `type:`) and no plot job is scheduled, no R env is materialized.
+
+- **`type`** — which panels to render: `pvalue_distribution`, `position_pvalue`, `position_energy`, `all`, or any comma-separated subset (e.g. `"pvalue_distribution,position_pvalue"`). Panels appear in the order listed.
+- **`basesize`** — ggplot2 base font size.
+- **`pvalue`** — cutoff applied to the scatter points in `position_pvalue` and `position_energy` (the density plot ignores it).
+- **`locus`**, **`gene`**, **`protein`** — lists of validated hits to highlight. Each entry is either:
+    - **bare** — `<target>` matches any miRNA hitting that target;
+    - **paired** — `<target>,<miRNA>` matches only when the row's miRNA equals the named one.
+
+  Bare and paired entries can mix freely in the same list. YAML strings with spaces or punctuation (typical for `protein_name`) must be quoted: `"30S ribosomal protein S2,hsa-miR-X"`. The `protein:` block is optional and requires a `protein_name` column in the annotated CSV.
+
+The `pvalue_distribution` panel draws one dashed vertical line per validated entity (lowest p-value per `(miRNA, locus_tag)`); `position_pvalue` and `position_energy` plot every alignment of the matched pairs, all keyed to the same color and shape in a shared legend.
+
+The output filename bakes the `type` value in (commas become hyphens), so cycling through types in the same `results_dir` doesn't overwrite earlier PDFs. When `rnacalibrate.mode: both`, panels are faceted by calibration variant; with one variant, the facet collapses automatically.
+
+## Outputs
+
+One tree per `targets:` key, under `{results_dir}/{sample}/`:
+
+```text
+{sample}/
+├── w_calibration/                  # mode = "calibrated" or "both"
+│   ├── rnacalibrate.json
+│   ├── rnahybrid_output.tsv
+│   ├── tidy_output.csv
+│   ├── rnahybrid_annotated.csv
+│   └── rnahybrid_enhanced.txt
+├── wo_calibration/                 # mode = "uncalibrated" or "both"
+│   ├── rnahybrid_output.tsv
+│   ├── tidy_output.csv
+│   ├── rnahybrid_annotated.csv
+│   └── rnahybrid_enhanced.txt
+└── plots_<type>.pdf                # only when build_plots.type is set
+```
 
 ## Citation
 
