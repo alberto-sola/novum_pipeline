@@ -59,21 +59,18 @@ join_filter <- function(df, pairs, by_col) {
     select(-miRNA_filter)
 }
 
-validated_best <- bind_rows(
-  join_filter(merged, locus_pairs,   "locus_tag"),
-  join_filter(merged, gene_pairs,    "gene_name"),
-  join_filter(merged, protein_pairs, "protein_name")) |>
-  group_by(Calibration) |>
-  arrange(P_value) |>
-  distinct(miRNA, locus_tag, .keep_all = TRUE) |>
-  ungroup()
-
 validated <- bind_rows(
   join_filter(merged, locus_pairs,   "locus_tag"),
   join_filter(merged, gene_pairs,    "gene_name"),
-  join_filter(merged, protein_pairs, "protein_name")) |>
+  join_filter(merged, protein_pairs, "protein_name")
+)
+
+# One row per (miRNA, locus_tag, Calibration) for the p-value distribution vlines
+# and for the legend/scale keys. Position-based plots use the full `validated` set.
+validated_best <- validated |>
   group_by(Calibration) |>
   arrange(P_value) |>
+  distinct(miRNA, locus_tag, .keep_all = TRUE) |>
   ungroup()
 
 #----- Auto color + label maps for the validated hits, keyed by locus_tag -----#

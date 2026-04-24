@@ -28,3 +28,4 @@ Data/*
 *.csv
 *.txt
 *.log
+Workflow/Legacy_scripts/NCBI_genome_parser.py
