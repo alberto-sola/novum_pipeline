@@ -1,16 +1,17 @@
 #----- miRNAs (one query FASTA per target sample, joined by key) -----#
 queries:
-  bacteroides_thetaiotaomicron: Data/Raw/validated_bacteroides.fa
-  escherichia_coli: Data/Raw/validated_escherichia.fa
+  batterio1: Data/Raw/validated_bacteroides.fa
+  batterio2: Data/Raw/validated_escherichia.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  bacteroides_thetaiotaomicron: Data/Raw/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
-  escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+  batterio1: Data/Raw/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
+  batterio2: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
-  mode: both        # "calibrated" | "uncalibrated" | "both"
+  # calibrated | uncalibrated | both
+  mode: both
   k: 10000
   max_target_length: 50000
   randomize_targets: true
@@ -41,7 +42,6 @@ build_plots:
   basesize: 12
   pvalue: 0.01
   locus:
-    - b2063
     - FE838_RS16060
     - FE838_RS16090
     - FE838_RS16070
@@ -50,6 +50,8 @@ build_plots:
     - FE838_RS16065
     - FE838_RS16080
   gene:
+    - yegH #,hsa-miR-1226-5p
+    - rnpA #,hsa-miR-4747-3p
 
 #----- Where outputs should be generated -----#
 results_dir: Data/Results/

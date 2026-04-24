@@ -56,6 +56,45 @@ def write_fasta_chunks(target_file, chunk_dir, chunk_prefix="chunk_", max_lines=
     return chunk_paths
 
 
+#----- Splits a query FASTA into one file per record, named after the first header token -----#
+def split_query_per_miRNA(query_file, query_dir):
+    query_dir = Path(query_dir)
+    query_dir.mkdir(parents=True, exist_ok=True)
+
+    paths_by_name = {}
+    current_name = None
+    current_record = []
+
+    def flush():
+        nonlocal current_name, current_record
+        if current_name is None or not current_record:
+            return
+        if current_name in paths_by_name:
+            raise RuntimeError(f"Duplicate query ID in FASTA: {current_name}")
+        path = query_dir / f"{current_name}.fa"
+        path.write_text("".join(current_record))
+        paths_by_name[current_name] = path
+        current_name = None
+        current_record = []
+
+    with open(query_file) as handle:
+        for line in handle:
+            if line.startswith(">"):
+                flush()
+                # Match RNAcalibrate's name parsing: first whitespace-delimited token after '>'.
+                current_name = line[1:].strip().split()[0]
+                current_record = [line]
+            else:
+                current_record.append(line)
+
+    flush()
+
+    if not paths_by_name:
+        raise RuntimeError(f"No FASTA records found in query file: {query_file}")
+
+    return paths_by_name
+
+
 #----- Displays messages if RNAhybrid or GNU Parallel are not installed or present in the env -----#
 def ensure_dependencies():
     parallel_executable = shutil.which("parallel")
@@ -101,21 +140,21 @@ def build_optional_args(hits=None, u=None, v=None, energy=None, pvalue=None, see
     return optional_args
 
 
-#----- Scrapes distribution xi and theta from calibration.json file -----#
-def resolve_distribution(distribution=None, distribution_file=None):
+#----- Loads per-miRNA xi/theta from a calibration JSON; returns None for the broadcast (uncalibrated) path -----#
+def load_per_query_distributions(distribution_file):
     if distribution_file is None:
-        return distribution
+        return None
 
     distribution_path = Path(distribution_file)
     if not distribution_path.exists():
         raise RuntimeError(f"Calibration distribution file not found: {distribution_file}")
 
     payload = json.loads(distribution_path.read_text())
-    calibrated_distribution = payload["calibration"]["distribution"]
-    if not calibrated_distribution:
-        raise RuntimeError(f"No distribution found in calibration file: {distribution_file}")
+    per_query = payload.get("calibration", {}).get("per_query")
+    if not per_query:
+        raise RuntimeError(f"No per-query distributions found in calibration file: {distribution_file}")
 
-    return calibrated_distribution
+    return {entry["query"]: f"{entry['xi']:.6f},{entry['theta']:.6f}" for entry in per_query}
 
 
 #----- If distribution is set, then species will not be considered -----#
@@ -129,8 +168,30 @@ def validate_rnahybrid_args(species=None, distribution=None):
     return species
 
 
-#----- Uses GNU Parallel to split the work on multiple CPUs; takes target as multiple chunks -----#
-def build_parallel_command(query, chunk_paths, output_dir, species, optional_args, threads, parallel_executable, rnahybrid_executable):
+#----- Precomputes the (per-miRNA query × target chunk) cross-product into a TSV that GNU Parallel reads line-by-line -----#
+def build_job_spec_tsv(query_paths_by_name, dist_map, chunk_paths, tsv_path):
+    missing = sorted(name for name in query_paths_by_name if name not in dist_map)
+    if missing:
+        raise RuntimeError(
+            "miRNA(s) in query FASTA have no calibration entry: " + ", ".join(missing)
+        )
+
+    lines = []
+    for name, query_path in query_paths_by_name.items():
+        distribution = dist_map[name]
+        for chunk_path in chunk_paths:
+            lines.append(
+                f"{Path(query_path).as_posix()}\t{distribution}\t{Path(chunk_path).as_posix()}"
+            )
+
+    tsv_path = Path(tsv_path)
+    tsv_path.parent.mkdir(parents=True, exist_ok=True)
+    tsv_path.write_text("\n".join(lines) + "\n")
+    return tsv_path
+
+
+#----- GNU Parallel for the broadcast/uncalibrated path: same query against every chunk, optional species/static -d -----#
+def build_parallel_command_broadcast(query, chunk_paths, output_dir, species, optional_args, threads, parallel_executable, rnahybrid_executable):
     species_args = []
     command = [
         parallel_executable,
@@ -169,6 +230,37 @@ def build_parallel_command(query, chunk_paths, output_dir, species, optional_arg
     return command
 
 
+#----- GNU Parallel for the calibrated path: each line of the spec TSV is (query_path, distribution, chunk_path) -----#
+def build_parallel_command_calibrated(spec_path, output_dir, optional_args, threads, parallel_executable, rnahybrid_executable):
+    command = [
+        parallel_executable,
+        f"-j{max(1, threads)}",
+        "--load=100%",
+        "--colsep",
+        "\\t",
+    ]
+
+    # {1/.} = query basename without extension; {3/.} = chunk basename without extension.
+    output_template = f"{Path(output_dir).as_posix()}/output_{{1/.}}__{{3/.}}.tsv"
+
+    job_template = " ".join(
+        [
+            rnahybrid_executable,
+            "-q", "{1}",
+            "-d", "{2}",
+            "-t", "{3}",
+            "-c",
+            "-m", "50000",
+            *optional_args,
+            ">",
+            output_template,
+        ]
+    )
+
+    command.extend([job_template, "::::", str(spec_path)])
+    return command
+
+
 #----- Initially, RNAhybrid outputs are split, thus they need to be merged in a single file -----#
 def merge_output_files(output_dir, output_pattern, merged_output_path):
     output_files = sorted(Path(output_dir).glob(output_pattern))
@@ -182,8 +274,6 @@ def merge_output_files(output_dir, output_pattern, merged_output_path):
 
 #----- Runs the combined Parallel + RNAhybrid bash command -----#
 def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None, distribution=None, distribution_file=None):
-    output_pattern = "output_chunk_*.tsv"
-
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -197,27 +287,47 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
 
     try:
         chunk_paths = write_fasta_chunks(target, chunk_dir)
-        distribution = resolve_distribution(distribution=distribution, distribution_file=distribution_file)
-        species = validate_rnahybrid_args(species=species, distribution=distribution)
-        optional_args = build_optional_args(
-            hits=hits,
-            u=u,
-            v=v,
-            energy=energy,
-            pvalue=pvalue,
-            seed=seed,
-            distribution=distribution
-        )
-        command = build_parallel_command(
-            query=query,
-            chunk_paths=chunk_paths,
-            output_dir=split_output_dir,
-            species=species,
-            optional_args=optional_args,
-            threads=threads,
-            parallel_executable=executables["parallel"],
-            rnahybrid_executable=executables["rnahybrid"],
-        )
+        dist_map = load_per_query_distributions(distribution_file)
+
+        if dist_map is not None:
+            # Calibrated branch: one RNAhybrid invocation per (miRNA, chunk), each with its own -d.
+            query_paths_by_name = split_query_per_miRNA(query, tmp_dir / "queries")
+            spec_path = build_job_spec_tsv(
+                query_paths_by_name=query_paths_by_name,
+                dist_map=dist_map,
+                chunk_paths=chunk_paths,
+                tsv_path=tmp_dir / "job_spec.tsv",
+            )
+            optional_args = build_optional_args(
+                hits=hits, u=u, v=v, energy=energy, pvalue=pvalue, seed=seed,
+            )
+            command = build_parallel_command_calibrated(
+                spec_path=spec_path,
+                output_dir=split_output_dir,
+                optional_args=optional_args,
+                threads=threads,
+                parallel_executable=executables["parallel"],
+                rnahybrid_executable=executables["rnahybrid"],
+            )
+            output_pattern = "output_*__chunk_*.tsv"
+        else:
+            # Broadcast/uncalibrated branch: one shared query across all chunks.
+            species = validate_rnahybrid_args(species=species, distribution=distribution)
+            optional_args = build_optional_args(
+                hits=hits, u=u, v=v, energy=energy, pvalue=pvalue, seed=seed,
+                distribution=distribution,
+            )
+            command = build_parallel_command_broadcast(
+                query=query,
+                chunk_paths=chunk_paths,
+                output_dir=split_output_dir,
+                species=species,
+                optional_args=optional_args,
+                threads=threads,
+                parallel_executable=executables["parallel"],
+                rnahybrid_executable=executables["rnahybrid"],
+            )
+            output_pattern = "output_chunk_*.tsv"
 
         subprocess.run(command, check=True)
         merge_output_files(split_output_dir, output_pattern, output_path)

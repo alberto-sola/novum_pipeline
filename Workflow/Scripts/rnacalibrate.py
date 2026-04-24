@@ -96,7 +96,7 @@ def build_command(executable, query, target, k, max_target_length, stats, random
     return command
 
 
-#----- Parses the calibration values from the RNAcalibrate bash output and returns a dictionary of both per-query and total values -----#
+#----- Parses the calibration values from the RNAcalibrate bash output and returns a dictionary of per-query values -----#
 def parse_rnacalibrate_output(stdout):
     per_query = []
 
@@ -130,15 +130,7 @@ def parse_rnacalibrate_output(stdout):
     if not per_query:
         raise RuntimeError("RNAcalibrate did not produce any calibration rows.")
 
-    mean_xi = sum(item["xi"] for item in per_query) / len(per_query)
-    mean_theta = sum(item["theta"] for item in per_query) / len(per_query)
-
-    return {
-        "per_query": per_query,
-        "mean_xi": mean_xi,
-        "mean_theta": mean_theta,
-        "distribution": f"{mean_xi:.6f},{mean_theta:.6f}",
-    }
+    return {"per_query": per_query}
 
 
 #----- Runs RNAcalibrate and craft a JSON file -----#
@@ -163,7 +155,7 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
     completed = subprocess.run(command, check=True, capture_output=True, text=True)
     parsed_output = parse_rnacalibrate_output(completed.stdout)
 
-    # Craft a JSON file containing metadata of RNAcalibrate command + distribution values both per-query and total
+    # Craft a JSON file containing metadata of RNAcalibrate command + per-query distribution values
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(
