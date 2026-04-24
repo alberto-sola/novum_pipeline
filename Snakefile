@@ -174,6 +174,7 @@ rule build_plots:
         basesize=build_plots_config.get("basesize", 12),
         pvalue=build_plots_config.get("pvalue", 0.01),
         locus=build_plots_config.get("locus", []),
-        gene=build_plots_config.get("gene", [])
+        gene=build_plots_config.get("gene", []),
+        protein=build_plots_config.get("protein", [])
     script:
         "Workflow/Scripts/build_plots.R"
