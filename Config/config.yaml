@@ -1,12 +1,12 @@
 #----- miRNAs (one query FASTA per target sample, joined by key) -----#
 queries:
-  escherichia: Data/Raw/validated_escherichia.fa
-  bacteroides: Data/Raw/validated_bacteroides.fa
+  escherichia: Data/Raw/RNAs/validated_escherichia.fa
+  bacteroides: Data/Raw/RNAs/validated_bacteroides.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  escherichia: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
-  bacteroides: Data/Raw/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
+  escherichia: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+  bacteroides: Data/Raw/genomes/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
@@ -27,12 +27,6 @@ rnahybrid:
   pvalue: null
   seed: null
   distribution: null
-
-#----- Parameters for tidying outputs -----#
-tidy_rnahybrid: {}
-
-#----- Parameters for annotating outputs -----#
-annotate_rnahybrid: {}
 
 #----- Parameters for plots (optional; omit or set type: null to skip) -----#
 build_plots:

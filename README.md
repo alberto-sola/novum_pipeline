@@ -43,16 +43,16 @@ wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
 bash Miniconda3-latest-Linux-x86_64.sh
 source ~/miniconda3/bin/activate
 conda config --add channels defaults
-conda config --add channels conda-forge
 conda config --add channels bioconda
+conda config --add channels conda-forge
 conda config --set channel_priority strict
 ```
 
-Recommended channel order:
+Recommended channel order (bioconda is built on top of conda-forge, so conda-forge must have higher priority to avoid ABI mismatches):
 
 ```text
-bioconda
 conda-forge
+bioconda
 defaults
 ```
 

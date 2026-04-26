@@ -2,6 +2,7 @@ from pathlib import Path
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 
 
@@ -163,6 +164,12 @@ def validate_rnahybrid_args(species=None, distribution=None):
         raise ValueError("Either 'species' or 'distribution' must be provided for RNAhybrid.")
 
     if distribution is not None:
+        if species is not None:
+            print(
+                f"rnahybrid: both 'species' ({species!r}) and 'distribution' set; "
+                "RNAhybrid will use the static distribution and ignore species.",
+                file=sys.stderr,
+            )
         return None
 
     return species
@@ -191,12 +198,11 @@ def build_job_spec_tsv(query_paths_by_name, dist_map, chunk_paths, tsv_path):
 
 
 #----- GNU Parallel for the broadcast/uncalibrated path: same query against every chunk, optional species/static -d -----#
-def build_parallel_command_broadcast(query, chunk_paths, output_dir, species, optional_args, threads, parallel_executable, rnahybrid_executable):
+def build_parallel_command_broadcast(query, chunk_paths, output_dir, species, optional_args, threads, max_target_length, parallel_executable, rnahybrid_executable):
     species_args = []
     command = [
         parallel_executable,
         f"-j{max(1, threads)}",
-        "--load=100%"
     ]
 
     if species is not None:
@@ -215,7 +221,7 @@ def build_parallel_command_broadcast(query, chunk_paths, output_dir, species, op
             *species_args,
             "-c",
             "-m",
-            "50000",
+            str(max_target_length),
             *optional_args,
             ">",
             output_template,
@@ -231,11 +237,10 @@ def build_parallel_command_broadcast(query, chunk_paths, output_dir, species, op
 
 
 #----- GNU Parallel for the calibrated path: each line of the spec TSV is (query_path, distribution, chunk_path) -----#
-def build_parallel_command_calibrated(spec_path, output_dir, optional_args, threads, parallel_executable, rnahybrid_executable):
+def build_parallel_command_calibrated(spec_path, output_dir, optional_args, threads, max_target_length, parallel_executable, rnahybrid_executable):
     command = [
         parallel_executable,
         f"-j{max(1, threads)}",
-        "--load=100%",
         "--colsep",
         "\\t",
     ]
@@ -250,7 +255,7 @@ def build_parallel_command_calibrated(spec_path, output_dir, optional_args, thre
             "-d", "{2}",
             "-t", "{3}",
             "-c",
-            "-m", "50000",
+            "-m", str(max_target_length),
             *optional_args,
             ">",
             output_template,
@@ -273,7 +278,7 @@ def merge_output_files(output_dir, output_pattern, merged_output_path):
 
 
 #----- Runs the combined Parallel + RNAhybrid bash command -----#
-def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None, distribution=None, distribution_file=None):
+def run_rnahybrid(query, target, species, output_file, max_target_length, threads=1, hits=None, u=None, v=None, energy=None, pvalue=None, seed=None, distribution=None, distribution_file=None):
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -291,6 +296,8 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
 
         if dist_map is not None:
             # Calibrated branch: one RNAhybrid invocation per (miRNA, chunk), each with its own -d.
+            # `species` and `distribution` are intentionally ignored here — calibration provides
+            # the per-miRNA xi/theta that supersede both.
             query_paths_by_name = split_query_per_miRNA(query, tmp_dir / "queries")
             spec_path = build_job_spec_tsv(
                 query_paths_by_name=query_paths_by_name,
@@ -306,6 +313,7 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
                 output_dir=split_output_dir,
                 optional_args=optional_args,
                 threads=threads,
+                max_target_length=max_target_length,
                 parallel_executable=executables["parallel"],
                 rnahybrid_executable=executables["rnahybrid"],
             )
@@ -324,6 +332,7 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
                 species=species,
                 optional_args=optional_args,
                 threads=threads,
+                max_target_length=max_target_length,
                 parallel_executable=executables["parallel"],
                 rnahybrid_executable=executables["rnahybrid"],
             )
@@ -336,6 +345,11 @@ def run_rnahybrid(query, target, species, output_file, threads=1, hits=None, u=N
 
 
 def run_from_snakemake(snakemake):
+    # `input.calibration` is the calibration JSON path for the calibrated variant
+    # and an empty list for the uncalibrated variant — coerce the empty case to None.
+    calibration_input = getattr(snakemake.input, "calibration", None)
+    distribution_file = calibration_input if calibration_input else None
+
     run_rnahybrid(
         query=snakemake.input.query,
         target=snakemake.input.target,
@@ -349,7 +363,8 @@ def run_from_snakemake(snakemake):
         pvalue=snakemake.params.pvalue,
         seed=snakemake.params.seed,
         distribution=snakemake.params.distribution,
-        distribution_file=snakemake.params.distribution_file
+        max_target_length=snakemake.params.max_target_length,
+        distribution_file=distribution_file,
     )
 
 run_from_snakemake(snakemake)

@@ -3,9 +3,13 @@ configfile: "Config/config.yaml"
 
 #----- Populate Snakefile variables with the config file -----#
 targets             = config["targets"]
-rnacalibrate_config = config["rnacalibrate"]
-rnahybrid_config    = config["rnahybrid"]
+rnacalibrate_config = config.get("rnacalibrate", {}) or {}
+rnahybrid_config    = config.get("rnahybrid", {}) or {}
 results_dir         = config.get("results_dir", "Data/Results").rstrip("/")
+
+# RNAcalibrate's `-m` (and RNAhybrid's `-m`) both govern the maximum target length;
+# they must agree, so a single value is shared by both rules.
+max_target_length   = rnacalibrate_config.get("max_target_length", 50000)
 
 #----- Per-sample query lookup: `queries:` mapping (keys must match `targets:`),
 #      with single `query: <path>` accepted as a legacy broadcast across all targets.
@@ -90,9 +94,9 @@ rule rnacalibrate:
     conda:
         "Workflow/Envs/rnahybrid.yaml"
     params:
-        k=rnacalibrate_config.get("k", 5000),
-        max_target_length=rnacalibrate_config.get("max_target_length", 50000),
-        randomize_targets=rnacalibrate_config.get("randomize_targets", rnacalibrate_config.get("use_target_distribution", False)),
+        k=rnacalibrate_config.get("k", 10000),
+        max_target_length=max_target_length,
+        randomize_targets=rnacalibrate_config.get("randomize_targets", False),
         u=rnahybrid_config.get("u"),
         v=rnahybrid_config.get("v"),
         seed=rnahybrid_config.get("seed")
@@ -118,7 +122,7 @@ rule rnahybrid:
         pvalue=rnahybrid_config.get("pvalue"),
         seed=rnahybrid_config.get("seed"),
         distribution=rnahybrid_config.get("distribution"),
-        distribution_file=lambda wc, input: input.calibration if input.calibration else None
+        max_target_length=max_target_length
     threads:
         int(rnahybrid_config.get("threads", 1))
     script:

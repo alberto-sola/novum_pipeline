@@ -1,7 +1,7 @@
 name: rnahybrid
 channels:
-  - bioconda
   - conda-forge
+  - bioconda
   - defaults
 dependencies:
   - python=3.11

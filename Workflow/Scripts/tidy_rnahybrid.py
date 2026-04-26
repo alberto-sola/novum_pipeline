@@ -28,6 +28,11 @@ def tidy_rnahybrid(input_path, output_path):
     df["Energy"]      = df["Energy"].astype(float)
     df["P_value"]     = df["P_value"].astype(float)
     df["Gene_length"] = df["Gene_length"].astype(int)
+
+    if (df["Gene_length"] <= 0).any():
+        bad = df.loc[df["Gene_length"] <= 0, "Gene"].tolist()
+        raise ValueError(f"Non-positive Gene_length in RNAhybrid output for: {bad}")
+
     df["Position"]    = df["Position"].astype(float) / df["Gene_length"]
 
     df = df.sort_values("Energy", kind="stable")[OUTPUT_COLUMNS]

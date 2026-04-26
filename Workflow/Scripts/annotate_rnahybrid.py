@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import sys
 import pandas as pd
 
 
@@ -35,8 +36,14 @@ def parse_fasta_annotations(fasta_path):
                 }
             )
 
-    annotations = pd.DataFrame(records).drop_duplicates(subset=["Gene"])
-    # annotations["display_name"] = (annotations["gene_name"].fillna(annotations["locus_tag"]).fillna(annotations["protein_name"]))
+    annotations = pd.DataFrame(records)
+    duplicates = annotations.duplicated(subset=["Gene"]).sum()
+    if duplicates:
+        print(
+            f"annotate_rnahybrid: dropped {duplicates} duplicate Gene row(s) from FASTA annotations.",
+            file=sys.stderr,
+        )
+    annotations = annotations.drop_duplicates(subset=["Gene"])
 
     return annotations
 
@@ -48,28 +55,19 @@ def annotate_results(tidy_csv_path, fasta_path, output_path):
 
     annotated = tidy.merge(annotations, on="Gene", how="left")
 
-    # Insert annotations after the P_value variable
-    fasta_columns = [column for column in annotations.columns if column != "Gene"]
     insert_after = "P_value"
-    ordered_columns = []
+    if insert_after not in tidy.columns:
+        raise ValueError(f"tidy CSV is missing required column {insert_after!r}")
 
+    # Insert annotations after the P_value column.
+    fasta_columns = [column for column in annotations.columns if column != "Gene"]
+    ordered_columns = []
     for column in tidy.columns:
         ordered_columns.append(column)
         if column == insert_after:
             ordered_columns.extend(fasta_columns)
 
-    # Fallback for unexpected input schemas where P_value is absent.
-    if insert_after not in tidy.columns:
-        ordered_columns = list(tidy.columns) + fasta_columns
-
     annotated = annotated[ordered_columns]
-
-    #----- If the fallback variable/column is empty, then say it -----#
-    # unmatched_rows = annotated["display_name"].isna().sum()
-    # if unmatched_rows:
-    #     print(
-    #         f"Warning: {unmatched_rows} result row(s) could not be matched to FASTA annotations."
-    #     )
 
     output_path = Path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)

@@ -7,7 +7,7 @@ from pathlib import Path
 
 #----- Launches a message error if RNAcalibrate is not installed -----#
 def ensure_dependency():
-    executable = shutil.which("RNAcalibrate")
+    executable = shutil.which("RNAcalibrate") or shutil.which("rnacalibrate")
     if executable is None:
         raise RuntimeError("Required executable not found in PATH: RNAcalibrate")
     return executable
@@ -69,8 +69,7 @@ def build_length_arg(stats):
 
 
 #----- Builds the RNAcalibrate bash command -----#
-def build_command(executable, query, target, k, max_target_length, stats, randomize_targets=False, u=None, v=None, seed=None):
-    length_arg = build_length_arg(stats)
+def build_command(executable, query, target, k, max_target_length, length_arg, randomize_targets=False, u=None, v=None, seed=None):
     command = [
         executable,
         "-k",
@@ -106,8 +105,11 @@ def parse_rnacalibrate_output(stdout):
             continue
 
         fields = line.split()
-        if len(fields) < 4:
-            raise RuntimeError(f"Unexpected RNAcalibrate output line: {raw_line}")
+        if len(fields) != 4:
+            raise RuntimeError(
+                "Unexpected RNAcalibrate output: expected 4 columns "
+                f"(query, sample_size, xi, theta), got {len(fields)} in line: {raw_line!r}"
+            )
 
         query_name = fields[0]
         sample_size = int(fields[1])
@@ -144,7 +146,7 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
         target=target,
         k=k,
         max_target_length=max_target_length,
-        stats=stats,
+        length_arg=length_arg,
         randomize_targets=randomize_targets,
         u=u,
         v=v,
@@ -164,8 +166,7 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
             "target_length_stats": stats,
             "target_length_argument": length_arg,
             "calibration": parsed_output,
-            "raw_stdout": completed.stdout
-            }, indent=2) + "\n"
+        }, indent=2) + "\n"
     )
 
 
