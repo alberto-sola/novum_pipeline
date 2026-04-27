@@ -274,16 +274,17 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .nullable .name em {
   color: var(--fg-4); font-style: normal; font-weight: 400;
 }
-.nullable .auto-tag {
+.auto-tag {
   font-size: 10.5px;
   font-family: var(--font-mono);
   color: var(--fg-4);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
+.auto-tag.locked { color: var(--warn); }
 .nullable.on .auto-tag { color: var(--accent-ink); }
 .nullable input { height: 30px; font-size: 12.5px; }
-.nullable .ghost-input {
+.ghost-input {
   height: 30px;
   display: flex;
   align-items: center;
@@ -456,7 +457,8 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .yaml-panel .y-bool { color: rgb(241, 158, 151); }
 .yaml-panel .y-num { color: rgb(244, 181, 129); }
 
-.nullable.locked {
+.nullable.locked,
+.field.locked {
   background: repeating-linear-gradient(
     45deg,
     var(--bg-2),
@@ -465,6 +467,11 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     var(--surface-2) 12px
   );
   opacity: 0.85;
+}
+.field.locked {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
 }
 .nullable.locked .auto-tag { color: var(--warn); }
 

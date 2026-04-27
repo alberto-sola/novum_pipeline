@@ -403,17 +403,31 @@ function RNAHybridSection({ cfg, setCfg }) {
               onChange={(e) => set({ threads: Number(e.target.value) })}
             />
           </Field>
-          <Field label="Species model" hint="3′UTR distribution">
-            <select
-              className="select"
-              value={r.species}
-              onChange={(e) => set({ species: e.target.value })}
-            >
-              {window.SPECIES_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </Field>
+          <div className={`field ${distLocked ? "locked" : ""}`}>
+            <div className="field-label">
+              <span>Species model</span>
+              {distLocked ? (
+                <span className="auto-tag locked">LOCKED · overridden</span>
+              ) : (
+                <span className="hint">3′UTR distribution</span>
+              )}
+            </div>
+            {distLocked ? (
+              <div className="ghost-input">
+                overridden · distribution is provided by RNAcalibrate
+              </div>
+            ) : (
+              <select
+                className="select"
+                value={r.species}
+                onChange={(e) => set({ species: e.target.value })}
+              >
+                {window.SPECIES_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            )}
+          </div>
         </div>
 
         <div>
@@ -443,7 +457,7 @@ function RNAHybridSection({ cfg, setCfg }) {
                 value={r.distribution}
                 onChange={(v) => setF("distribution", v)}
                 forcedNull={distLocked}
-                forcedNullHint="null · distribution is provided by RNAcalibrate (mode: calibrated / both)"
+                forcedNullHint="null · distribution is provided by RNAcalibrate"
               />
             </div>
           </div>
