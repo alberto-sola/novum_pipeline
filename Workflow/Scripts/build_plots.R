@@ -92,11 +92,11 @@ facet_labels <- as_labeller(c(
 
 #----- Plot builders -----#
 plot_pvalue_distribution <- function() {
-  # Auto Y-axis cut: ceiling(max per-facet density y-max * 1.05)
   dens <- merged |>
     group_by(Calibration) |>
     summarise(ymax = max(density(P_value, na.rm = TRUE)$y), .groups = "drop")
-  ycut <- ceiling(max(dens$ymax) * 1.05)
+  ycut     <- ceiling(min(dens$ymax) * 3.5)
+  ynatural <- ceiling(max(dens$ymax) * 1.05)
 
   ggplot(merged, aes(x = P_value)) +
     geom_density(color = "black", fill = "#d1d1d1") +
@@ -110,7 +110,7 @@ plot_pvalue_distribution <- function() {
     facet_wrap(~Calibration, labeller = facet_labels) +
     labs(
       x = "p-value", y = "Density",
-      title = sprintf("Distribution of p-values (Y-axis %d)", ycut)
+      title = sprintf("Distribution of p-values (uncut Y-axis: %d)", ynatural)
     ) +
     theme_bw(base_size = basesize) +
     theme(strip.placement = "outside")
@@ -140,10 +140,6 @@ plot_position_pvalue <- function() {
 }
 
 plot_position_energy <- function() {
-  # Energy is independent of p-value calibration: same alignments → same (Position,
-  # Energy) regardless of variant. Pick a single Calibration to avoid plotting each
-  # point twice. The "facet_label" trick (legacy arranger.R) keeps the strip header
-  # for visual consistency with the other plots.
   pick <- if (any(merged$Calibration == "calibrated")) "calibrated" else "uncalibrated"
   base_data <- merged |>
     filter(Calibration == pick) |>
@@ -201,13 +197,13 @@ plots <- lapply(selected, function(name) plot_builders[[name]]())
 
 
 #----- Compose & save -----#
-# Page width: 8 in (single), 16 in (double), 18 in (triple = legacy "all").
+# Page width: 9.5 in (single), 16 in (double), 18 in (triple = legacy "all").
 # Layout widths: equal for the 2-plot case; (2, 2, 1) for the 3-plot case to
 # preserve the legacy arranger.R aesthetic where position_energy is narrower.
 n <- length(plots)
 if (n == 1) {
   combined  <- plots[[1]]
-  out_width <- 8
+  out_width <- 9.5
 } else {
   layout_widths <- if (n == 3) c(2, 2, 1) else rep(1, n)
   out_width     <- if (n == 2) 16 else 18

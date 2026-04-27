@@ -32,7 +32,7 @@ rnahybrid:
 build_plots:
   # pvalue_distribution | position_pvalue | position_energy | all
   # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
-  type: all
+  type: position_pvalue,pvalue_distribution
   basesize: 12
   pvalue: 0.01
   # entry,miRNA
