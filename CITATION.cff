@@ -9,22 +9,21 @@ authors:
     family-names: Sola
     email: albertosola2002@gmail.com
     affiliation: Università degli Studi di Torino (UniTo)
-identifiers:
-  - type: doi
-    value: 10.1093/nar/gkl243
-    description: RNAhybrid official paper
-  - type: doi
-    value: 10.5281/zenodo.16303
-    description: GNU Parallel official paper
-  - type: url
-    value: 'http://www.gnu.org/s/parallel'
-    description: GNU Parallel official website
-repository-code: 'https://github.com/alberto-sola/novum_pipeline'
+repository-code: "https://github.com/alberto-sola/novum_pipeline"
+license: MIT
 abstract: >-
-  Minimal Snakemake workflow for optionally calibrating
-  RNAhybrid statistics with RNAcalibrate, then running
-  RNAhybrid on miRNA queries against bacterial coding
-  sequences, tidying the output, and annotating the hits.
+  Snakemake workflow for predicting miRNA targets in
+  bacterial coding sequences with RNAhybrid. Optionally
+  calibrates RNAhybrid's extreme-value statistics per
+  miRNA via RNAcalibrate, so each query is scored against
+  its own null distribution rather than a single species
+  default. RNAhybrid is parallelised across (miRNA × target
+  chunk) pairs with GNU Parallel; the raw output is tidied,
+  annotated with FASTA-derived gene/locus/protein metadata,
+  rendered as human-readable alignment summaries, and
+  optionally plotted with ggplot2. A bundled PyWebView GUI
+  provides a no-CLI interface for editing the config and
+  launching runs.
 keywords:
   - snakemake
   - pipeline
@@ -34,3 +33,30 @@ keywords:
   - bacteria
   - python
   - tidyverse
+
+references:
+  - type: article
+    title: "RNAhybrid: microRNA target prediction easy, fast and flexible"
+    authors:
+      - family-names: Krüger
+        given-names: Jan
+      - family-names: Rehmsmeier
+        given-names: Marc
+    journal: Nucleic Acids Research
+    volume: 34
+    issue: "Web Server issue"
+    start: W451
+    end: W454
+    year: 2006
+    doi: 10.1093/nar/gkl243
+
+  - type: software
+    title: GNU Parallel
+    authors:
+      - family-names: Tange
+        given-names: Ole
+    year: 2023
+    month: 11
+    version: "20231122"
+    doi: 10.5281/zenodo.10199085
+    url: "https://www.gnu.org/software/parallel/"

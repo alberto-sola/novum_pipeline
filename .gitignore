@@ -12,6 +12,7 @@ conda-env/
 # Models
 .codex
 .claude
+CLAUDE.md
 
 # IDE
 .idea/
@@ -22,6 +23,8 @@ conda-env/
 Thumbs.db
 
 Data/*
+graphify-out
+.graphifyignore
 
 # Files
 *.tsv
