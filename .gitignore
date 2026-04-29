@@ -1,12 +1,4 @@
-# Python
-__pycache__/
-*.pyc
-
 # Environments
-.env/
-venv/
-conda-env/
-*.egg-info/
 .snakemake/
 
 # Models
@@ -18,16 +10,7 @@ CLAUDE.md
 .idea/
 .vscode/
 
-# OS
-.DS_Store
-Thumbs.db
-
 Data/*
 graphify-out
 .graphifyignore
-
-# Files
-*.tsv
-*.csv
-*.txt
-*.log
+sequence-parse
