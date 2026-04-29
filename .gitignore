@@ -13,4 +13,4 @@ CLAUDE.md
 Data/*
 graphify-out
 .graphifyignore
-sequence-parse
+data-prep/genomes/
