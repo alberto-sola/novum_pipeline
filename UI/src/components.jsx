@@ -38,6 +38,12 @@ function Field({ label, hint, children }) {
   );
 }
 
+// Browser-preview fallback when no native file picker is available — used by
+// PathInput (single path) and KeyedFileRow's free-form mode.
+function promptBrowse(current, placeholder, label = "Select…") {
+  return prompt(`${label} (simulated)`, current || placeholder || "");
+}
+
 function PathInput({ value, onChange, placeholder, mono = true }) {
   return (
     <div className="field-row">
@@ -52,8 +58,7 @@ function PathInput({ value, onChange, placeholder, mono = true }) {
         className="btn"
         type="button"
         onClick={() => {
-          // simulated native browse — picks a plausible path
-          const pick = prompt("Select folder (simulated)", value || placeholder || "");
+          const pick = promptBrowse(value, placeholder, "Select folder");
           if (pick != null) onChange(pick);
         }}
         title="Browse…"
@@ -62,6 +67,26 @@ function PathInput({ value, onChange, placeholder, mono = true }) {
       </button>
     </div>
   );
+}
+
+// Plain helper (no React state) — generates the add/update/remove closures
+// every list-edit section needs. `minLength` keeps a section from emptying
+// itself below a sentinel (queries/targets require at least one row).
+function useListEditor(items, setItems, makeItem, minLength = 0) {
+  return {
+    add: () => setItems([...items, makeItem()]),
+    update: (idx, patch) => {
+      const copy = items.slice();
+      copy[idx] = { ...copy[idx], ...patch };
+      setItems(copy);
+    },
+    remove: (idx) => {
+      if (items.length <= minLength) return;
+      const copy = items.slice();
+      copy.splice(idx, 1);
+      setItems(copy);
+    },
+  };
 }
 
 // --- launcher bridge ---------------------------------------------
@@ -94,9 +119,8 @@ function useApiList(method) {
       return () => { cancelled = true; };
     }
 
-    // PyWebView fires this once the bridge is wired up.
     const onReady = () => fetchOnce();
-    window.addEventListener("pywebviewready", onReady, { once: true });
+    window.addEventListener("pywebviewready", onReady);
 
     // Browser-preview safety net: if the bridge never appears, fall back.
     const timeoutId = setTimeout(() => {
@@ -114,6 +138,82 @@ function useApiList(method) {
   }, [method]);
 
   return { items, hasApi };
+}
+
+// --- keyed file/path row -----------------------------------------
+
+// One row used by both Queries and Targets. When `items` is provided
+// (an array, possibly empty, or null while loading) it renders the
+// launcher-driven dropdown picker; otherwise it falls back to a free-form
+// path input + simulated browse for browser previews.
+function KeyedFileRow({
+  keyVal, pathVal, onKey, onPath, onRemove, canRemove,
+  placeholderKey, placeholderPath, items, emptyHint,
+}) {
+  const usePicker = items !== undefined;
+  const cols = usePicker ? "180px 1fr auto" : "180px 1fr auto auto";
+  const loading = items === null;
+  const empty = usePicker && !loading && items.length === 0;
+
+  return (
+    <div style={{ display: "grid", gridTemplateColumns: cols, gap: 8, alignItems: "center" }}>
+      <input
+        className="input mono"
+        value={keyVal}
+        placeholder={placeholderKey}
+        onChange={(e) => onKey(e.target.value)}
+        aria-label="Key"
+      />
+      {usePicker ? (
+        <select
+          className="select"
+          value={pathVal || ""}
+          onChange={(e) => onPath(e.target.value)}
+          disabled={loading || empty}
+          aria-label="File"
+        >
+          <option value="" disabled>
+            {loading ? "Loading…" : empty ? (emptyHint || "No files") : "— select a file —"}
+          </option>
+          {!loading && !empty && items.map((f) => (
+            <option key={f.path} value={f.path}>{f.name}</option>
+          ))}
+        </select>
+      ) : (
+        <input
+          className="input mono"
+          value={pathVal}
+          placeholder={placeholderPath}
+          onChange={(e) => onPath(e.target.value)}
+          spellCheck={false}
+          aria-label="Path"
+        />
+      )}
+      {!usePicker && (
+        <button
+          className="btn sm"
+          type="button"
+          onClick={() => {
+            const pick = promptBrowse(pathVal, placeholderPath, "Select file");
+            if (pick != null) onPath(pick);
+          }}
+          title="Browse…"
+          aria-label="Browse…"
+        >
+          <FolderIcon />
+        </button>
+      )}
+      <button
+        className="btn sm danger-ghost"
+        onClick={onRemove}
+        disabled={!canRemove}
+        title="Remove"
+        aria-label="Remove"
+      >
+        <TrashIcon />
+      </button>
+    </div>
+  );
 }
 
 // --- icons --------------------------------------------------------
@@ -218,7 +318,7 @@ function NullableField({
 
 // export to window for other scripts
 Object.assign(window, {
-  Toggle, Check, Field, PathInput,
+  Toggle, Check, Field, PathInput, KeyedFileRow,
   FolderIcon, PlusIcon, TrashIcon, CodeIcon, PlayIcon, SaveIcon, SunIcon, MoonIcon, CopyIcon,
-  NullableField, useApiList
+  NullableField, useApiList, useListEditor, promptBrowse,
 });

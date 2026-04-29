@@ -17,7 +17,15 @@ window.PLOT_TYPES = [
   { value: "position_energy",     label: "position × energy" }
 ];
 
-// canonical initial state — queries/targets populated from the launcher's dropdowns
+window.RNAHYBRID_NULLABLE_KEYS = ["hits", "u", "v", "energy", "pvalue", "seed", "distribution"];
+
+// `distribution` is supplied by RNAcalibrate whenever calibration is part of the run,
+// so the RNAhybrid form forces it null in any mode other than uncalibrated.
+window.isDistributionForced = (cfg) => cfg.rnacalibrate.mode !== "uncalibrated";
+
+// canonical initial state — queries/targets populated from the launcher's dropdowns.
+// Plots are toggled by the size of `build_plots.types`: an empty list serializes to
+// `type: null` (skip), any selection emits the full plot block.
 window.INITIAL_CONFIG = {
   queries: [],
   targets: [],
@@ -39,8 +47,7 @@ window.INITIAL_CONFIG = {
     distribution: { set: false, a: 0, b: 1 }
   },
   build_plots: {
-    enabled: true,
-    types: ["pvalue_distribution", "position_pvalue", "position_energy"], // "all" when all selected
+    types: window.PLOT_TYPES.map((p) => p.value),
     basesize: 12,
     pvalue: 0.01,
     locus: [

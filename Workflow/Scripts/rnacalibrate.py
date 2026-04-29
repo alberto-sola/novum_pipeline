@@ -5,15 +5,16 @@ import subprocess
 from pathlib import Path
 
 
-#----- Launches a message error if RNAcalibrate is not installed -----#
-def ensure_dependency():
-    executable = shutil.which("RNAcalibrate") or shutil.which("rnacalibrate")
-    if executable is None:
-        raise RuntimeError("Required executable not found in PATH: RNAcalibrate")
-    return executable
+#----- Resolves a required executable from PATH, trying each candidate name in order -----#
+def which_required(*candidates, label=None):
+    for name in candidates:
+        path = shutil.which(name)
+        if path is not None:
+            return path
+    raise RuntimeError(f"Required executable not found in PATH: {label or candidates[0]}")
 
 
-#----- Counts nucleotides after each FASTA ">" annotation -----#
+#----- Yields the nucleotide length of every FASTA record in the file -----#
 def iter_fasta_lengths(path):
     current_length = 0
 
@@ -35,13 +36,12 @@ def iter_fasta_lengths(path):
         yield current_length
 
 
-#----- Calculates mean of length and standard deviation of the annotations in the target FASTA file -----#
+#----- Mean and population stdev of the target FASTA's record lengths (the input to RNAcalibrate's `-l`) -----#
 def compute_target_length_stats(target_file):
     lengths = list(iter_fasta_lengths(target_file))
     if not lengths:
         raise RuntimeError(f"No FASTA records found in target file: {target_file}")
 
-    # Total sum of nucleotides divided by how many lengths (annotations) there are
     mean_length = sum(lengths) / len(lengths)
     if len(lengths) == 1:
         std_length = 0.0
@@ -49,18 +49,13 @@ def compute_target_length_stats(target_file):
         variance = sum((length - mean_length) ** 2 for length in lengths) / len(lengths)
         std_length = math.sqrt(variance)
 
-    return {
-        "count": len(lengths),
-        "mean": mean_length,
-        "std": std_length,
-    }
+    return {"count": len(lengths), "mean": mean_length, "std": std_length}
 
 
-#----- Rounds mean and std values and return them in the <x>,<y> format -----#
+#----- Rounds the (mean, std) pair to ints and formats them as RNAcalibrate's "<mean>,<std>" -l argument -----#
 def build_length_arg(stats):
     mean_length = int(round(stats["mean"]))
     std_length = int(round(stats["std"]))
-
     return {
         "mean": mean_length,
         "std": std_length,
@@ -68,7 +63,7 @@ def build_length_arg(stats):
     }
 
 
-#----- Builds the RNAcalibrate bash command -----#
+#----- Assembles the RNAcalibrate command line; optional flags (u, v, seed, randomize) are appended only if set -----#
 def build_command(executable, query, target, k, max_target_length, length_arg, randomize_targets=False, u=None, v=None, seed=None):
     command = [
         executable,
@@ -95,7 +90,7 @@ def build_command(executable, query, target, k, max_target_length, length_arg, r
     return command
 
 
-#----- Parses the calibration values from the RNAcalibrate bash output and returns a dictionary of per-query values -----#
+#----- Parses the four-column RNAcalibrate stdout into one xi/theta record per query miRNA -----#
 def parse_rnacalibrate_output(stdout):
     per_query = []
 
@@ -111,33 +106,29 @@ def parse_rnacalibrate_output(stdout):
                 f"(query, sample_size, xi, theta), got {len(fields)} in line: {raw_line!r}"
             )
 
-        query_name = fields[0]
-        sample_size = int(fields[1])
         xi = float(fields[2])
         theta = float(fields[3])
-
-        # Launches an error message is NaN is output
+        # NaN sneaks in when RNAcalibrate's sample is degenerate; refuse to
+        # let it poison the downstream RNAhybrid -d argument.
         if math.isnan(xi) or math.isnan(theta):
             raise RuntimeError(f"RNAcalibrate produced NaN parameters: {raw_line}")
 
-        per_query.append(
-            {
-                "query": query_name,
-                "sample_size": sample_size,
-                "xi": xi,
-                "theta": theta,
-            }
-        )
-    # Launches an error message if RNAcalibrate output is empty
+        per_query.append({
+            "query": fields[0],
+            "sample_size": int(fields[1]),
+            "xi": xi,
+            "theta": theta,
+        })
+
     if not per_query:
         raise RuntimeError("RNAcalibrate did not produce any calibration rows.")
 
     return {"per_query": per_query}
 
 
-#----- Runs RNAcalibrate and craft a JSON file -----#
+#----- Top-level driver: stat the target FASTA, run RNAcalibrate, persist command + result as JSON -----#
 def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize_targets=False, u=None, v=None, seed=None):
-    executable = ensure_dependency()
+    executable = which_required("RNAcalibrate", "rnacalibrate", label="RNAcalibrate")
     stats = compute_target_length_stats(target)
     length_arg = build_length_arg(stats)
     command = build_command(
@@ -153,11 +144,9 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
         seed=seed,
     )
 
-    # Here RNAcalibrate is run and the output is stored
     completed = subprocess.run(command, check=True, capture_output=True, text=True)
     parsed_output = parse_rnacalibrate_output(completed.stdout)
 
-    # Craft a JSON file containing metadata of RNAcalibrate command + per-query distribution values
     output_path = Path(output_file)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     output_path.write_text(json.dumps(

@@ -7,21 +7,21 @@ suppressPackageStartupMessages({
 
 
 #----- Parameters from snakemake@params -----#
-plot_type     <- snakemake@params$type
-basesize      <- as.integer(snakemake@params$basesize %||% 12)
-pvalue_cutoff <- as.numeric(snakemake@params$pvalue   %||% 0.01)
-locus_tags    <- snakemake@params$locus   %||% character(0)
-gene_names    <- snakemake@params$gene    %||% character(0)
-protein_names <- snakemake@params$protein %||% character(0)
+plot_type      <- snakemake@params$type
+basesize       <- as.integer(snakemake@params$basesize %||% 12)
+pvalue_cutoff  <- as.numeric(snakemake@params$pvalue   %||% 0.01)
+locus_tags     <- snakemake@params$locus   %||% character(0)
+gene_names     <- snakemake@params$gene    %||% character(0)
+protein_names  <- snakemake@params$protein %||% character(0)
+variant_labels <- snakemake@params$variant_labels
 
 
-#----- Read each variant CSV, tag with a Calibration column based on its path -----#
-read_one <- function(path) {
-  variant <- if (grepl("/w_calibration/", path, fixed = TRUE)) "calibrated" else "uncalibrated"
-  read_csv(path, show_col_types = FALSE) |> mutate(Calibration = variant)
+#----- Read each variant CSV, tagging it with the label provided by Snakemake -----#
+read_one <- function(path, label) {
+  read_csv(path, show_col_types = FALSE) |> mutate(Calibration = label)
 }
 
-merged <- map(snakemake@input$annotated, read_one) |>
+merged <- map2(snakemake@input$annotated, variant_labels, read_one) |>
   bind_rows() |>
   mutate(Calibration = factor(Calibration, levels = c("uncalibrated", "calibrated")))
 

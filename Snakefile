@@ -6,9 +6,6 @@ targets             = config["targets"]
 rnacalibrate_config = config.get("rnacalibrate", {}) or {}
 rnahybrid_config    = config.get("rnahybrid", {}) or {}
 results_dir         = config.get("results_dir", "Data/Results").rstrip("/")
-
-# RNAcalibrate's `-m` (and RNAhybrid's `-m`) both govern the maximum target length;
-# they must agree, so a single value is shared by both rules.
 max_target_length   = rnacalibrate_config.get("max_target_length", 50000)
 
 #----- Per-sample query lookup: `queries:` mapping (keys must match `targets:`),
@@ -35,15 +32,17 @@ queries = _resolve_queries(config, targets.keys())
 build_plots_config  = config.get("build_plots", {}) or {}
 build_plots_type    = build_plots_config.get("type")
 build_plots_enabled = build_plots_type is not None
-# Filename-safe slug: commas become hyphens (commas in filenames are ugly and
-# break a lot of shell quoting). Spaces stripped for the same reason.
 build_plots_slug    = (build_plots_type or "none").replace(",", "-").replace(" ", "")
 
 #----- Resolve which variants to produce -----#
+W_CALIBRATION  = "w_calibration"
+WO_CALIBRATION = "wo_calibration"
+VARIANT_LABELS = {W_CALIBRATION: "calibrated", WO_CALIBRATION: "uncalibrated"}
+
 _MODE_TO_VARIANTS = {
-    "calibrated":   ["w_calibration"],
-    "uncalibrated": ["wo_calibration"],
-    "both":         ["w_calibration", "wo_calibration"],
+    "calibrated":   [W_CALIBRATION],
+    "uncalibrated": [WO_CALIBRATION],
+    "both":         [W_CALIBRATION, WO_CALIBRATION],
 }
 
 def _resolve_mode(cfg):
@@ -62,12 +61,12 @@ variants = _MODE_TO_VARIANTS[_resolve_mode(rnacalibrate_config)]
 
 
 wildcard_constraints:
-    variant = r"w_calibration|wo_calibration"
+    variant = f"{W_CALIBRATION}|{WO_CALIBRATION}"
 
 
 def calibration_input(wc):
-    if wc.variant == "w_calibration":
-        return f"{results_dir}/{wc.sample}/w_calibration/rnacalibrate.json"
+    if wc.variant == W_CALIBRATION:
+        return f"{results_dir}/{wc.sample}/{W_CALIBRATION}/rnacalibrate.json"
     return []
 
 
@@ -90,7 +89,7 @@ rule rnacalibrate:
         query=lambda wc: queries[wc.sample],
         target=lambda wc: targets[wc.sample]
     output:
-        calibration=f"{results_dir}" + "/{sample}/w_calibration/rnacalibrate.json"
+        calibration=f"{results_dir}" + "/{sample}/" + W_CALIBRATION + "/rnacalibrate.json"
     conda:
         "Workflow/Envs/rnahybrid.yaml"
     params:
@@ -179,6 +178,7 @@ rule build_plots:
         pvalue=build_plots_config.get("pvalue", 0.01),
         locus=build_plots_config.get("locus", []),
         gene=build_plots_config.get("gene", []),
-        protein=build_plots_config.get("protein", [])
+        protein=build_plots_config.get("protein", []),
+        variant_labels=[VARIANT_LABELS[v] for v in variants]
     script:
         "Workflow/Scripts/build_plots.R"

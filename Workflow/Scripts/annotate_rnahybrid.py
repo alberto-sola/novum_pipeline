@@ -4,12 +4,12 @@ import sys
 import pandas as pd
 
 
-# This regex extracts key/value pairs from FASTA headers such as:
+# Extracts key/value pairs from FASTA headers like:
 # [gene=thrL] [locus_tag=b0001] [protein=thr operon leader peptide]
 FIELD_RE = re.compile(r"\[([^=\]]+)=([^\]]*)\]")
 
 
-#----- Takes metadata from the FASTA target genome and returns them as list -----#
+#----- Pulls gene/locus/protein metadata out of FASTA headers and returns one deduped row per Gene -----#
 def parse_fasta_annotations(fasta_path):
     records = []
 
@@ -19,22 +19,17 @@ def parse_fasta_annotations(fasta_path):
                 continue
 
             header = line[1:].strip()
-            # Keep the exact leading FASTA identifier as the join key.
+            # The leading FASTA identifier is the join key.
             gene_id = header.split(" [", 1)[0]
-
-            # re.findall() returns all [key=value] matches in the header.
-            # Converting that list of tuples into a dict makes the fields easy to access.
             fields = dict(FIELD_RE.findall(header))
 
-            records.append(
-                {
-                    "Gene": gene_id,
-                    "gene_name": fields.get("gene"),
-                    "locus_tag": fields.get("locus_tag"),
-                    "protein_name": fields.get("protein") or fields.get("product"),
-                    "protein_id": fields.get("protein_id"),
-                }
-            )
+            records.append({
+                "Gene": gene_id,
+                "gene_name": fields.get("gene"),
+                "locus_tag": fields.get("locus_tag"),
+                "protein_name": fields.get("protein") or fields.get("product"),
+                "protein_id": fields.get("protein_id"),
+            })
 
     annotations = pd.DataFrame(records)
     duplicates = annotations.duplicated(subset=["Gene"]).sum()
@@ -48,7 +43,7 @@ def parse_fasta_annotations(fasta_path):
     return annotations
 
 
-#----- Adds metadata to the table -----#
+#----- Left-joins the FASTA annotations onto the tidy RNAhybrid table, inserting them right after the P_value column -----#
 def annotate_results(tidy_csv_path, fasta_path, output_path):
     tidy = pd.read_csv(tidy_csv_path)
     annotations = parse_fasta_annotations(fasta_path)

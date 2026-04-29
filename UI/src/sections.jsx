@@ -1,7 +1,5 @@
 // Novum Pipeline — section UIs
 
-const { useState: _useState } = React;
-
 function SectionCard({ num, title, sub, anchor, children, right }) {
   return (
     <section className="card" data-anchor={anchor}>
@@ -17,104 +15,15 @@ function SectionCard({ num, title, sub, anchor, children, right }) {
   );
 }
 
-// Picker row backed by an items list from the launcher: key + filename dropdown + trash.
-// `items` is null (loading), [] (empty / no files), or an array of { name, path }.
-function KeyFilePickerRow({ keyVal, pathVal, items, onKey, onPath, onRemove, canRemove, placeholderKey, emptyHint }) {
-  const loading = items === null;
-  const empty = !loading && items.length === 0;
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8, alignItems: "center" }}>
-      <input
-        className="input mono"
-        value={keyVal}
-        placeholder={placeholderKey}
-        onChange={(e) => onKey(e.target.value)}
-        aria-label="Key"
-      />
-      <select
-        className="select"
-        value={pathVal || ""}
-        onChange={(e) => onPath(e.target.value)}
-        disabled={loading || empty}
-        aria-label="File"
-      >
-        <option value="" disabled>
-          {loading ? "Loading…" : empty ? (emptyHint || "No files") : "— select a file —"}
-        </option>
-        {!loading && !empty && items.map((f) => (
-          <option key={f.path} value={f.path}>{f.name}</option>
-        ))}
-      </select>
-      <button
-        className="btn sm danger-ghost"
-        onClick={onRemove}
-        disabled={!canRemove}
-        title="Remove"
-        aria-label="Remove"
-      >
-        <TrashIcon />
-      </button>
-    </div>
-  );
-}
-
-// Browser-preview fallback row (original free-form path input + simulated browse).
-function KeyPathRow({ keyVal, pathVal, onKey, onPath, onRemove, canRemove, placeholderKey, placeholderPath }) {
-  return (
-    <div style={{ display: "grid", gridTemplateColumns: "180px 1fr auto auto", gap: 8, alignItems: "center" }}>
-      <input
-        className="input mono"
-        value={keyVal}
-        placeholder={placeholderKey}
-        onChange={(e) => onKey(e.target.value)}
-        aria-label="Key"
-      />
-      <input
-        className="input mono"
-        value={pathVal}
-        placeholder={placeholderPath}
-        onChange={(e) => onPath(e.target.value)}
-        spellCheck={false}
-        aria-label="Path"
-      />
-      <button className="btn sm" type="button" onClick={() => {
-        const pick = prompt("Select file (simulated)", pathVal || placeholderPath || "");
-        if (pick != null) onPath(pick);
-      }} title="Browse…" aria-label="Browse…">
-        <FolderIcon />
-      </button>
-      <button
-        className="btn sm danger-ghost"
-        onClick={onRemove}
-        disabled={!canRemove}
-        title="Remove"
-        aria-label="Remove"
-      >
-        <TrashIcon />
-      </button>
-    </div>
-  );
-}
-
 // 1. Queries (miRNA FASTAs, keyed)
 function QueriesSection({ cfg, setCfg }) {
   const { items, hasApi } = useApiList("list_queries");
-  const add = () => {
-    const id = "q" + Date.now().toString(36);
-    setCfg({ ...cfg, queries: [...cfg.queries, { id, key: "", path: "" }] });
-  };
-  const update = (idx, patch) => {
-    const copy = cfg.queries.slice();
-    copy[idx] = { ...copy[idx], ...patch };
-    setCfg({ ...cfg, queries: copy });
-  };
-  const remove = (idx) => {
-    if (cfg.queries.length <= 1) return;
-    const copy = cfg.queries.slice();
-    copy.splice(idx, 1);
-    setCfg({ ...cfg, queries: copy });
-  };
-
+  const { add, update, remove } = useListEditor(
+    cfg.queries,
+    (next) => setCfg({ ...cfg, queries: next }),
+    () => ({ id: "q" + Date.now().toString(36), key: "", path: "" }),
+    1,
+  );
   const cols = hasApi ? "180px 1fr auto" : "180px 1fr auto auto";
   return (
     <SectionCard
@@ -125,7 +34,7 @@ function QueriesSection({ cfg, setCfg }) {
       right={<button className="btn sm" onClick={add}><PlusIcon /> Add query</button>}
     >
       <div className="stack sm">
-        <div style={{ display: "grid", gridTemplateColumns: cols, gap: 8, fontSize: 11, color: "var(--fg-4)", letterSpacing: "0.04em", textTransform: "uppercase", fontWeight: 600, padding: "0 2px" }}>
+        <div className="eyebrow" style={{ display: "grid", gridTemplateColumns: cols, gap: 8, padding: "0 2px" }}>
           <span>Sample key</span>
           <span>{hasApi ? "Query FASTA · Data/Raw/RNAs/" : "Query FASTA path"}</span>
           <span></span>
@@ -137,32 +46,19 @@ function QueriesSection({ cfg, setCfg }) {
           </div>
         )}
         {cfg.queries.map((q, i) => (
-          hasApi ? (
-            <KeyFilePickerRow
-              key={q.id}
-              keyVal={q.key}
-              pathVal={q.path}
-              items={items}
-              onKey={(v) => update(i, { key: v })}
-              onPath={(v) => update(i, { path: v })}
-              onRemove={() => remove(i)}
-              canRemove={cfg.queries.length > 1}
-              placeholderKey="e.g. escherichia"
-              emptyHint="No files in Data/Raw/RNAs/"
-            />
-          ) : (
-            <KeyPathRow
-              key={q.id}
-              keyVal={q.key}
-              pathVal={q.path}
-              onKey={(v) => update(i, { key: v })}
-              onPath={(v) => update(i, { path: v })}
-              onRemove={() => remove(i)}
-              canRemove={cfg.queries.length > 1}
-              placeholderKey="e.g. escherichia"
-              placeholderPath="Data/Raw/RNAs/validated_*.fa"
-            />
-          )
+          <KeyedFileRow
+            key={q.id}
+            keyVal={q.key}
+            pathVal={q.path}
+            items={hasApi ? items : undefined}
+            onKey={(v) => update(i, { key: v })}
+            onPath={(v) => update(i, { path: v })}
+            onRemove={() => remove(i)}
+            canRemove={cfg.queries.length > 1}
+            placeholderKey="e.g. escherichia"
+            placeholderPath="Data/Raw/RNAs/validated_*.fa"
+            emptyHint="No files in Data/Raw/RNAs/"
+          />
         ))}
         <div style={{ fontSize: 12, color: "var(--fg-4)", paddingTop: 4 }}>
           {cfg.queries.length} quer{cfg.queries.length === 1 ? "y" : "ies"} · keys must match target keys
@@ -175,22 +71,12 @@ function QueriesSection({ cfg, setCfg }) {
 // 2. Targets — keyed (CDS / RNAs / full genomes)
 function TargetsSection({ cfg, setCfg }) {
   const { items, hasApi } = useApiList("list_targets");
-  const add = () => {
-    const id = "t" + Date.now().toString(36);
-    setCfg({ ...cfg, targets: [...cfg.targets, { id, key: "", path: "" }] });
-  };
-  const update = (idx, patch) => {
-    const copy = cfg.targets.slice();
-    copy[idx] = { ...copy[idx], ...patch };
-    setCfg({ ...cfg, targets: copy });
-  };
-  const remove = (idx) => {
-    if (cfg.targets.length <= 1) return;
-    const copy = cfg.targets.slice();
-    copy.splice(idx, 1);
-    setCfg({ ...cfg, targets: copy });
-  };
-
+  const { add, update, remove } = useListEditor(
+    cfg.targets,
+    (next) => setCfg({ ...cfg, targets: next }),
+    () => ({ id: "t" + Date.now().toString(36), key: "", path: "" }),
+    1,
+  );
   const queryKeys = cfg.queries.map((q) => q.key).filter(Boolean);
   const cols = hasApi ? "180px 1fr auto" : "180px 1fr auto auto";
   return (
@@ -202,7 +88,7 @@ function TargetsSection({ cfg, setCfg }) {
       right={<button className="btn sm" onClick={add}><PlusIcon /> Add target</button>}
     >
       <div className="stack sm">
-        <div style={{ display: "grid", gridTemplateColumns: cols, gap: 8, fontSize: 11, color: "var(--fg-4)", letterSpacing: "0.04em", textTransform: "uppercase", fontWeight: 600, padding: "0 2px" }}>
+        <div className="eyebrow" style={{ display: "grid", gridTemplateColumns: cols, gap: 8, padding: "0 2px" }}>
           <span>Sample key</span>
           <span>{hasApi ? "Target genome · Data/Raw/genomes/" : "Target genome path"}</span>
           <span></span>
@@ -215,42 +101,27 @@ function TargetsSection({ cfg, setCfg }) {
         )}
         {cfg.targets.map((t, i) => {
           const keyMatched = queryKeys.includes(t.key);
-          const matchHint = (
-            <div style={{ fontSize: 12, color: t.key && !keyMatched ? "var(--warn)" : "var(--fg-4)", padding: "2px 4px" }}>
-              {t.key
-                ? (keyMatched
-                    ? <span>✓ matches query <code style={{ fontFamily: "var(--font-mono)" }}>{t.key}</code></span>
-                    : <span>No query named <code style={{ fontFamily: "var(--font-mono)" }}>{t.key}</code></span>)
-                : <span>Enter a key shared with a query</span>}
-            </div>
-          );
           return (
             <div key={t.id} className="stack xs">
-              {hasApi ? (
-                <KeyFilePickerRow
-                  keyVal={t.key}
-                  pathVal={t.path}
-                  items={items}
-                  onKey={(v) => update(i, { key: v })}
-                  onPath={(v) => update(i, { path: v })}
-                  onRemove={() => remove(i)}
-                  canRemove={cfg.targets.length > 1}
-                  placeholderKey="e.g. escherichia"
-                  emptyHint="No files in Data/Raw/genomes/"
-                />
-              ) : (
-                <KeyPathRow
-                  keyVal={t.key}
-                  pathVal={t.path}
-                  onKey={(v) => update(i, { key: v })}
-                  onPath={(v) => update(i, { path: v })}
-                  onRemove={() => remove(i)}
-                  canRemove={cfg.targets.length > 1}
-                  placeholderKey="e.g. escherichia"
-                  placeholderPath="Data/Raw/genomes/*.fna"
-                />
-              )}
-              {matchHint}
+              <KeyedFileRow
+                keyVal={t.key}
+                pathVal={t.path}
+                items={hasApi ? items : undefined}
+                onKey={(v) => update(i, { key: v })}
+                onPath={(v) => update(i, { path: v })}
+                onRemove={() => remove(i)}
+                canRemove={cfg.targets.length > 1}
+                placeholderKey="e.g. escherichia"
+                placeholderPath="Data/Raw/genomes/*.fna"
+                emptyHint="No files in Data/Raw/genomes/"
+              />
+              <div style={{ fontSize: 12, color: t.key && !keyMatched ? "var(--warn)" : "var(--fg-4)", padding: "2px 4px" }}>
+                {t.key
+                  ? (keyMatched
+                      ? <span>✓ matches query <code style={{ fontFamily: "var(--font-mono)" }}>{t.key}</code></span>
+                      : <span>No query named <code style={{ fontFamily: "var(--font-mono)" }}>{t.key}</code></span>)
+                  : <span>Enter a key shared with a query</span>}
+              </div>
             </div>
           );
         })}
@@ -382,7 +253,7 @@ function RNAHybridSection({ cfg, setCfg }) {
   const r = cfg.rnahybrid;
   const set = (patch) => setCfg({ ...cfg, rnahybrid: { ...r, ...patch } });
   const setF = (key, next) => set({ [key]: next });
-  const distLocked = cfg.rnacalibrate.mode !== "uncalibrated";
+  const distLocked = window.isDistributionForced(cfg);
 
   return (
     <SectionCard
@@ -431,10 +302,7 @@ function RNAHybridSection({ cfg, setCfg }) {
         </div>
 
         <div>
-          <div style={{
-            fontSize: 11, fontWeight: 600, color: "var(--fg-3)",
-            letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10
-          }}>
+          <div className="eyebrow strong" style={{ marginBottom: 10 }}>
             Optional parameters — toggle to set, else null
           </div>
           <div className="grid-2">
@@ -471,24 +339,23 @@ function RNAHybridSection({ cfg, setCfg }) {
 function BuildPlotsSection({ cfg, setCfg }) {
   const bp = cfg.build_plots;
   const set = (patch) => setCfg({ ...cfg, build_plots: { ...bp, ...patch } });
+  const allPlotTypes = window.PLOT_TYPES.map((p) => p.value);
+  const enabled = bp.types.length > 0;
+  const setEnabled = (v) => set({ types: v ? allPlotTypes : [] });
   const toggleType = (val) => {
-    const has = bp.types.includes(val);
-    set({ types: has ? bp.types.filter((t) => t !== val) : [...bp.types, val] });
+    set({ types: bp.types.includes(val) ? bp.types.filter((t) => t !== val) : [...bp.types, val] });
   };
-  const addLocus = () => set({ locus: [...bp.locus, { id: "l" + Date.now().toString(36), value: "" }] });
-  const updateLocus = (i, value) => {
-    const copy = bp.locus.slice(); copy[i] = { ...copy[i], value }; set({ locus: copy });
-  };
-  const removeLocus = (i) => {
-    const copy = bp.locus.slice(); copy.splice(i, 1); set({ locus: copy });
-  };
-  const addGene = () => set({ gene: [...bp.gene, { id: "g" + Date.now().toString(36), value: "", mirna: "" }] });
-  const updateGene = (i, patch) => {
-    const copy = bp.gene.slice(); copy[i] = { ...copy[i], ...patch }; set({ gene: copy });
-  };
-  const removeGene = (i) => {
-    const copy = bp.gene.slice(); copy.splice(i, 1); set({ gene: copy });
-  };
+
+  const loci = useListEditor(
+    bp.locus,
+    (next) => set({ locus: next }),
+    () => ({ id: "l" + Date.now().toString(36), value: "" }),
+  );
+  const genes = useListEditor(
+    bp.gene,
+    (next) => set({ gene: next }),
+    () => ({ id: "g" + Date.now().toString(36), value: "", mirna: "" }),
+  );
 
   return (
     <SectionCard
@@ -498,14 +365,14 @@ function BuildPlotsSection({ cfg, setCfg }) {
       anchor="build_plots"
       right={
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <span style={{ fontSize: 12, color: bp.enabled ? "var(--accent-ink)" : "var(--fg-4)" }}>
-            {bp.enabled ? "Enabled" : "Disabled"}
+          <span style={{ fontSize: 12, color: enabled ? "var(--accent-ink)" : "var(--fg-4)" }}>
+            {enabled ? "Enabled" : "Disabled"}
           </span>
-          <Toggle on={bp.enabled} onChange={(v) => set({ enabled: v })} ariaLabel="Enable build_plots" />
+          <Toggle on={enabled} onChange={setEnabled} ariaLabel="Enable build_plots" />
         </div>
       }
     >
-      <div className="stack lg" style={{ opacity: bp.enabled ? 1 : 0.5, pointerEvents: bp.enabled ? "auto" : "none", transition: "opacity 0.15s" }}>
+      <div className="stack lg" style={{ opacity: enabled ? 1 : 0.5, pointerEvents: enabled ? "auto" : "none", transition: "opacity 0.15s" }}>
         <Field label="Plot types" hint="select any · all three = “all”">
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {window.PLOT_TYPES.map((p) => {
@@ -551,11 +418,9 @@ function BuildPlotsSection({ cfg, setCfg }) {
 
         <div>
           <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--fg-3)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              Locus tags · {bp.locus.length}
-            </div>
+            <div className="eyebrow strong">Locus tags · {bp.locus.length}</div>
             <div style={{ flex: 1 }} />
-            <button className="btn sm" onClick={addLocus}><PlusIcon /> Add locus</button>
+            <button className="btn sm" onClick={loci.add}><PlusIcon /> Add locus</button>
           </div>
           <div className="stack xs">
             {bp.locus.map((l, i) => (
@@ -564,9 +429,9 @@ function BuildPlotsSection({ cfg, setCfg }) {
                   className="input mono"
                   value={l.value}
                   placeholder="e.g. FE838_RS16060"
-                  onChange={(e) => updateLocus(i, e.target.value)}
+                  onChange={(e) => loci.update(i, { value: e.target.value })}
                 />
-                <button className="btn sm danger-ghost" onClick={() => removeLocus(i)} aria-label="Remove locus">
+                <button className="btn sm danger-ghost" onClick={() => loci.remove(i)} aria-label="Remove locus">
                   <TrashIcon />
                 </button>
               </div>
@@ -579,13 +444,11 @@ function BuildPlotsSection({ cfg, setCfg }) {
 
         <div>
           <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "var(--fg-3)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
-              Genes · {bp.gene.length}
-            </div>
+            <div className="eyebrow strong">Genes · {bp.gene.length}</div>
             <div style={{ flex: 1 }} />
-            <button className="btn sm" onClick={addGene}><PlusIcon /> Add gene</button>
+            <button className="btn sm" onClick={genes.add}><PlusIcon /> Add gene</button>
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8, fontSize: 11, color: "var(--fg-4)", letterSpacing: "0.04em", textTransform: "uppercase", fontWeight: 600, padding: "0 2px", marginBottom: 6 }}>
+          <div className="eyebrow" style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8, padding: "0 2px", marginBottom: 6 }}>
             <span>Gene</span>
             <span>miRNA <span style={{ textTransform: "none", fontWeight: 400 }}>· optional</span></span>
             <span></span>
@@ -599,7 +462,7 @@ function BuildPlotsSection({ cfg, setCfg }) {
                     className="input mono"
                     value={g.value}
                     placeholder="gene name (required), e.g. yegH"
-                    onChange={(e) => updateGene(i, { value: e.target.value })}
+                    onChange={(e) => genes.update(i, { value: e.target.value })}
                     style={{ borderColor: orphanMirna ? "var(--danger)" : undefined }}
                     aria-invalid={orphanMirna}
                   />
@@ -607,9 +470,9 @@ function BuildPlotsSection({ cfg, setCfg }) {
                     className="input mono"
                     value={g.mirna}
                     placeholder="miRNA (optional), e.g. hsa-miR-1226-5p"
-                    onChange={(e) => updateGene(i, { mirna: e.target.value })}
+                    onChange={(e) => genes.update(i, { mirna: e.target.value })}
                   />
-                  <button className="btn sm danger-ghost" onClick={() => removeGene(i)} aria-label="Remove gene">
+                  <button className="btn sm danger-ghost" onClick={() => genes.remove(i)} aria-label="Remove gene">
                     <TrashIcon />
                   </button>
                 </div>

@@ -14,7 +14,7 @@ OUTPUT_COLUMNS = [
 ]
 
 
-#----- Parses the colon-separated RNAhybrid table, normalizes Position, sorts by Energy -----#
+#----- Parses RNAhybrid's colon-separated table, normalizes Position to a 0-1 fraction of gene length, sorts by Energy -----#
 def tidy_rnahybrid(input_path, output_path):
     df = pd.read_csv(
         input_path,
