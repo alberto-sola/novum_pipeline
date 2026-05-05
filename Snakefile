@@ -175,7 +175,7 @@ rule build_plots:
     params:
         type=build_plots_type,
         basesize=build_plots_config.get("basesize", 12),
-        pvalue=build_plots_config.get("pvalue", 0.01),
+        pvalue=build_plots_config.get("pvalue", []),
         locus=build_plots_config.get("locus", []),
         gene=build_plots_config.get("gene", []),
         protein=build_plots_config.get("protein", []),

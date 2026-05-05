@@ -9,6 +9,15 @@ ALIGNMENT_COLUMNS = [
     "miRNA_unmatches"
 ]
 
+# Strand labels for the alignment block. Two spaces after "miRNA" so it left-aligns
+# vertically with "target". The inner indent matches the outer label width so the
+# four lines stack column-for-column under each other.
+LABEL_TARGET_OUTER = "target 5' "
+LABEL_MIRNA_OUTER  = "miRNA  3' "
+LABEL_INNER        = "          "
+MARKER_3PRIME      = "   3'"
+MARKER_5PRIME      = "   5'"
+
 SEPARATOR_WIDTH = 39
 
 
@@ -30,7 +39,9 @@ def enhance_results(annotated_csv_path, output_path):
     columns = list(annotated.columns)
     metadata_columns = [c for c in columns if c not in ALIGNMENT_COLUMNS]
     metadata_idx = [columns.index(c) for c in metadata_columns]
-    alignment_idx = [columns.index(c) for c in ALIGNMENT_COLUMNS]
+    target_loops_idx, target_paired_idx, mirna_paired_idx, mirna_loops_idx = (
+        columns.index(c) for c in ALIGNMENT_COLUMNS
+    )
     separator = "-" * SEPARATOR_WIDTH
 
     output_path = Path(output_path)
@@ -42,10 +53,16 @@ def enhance_results(annotated_csv_path, output_path):
             for col, idx in zip(metadata_columns, metadata_idx):
                 fh.write(f"{col}: {format_value(row[idx])}\n")
             fh.write("\n")
-            # The alignment columns form RNAhybrid's ASCII art (target on top,
-            # miRNA on bottom); printed without column labels on purpose.
-            for idx in alignment_idx:
-                fh.write(f"{format_value(row[idx])}\n")
+            # RNAhybrid's ASCII duplex: target on top reads 5'→3' left-to-right,
+            # miRNA on bottom reads 3'→5' left-to-right (antiparallel pairing).
+            target_loops  = format_value(row[target_loops_idx])
+            target_paired = format_value(row[target_paired_idx])
+            mirna_paired  = format_value(row[mirna_paired_idx])
+            mirna_loops   = format_value(row[mirna_loops_idx])
+            fh.write(f"{LABEL_TARGET_OUTER}{target_loops}{MARKER_3PRIME}\n")
+            fh.write(f"{LABEL_INNER}{target_paired}\n")
+            fh.write(f"{LABEL_INNER}{mirna_paired}\n")
+            fh.write(f"{LABEL_MIRNA_OUTER}{mirna_loops}{MARKER_5PRIME}\n")
             fh.write(f"\n{separator}\n\n")
 
 

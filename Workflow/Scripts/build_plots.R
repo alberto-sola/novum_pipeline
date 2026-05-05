@@ -9,7 +9,9 @@ suppressPackageStartupMessages({
 #----- Parameters from snakemake@params -----#
 plot_type      <- snakemake@params$type
 basesize       <- as.integer(snakemake@params$basesize %||% 12)
-pvalue_cutoff  <- as.numeric(snakemake@params$pvalue   %||% 0.01)
+pvalue_raw     <- snakemake@params$pvalue
+pvalue_cutoff  <- if (length(pvalue_raw) == 0) NA_real_ else as.numeric(pvalue_raw)
+has_pvalue_cut <- !is.na(pvalue_cutoff)
 locus_tags     <- snakemake@params$locus   %||% character(0)
 gene_names     <- snakemake@params$gene    %||% character(0)
 protein_names  <- snakemake@params$protein %||% character(0)
@@ -74,11 +76,20 @@ validated_best <- validated |>
   ungroup()
 
 #----- Auto color + label maps for the validated hits, keyed by locus_tag -----#
+# Label cascade for readability: gene_name > protein_name > locus_tag.
+if (!"protein_name" %in% names(validated_best)) {
+  validated_best$protein_name <- NA_character_
+}
 hit_levels <- unique(validated_best$locus_tag)
 hit_colors <- setNames(scales::hue_pal()(length(hit_levels)), hit_levels)
 hit_label_table <- validated_best |>
-  distinct(locus_tag, miRNA, gene_name) |>
-  mutate(label = sprintf("%s | %s", miRNA, coalesce(gene_name, locus_tag)))
+  distinct(locus_tag, miRNA, gene_name, protein_name) |>
+  mutate(
+    gene_name    = na_if(as.character(gene_name),    ""),
+    protein_name = na_if(as.character(protein_name), ""),
+    locus_tag    = as.character(locus_tag),
+    label        = sprintf("%s | %s", miRNA, coalesce(gene_name, protein_name, locus_tag))
+  )
 hit_labels <- setNames(hit_label_table$label, hit_label_table$locus_tag)
 hit_shapes <- setNames(seq_along(hit_levels) + 14L, hit_levels)
 
@@ -119,7 +130,7 @@ plot_pvalue_distribution <- function() {
 plot_position_pvalue <- function() {
   ggplot(merged, aes(x = Position, y = -log10(P_value))) +
     geom_point(
-      data = merged |> filter(P_value <= pvalue_cutoff),
+      data = if (has_pvalue_cut) merged |> filter(P_value <= pvalue_cutoff) else merged,
       color = "black", size = 0.7
     ) +
     geom_point(
@@ -132,7 +143,7 @@ plot_position_pvalue <- function() {
     stat_cor(method = "spearman") +
     labs(
       x = "Relative Position", y = "-log10(p-value)",
-      title = sprintf("Position vs p-values (≤ %g)", pvalue_cutoff)
+      title = if (has_pvalue_cut) sprintf("Position vs p-values (≤ %g)", pvalue_cutoff) else "Position vs p-values"
     ) +
     theme_bw(base_size = basesize) +
     facet_wrap(~Calibration, labeller = facet_labels) +
@@ -147,7 +158,7 @@ plot_position_energy <- function() {
 
   ggplot(base_data, aes(x = Position, y = Energy)) +
     geom_point(
-      data = base_data |> filter(P_value <= pvalue_cutoff),
+      data = if (has_pvalue_cut) base_data |> filter(P_value <= pvalue_cutoff) else base_data,
       color = "black", size = 0.7
     ) +
     geom_point(
@@ -160,7 +171,7 @@ plot_position_energy <- function() {
     stat_cor(method = "spearman") +
     labs(
       x = "Relative Position", y = "Energy (KCal/Mol)",
-      title = sprintf("Position vs Energy (p-value ≤ %g)", pvalue_cutoff)
+      title = if (has_pvalue_cut) sprintf("Position vs Energy (p-value ≤ %g)", pvalue_cutoff) else "Position vs Energy"
     ) +
     facet_wrap(~facet_label) +
     theme_bw(base_size = basesize) +

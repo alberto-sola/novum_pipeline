@@ -13,4 +13,5 @@ CLAUDE.md
 Data/*
 graphify-out
 .graphifyignore
-data-prep/genomes/
+data-prep/
+!fetch_genomes.py
