@@ -30,12 +30,6 @@ flowchart TD
 
 Commands assume a Linux bash shell on Debian/Ubuntu.
 
-### GNU Parallel
-
-```bash
-sudo apt update && sudo apt install -y parallel
-```
-
 ### Conda
 
 ```bash
@@ -54,12 +48,6 @@ Recommended channel order (bioconda is built on top of conda-forge, so conda-for
 conda-forge
 bioconda
 defaults
-```
-
-### RNAhybrid
-
-```bash
-conda install bioconda::rnahybrid
 ```
 
 ### Snakemake
@@ -87,12 +75,15 @@ Edit [`Config/config.yaml`](Config/config.yaml). Example:
 
 ```yaml
 queries:
-  escherichia_coli: Data/Raw/validated_miRNAs.fa
+  escherichia: Data/Raw/RNAs/validated_escherichia.fa
+  bacteroides: Data/Raw/RNAs/validated_bacteroides.fa
+
 targets:
-  escherichia_coli: Data/Raw/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+  escherichia: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+  bacteroides: Data/Raw/genomes/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
 
 rnacalibrate:
-  mode: both                  # "calibrated" | "uncalibrated" | "both"
+  mode: both
   k: 10000
   max_target_length: 50000
   randomize_targets: true
@@ -106,23 +97,24 @@ rnahybrid:
   energy: -18
   pvalue: null
   seed: null
-  distribution: null          # ignored when calibrated; falls back to "species" otherwise
+  distribution: null
 
-tidy_rnahybrid: {}
-annotate_rnahybrid: {}
-
-build_plots:                  # optional; omit the whole block to skip plotting
-  type: all                   # pvalue_distribution | position_pvalue | position_energy | all
+build_plots:
+  type: position_pvalue,pvalue_distribution
   basesize: 12
-  pvalue: 0.01                # cutoff for position_pvalue and position_energy
+  pvalue: 0.01
   locus:
-    - b3704                   # bare: any miRNA hitting this locus
-    - b2063,hsa-miR-1226-5p   # paired: only this miRNA × this locus
+    - FE838_RS16060
+    - FE838_RS16090
+    - FE838_RS16070
+    - FE838_RS16075
+    - FE838_RS16085
+    - FE838_RS16065
+    - FE838_RS16080
   gene:
     - yegH,hsa-miR-1226-5p
     - rnpA,hsa-miR-4747-3p
   protein:
-    # - "30S ribosomal protein S2,hsa-miR-X"
 
 results_dir: Data/Results/
 ```
@@ -187,4 +179,3 @@ One tree per `targets:` key, under `{results_dir}/{sample}/`:
 If you use this workflow in a publication, please cite this repository and the external tools it relies on:
 
 - **RNAhybrid**: Kruger, J. and Rehmsmeier, M. (2006). RNAhybrid: microRNA target prediction easy, fast and flexible. *Nucleic Acids Research*, 34(Web Server issue), W451--W454. https://doi.org/10.1093/nar/gkl243
-- **GNU Parallel**: Tange, O. (2023, November 22). GNU Parallel 20231122 ('Grindavik'). Zenodo. https://doi.org/10.5281/zenodo.10199085
