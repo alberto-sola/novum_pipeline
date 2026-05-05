@@ -1,5 +1,6 @@
 # Environments
 .snakemake/
+__pycache__
 
 # Models
 .codex
