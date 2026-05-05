@@ -77,11 +77,13 @@ window.buildYAML = function buildYAML(cfg) {
     lines.push({ t: "nested", indent: 2, k: "pvalue",   v: bp.pvalue,   kind: "num" });
 
     lines.push({ t: "nested", indent: 2, k: "locus", v: "", kind: "bare" });
-    const validLoci = bp.locus.map((l) => (l.value || "").trim()).filter(Boolean);
+    const validLoci = bp.locus
+      .map((l) => ({ v: (l.value || "").trim(), m: (l.mirna || "").trim() }))
+      .filter((l) => l.v);
     if (validLoci.length === 0) {
       lines.push({ t: "empty_list", indent: 4 });
     } else {
-      validLoci.forEach((v) => lines.push({ t: "listitem", indent: 4, v, kind: "str" }));
+      validLoci.forEach((l) => lines.push({ t: "listitem", indent: 4, v: l.m ? `${l.v},${l.m}` : l.v, kind: "str" }));
     }
 
     lines.push({ t: "nested", indent: 2, k: "gene", v: "", kind: "bare" });
@@ -94,8 +96,15 @@ window.buildYAML = function buildYAML(cfg) {
       validGenes.forEach((g) => lines.push({ t: "listitem", indent: 4, v: g.m ? `${g.v},${g.m}` : g.v, kind: "str" }));
     }
 
-    // Protein UI deferred — emit an empty key to mirror Config/config.yaml.
     lines.push({ t: "nested", indent: 2, k: "protein", v: "", kind: "bare" });
+    const validProteins = bp.protein
+      .map((p) => ({ v: (p.value || "").trim(), m: (p.mirna || "").trim() }))
+      .filter((p) => p.v);
+    if (validProteins.length === 0) {
+      lines.push({ t: "empty_list", indent: 4 });
+    } else {
+      validProteins.forEach((p) => lines.push({ t: "listitem", indent: 4, v: p.m ? `${p.v},${p.m}` : p.v, kind: "str" }));
+    }
   }
   lines.push({ t: "blank" });
 

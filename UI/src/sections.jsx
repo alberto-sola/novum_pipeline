@@ -349,12 +349,17 @@ function BuildPlotsSection({ cfg, setCfg }) {
   const loci = useListEditor(
     bp.locus,
     (next) => set({ locus: next }),
-    () => ({ id: "l" + Date.now().toString(36), value: "" }),
+    () => ({ id: "l" + Date.now().toString(36), value: "", mirna: "" }),
   );
   const genes = useListEditor(
     bp.gene,
     (next) => set({ gene: next }),
     () => ({ id: "g" + Date.now().toString(36), value: "", mirna: "" }),
+  );
+  const proteins = useListEditor(
+    bp.protein,
+    (next) => set({ protein: next }),
+    () => ({ id: "p" + Date.now().toString(36), value: "", mirna: "" }),
   );
 
   return (
@@ -422,20 +427,36 @@ function BuildPlotsSection({ cfg, setCfg }) {
             <div style={{ flex: 1 }} />
             <button className="btn sm" onClick={loci.add}><PlusIcon /> Add locus</button>
           </div>
+          <div className="eyebrow" style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8, padding: "0 2px", marginBottom: 6 }}>
+            <span>Locus tag</span>
+            <span>miRNA <span style={{ textTransform: "none", fontWeight: 400 }}>· optional</span></span>
+            <span></span>
+          </div>
           <div className="stack xs">
-            {bp.locus.map((l, i) => (
-              <div key={l.id} style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8 }}>
-                <input
-                  className="input mono"
-                  value={l.value}
-                  placeholder="e.g. FE838_RS16060"
-                  onChange={(e) => loci.update(i, { value: e.target.value })}
-                />
-                <button className="btn sm danger-ghost" onClick={() => loci.remove(i)} aria-label="Remove locus">
-                  <TrashIcon />
-                </button>
-              </div>
-            ))}
+            {bp.locus.map((l, i) => {
+              const orphanMirna = !!(l.mirna && l.mirna.trim() && !(l.value && l.value.trim()));
+              return (
+                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8 }}>
+                  <input
+                    className="input mono"
+                    value={l.value}
+                    placeholder="locus tag (required), e.g. FE838_RS16060"
+                    onChange={(e) => loci.update(i, { value: e.target.value })}
+                    style={{ borderColor: orphanMirna ? "var(--danger)" : undefined }}
+                    aria-invalid={orphanMirna}
+                  />
+                  <input
+                    className="input mono"
+                    value={l.mirna}
+                    placeholder="miRNA (optional), e.g. hsa-miR-1226-5p"
+                    onChange={(e) => loci.update(i, { mirna: e.target.value })}
+                  />
+                  <button className="btn sm danger-ghost" onClick={() => loci.remove(i)} aria-label="Remove locus">
+                    <TrashIcon />
+                  </button>
+                </div>
+              );
+            })}
             {bp.locus.length === 0 && (
               <div style={{ fontSize: 12, color: "var(--fg-4)", fontStyle: "italic" }}>No locus tags — list will be empty.</div>
             )}
@@ -480,6 +501,48 @@ function BuildPlotsSection({ cfg, setCfg }) {
             })}
             {bp.gene.length === 0 && (
               <div style={{ fontSize: 12, color: "var(--fg-4)", fontStyle: "italic" }}>No genes — list will be empty.</div>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+            <div className="eyebrow strong">Proteins · {bp.protein.length}</div>
+            <div style={{ flex: 1 }} />
+            <button className="btn sm" onClick={proteins.add}><PlusIcon /> Add protein</button>
+          </div>
+          <div className="eyebrow" style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8, padding: "0 2px", marginBottom: 6 }}>
+            <span>Protein</span>
+            <span>miRNA <span style={{ textTransform: "none", fontWeight: 400 }}>· optional</span></span>
+            <span></span>
+          </div>
+          <div className="stack xs">
+            {bp.protein.map((p, i) => {
+              const orphanMirna = !!(p.mirna && p.mirna.trim() && !(p.value && p.value.trim()));
+              return (
+                <div key={p.id} style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8 }}>
+                  <input
+                    className="input mono"
+                    value={p.value}
+                    placeholder="protein name (required)"
+                    onChange={(e) => proteins.update(i, { value: e.target.value })}
+                    style={{ borderColor: orphanMirna ? "var(--danger)" : undefined }}
+                    aria-invalid={orphanMirna}
+                  />
+                  <input
+                    className="input mono"
+                    value={p.mirna}
+                    placeholder="miRNA (optional), e.g. hsa-miR-1226-5p"
+                    onChange={(e) => proteins.update(i, { mirna: e.target.value })}
+                  />
+                  <button className="btn sm danger-ghost" onClick={() => proteins.remove(i)} aria-label="Remove protein">
+                    <TrashIcon />
+                  </button>
+                </div>
+              );
+            })}
+            {bp.protein.length === 0 && (
+              <div style={{ fontSize: 12, color: "var(--fg-4)", fontStyle: "italic" }}>No proteins — list will be empty.</div>
             )}
           </div>
         </div>
