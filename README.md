@@ -69,6 +69,18 @@ To re-render only the plots after editing the `build_plots` block:
 snakemake --use-conda --cores N --forcerun build_plots
 ```
 
+### Config editor (UI)
+
+A PyWebView desktop app at `UI/launcher.py` provides a graphical editor for [`Config/config.yaml`](Config/config.yaml) and can kick off the pipeline directly. Install its extra dependencies into the same conda env that has `snakemake` on PATH, then launch it:
+
+```bash
+conda activate snakemake-modern
+pip install pywebview pyqt5 pyqtwebengine
+python UI/launcher.py
+```
+
+The launcher resolves the repo root from its own location, so you can run it from any working directory. Snakemake's stdout and stderr are inherited by the terminal you launched it from — that is where to watch progress when you trigger a run from the UI.
+
 ## Configuration
 
 Edit [`Config/config.yaml`](Config/config.yaml). Example:
