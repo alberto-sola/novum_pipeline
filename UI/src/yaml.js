@@ -56,12 +56,6 @@ window.buildYAML = function buildYAML(cfg) {
   });
   lines.push({ t: "blank" });
 
-  lines.push({ t: "raw", s: "tidy_rnahybrid: {}" });
-  lines.push({ t: "blank" });
-
-  lines.push({ t: "raw", s: "annotate_rnahybrid: {}" });
-  lines.push({ t: "blank" });
-
   lines.push({ t: "k", k: "build_plots" });
   const bp = cfg.build_plots;
   if (bp.types.length === 0) {
