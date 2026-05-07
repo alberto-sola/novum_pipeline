@@ -14,7 +14,13 @@ window.CALIBRATE_MODES = [
 window.PLOT_TYPES = [
   { value: "pvalue_distribution", label: "p-value distribution" },
   { value: "position_pvalue",     label: "position × p-value" },
-  { value: "position_energy",     label: "position × energy" }
+  { value: "position_energy",     label: "position × energy" },
+  { value: "volcano",             label: "volcano" },
+  { value: "pvalue_ecdf",         label: "p-value ECDF" },
+  { value: "calibration_delta",   label: "calibration Δ" },
+  { value: "per_mirna",           label: "per-miRNA" },
+  { value: "position_density",    label: "position density" },
+  { value: "seed_class",          label: "seed class" }
 ];
 
 window.RNAHYBRID_NULLABLE_KEYS = ["hits", "u", "v", "energy", "pvalue", "seed", "distribution"];
@@ -50,6 +56,7 @@ window.INITIAL_CONFIG = {
     types: window.PLOT_TYPES.map((p) => p.value),
     basesize: 12,
     pvalue: 0.01,
+    per_mirna_top_n: 12,
     locus: [],
     gene: [],
     protein: []

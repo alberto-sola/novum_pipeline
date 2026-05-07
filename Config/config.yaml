@@ -30,11 +30,15 @@ rnahybrid:
 
 #----- Parameters for plots (optional; omit or set type: null to skip) -----#
 build_plots:
-  # pvalue_distribution | position_pvalue | position_energy | all
+  # pvalue_distribution | position_pvalue | position_energy |
+  # volcano | pvalue_ecdf | calibration_delta | per_mirna |
+  # position_density | seed_class | all
   # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
-  type: position_pvalue,pvalue_distribution
+  type: pvalue_distribution,position_pvalue,position_energy
   basesize: 12
   pvalue: 0.01
+  # cap for plot_per_mirna (top-N miRNAs by hit count)
+  per_mirna_top_n: 12
   # entry,miRNA
   locus:
     - FE838_RS16060

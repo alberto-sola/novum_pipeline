@@ -9,7 +9,7 @@ results_dir         = config.get("results_dir", "Data/Results").rstrip("/")
 max_target_length   = rnacalibrate_config.get("max_target_length", 50000)
 
 #----- Per-sample query lookup: `queries:` mapping (keys must match `targets:`),
-#      with single `query: <path>` accepted as a legacy broadcast across all targets.
+#      with single `query: <path>` accepted as a legacy broadcast across all targets -----#
 def _resolve_queries(cfg, target_keys):
     queries_cfg = cfg.get("queries")
     if queries_cfg is not None:
@@ -60,6 +60,9 @@ def _resolve_mode(cfg):
 variants = _MODE_TO_VARIANTS[_resolve_mode(rnacalibrate_config)]
 
 
+#----- Per-variant calibration routing: the {variant} wildcard is constrained to
+#      the two calibration literals; calibration_input(wc) supplies the JSON only
+#      for w_calibration so a single rnahybrid rule serves both branches -----#
 wildcard_constraints:
     variant = f"{W_CALIBRATION}|{WO_CALIBRATION}"
 
@@ -179,6 +182,7 @@ rule build_plots:
         locus=build_plots_config.get("locus", []),
         gene=build_plots_config.get("gene", []),
         protein=build_plots_config.get("protein", []),
+        per_mirna_top_n=build_plots_config.get("per_mirna_top_n", 12),
         variant_labels=[VARIANT_LABELS[v] for v in variants]
     script:
         "Workflow/Scripts/build_plots.R"

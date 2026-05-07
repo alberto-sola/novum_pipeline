@@ -66,9 +66,10 @@ window.buildYAML = function buildYAML(cfg) {
     const allTypes = window.PLOT_TYPES.map((p) => p.value);
     const isAll = allTypes.every((t) => bp.types.includes(t));
     const typeVal = isAll ? "all" : bp.types.join(",");
-    lines.push({ t: "nested", indent: 2, k: "type",     v: typeVal,     kind: "str" });
-    lines.push({ t: "nested", indent: 2, k: "basesize", v: bp.basesize, kind: "num" });
-    lines.push({ t: "nested", indent: 2, k: "pvalue",   v: bp.pvalue,   kind: "num" });
+    lines.push({ t: "nested", indent: 2, k: "type",             v: typeVal,            kind: "str" });
+    lines.push({ t: "nested", indent: 2, k: "basesize",         v: bp.basesize,        kind: "num" });
+    lines.push({ t: "nested", indent: 2, k: "pvalue",           v: bp.pvalue,          kind: "num" });
+    lines.push({ t: "nested", indent: 2, k: "per_mirna_top_n",  v: bp.per_mirna_top_n, kind: "num" });
 
     lines.push({ t: "nested", indent: 2, k: "locus", v: "", kind: "bare" });
     const validLoci = bp.locus

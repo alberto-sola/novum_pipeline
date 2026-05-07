@@ -243,7 +243,9 @@ function NullableField({
   placeholder,
   pairLabels,             // ["start nt", "end nt"] etc.
   forcedNull = false,
-  forcedNullHint
+  forcedNullHint,
+  min,
+  max
 }) {
   const on = !forcedNull && value.set;
   const toInt = (s) => {
@@ -278,6 +280,8 @@ function NullableField({
               type="number"
               step="1"
               inputMode="numeric"
+              min={min}
+              max={max}
               placeholder={pairLabels?.[0]}
               value={value.a ?? ""}
               onChange={(e) => onChange({ ...value, a: toInt(e.target.value) })}
@@ -288,6 +292,8 @@ function NullableField({
               type="number"
               step="1"
               inputMode="numeric"
+              min={min}
+              max={max}
               placeholder={pairLabels?.[1]}
               value={value.b ?? ""}
               onChange={(e) => onChange({ ...value, b: toInt(e.target.value) })}
@@ -299,6 +305,8 @@ function NullableField({
             type="number"
             inputMode={kind === "integer" ? "numeric" : "decimal"}
             step={kind === "integer" ? "1" : "any"}
+            min={min}
+            max={max}
             value={value.value}
             placeholder={placeholder}
             onChange={(e) => {

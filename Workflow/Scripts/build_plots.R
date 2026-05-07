@@ -16,6 +16,7 @@ locus_tags     <- snakemake@params$locus   %||% character(0)
 gene_names     <- snakemake@params$gene    %||% character(0)
 protein_names  <- snakemake@params$protein %||% character(0)
 variant_labels <- snakemake@params$variant_labels
+per_mirna_top_n <- as.integer(snakemake@params$per_mirna_top_n %||% 12L)
 
 
 #----- Read each variant CSV, tagging it with the label provided by Snakemake -----#
@@ -94,11 +95,14 @@ hit_labels <- setNames(hit_label_table$label, hit_label_table$locus_tag)
 hit_shapes <- setNames(seq_along(hit_levels) + 14L, hit_levels)
 
 
-#----- Pretty labels for the Calibration facet -----#
-facet_labels <- as_labeller(c(
-  "uncalibrated" = "Without Calibration",
-  "calibrated"   = "With Calibration"
-))
+#----- Shared Calibration aesthetics -----#
+calibration_colors <- c(uncalibrated = "#e41a1c", calibrated = "#377eb8")
+calibration_labels <- c(uncalibrated = "Without Calibration", calibrated = "With Calibration")
+facet_labels       <- as_labeller(calibration_labels)
+
+apply_pvalue_cut <- function(df) {
+  if (has_pvalue_cut) df |> filter(P_value <= pvalue_cutoff) else df
+}
 
 
 #----- Plot builders -----#
@@ -123,14 +127,13 @@ plot_pvalue_distribution <- function() {
       x = "p-value", y = "Density",
       title = sprintf("Distribution of p-values (uncut Y-axis: %d)", ynatural)
     ) +
-    theme_bw(base_size = basesize) +
-    theme(strip.placement = "outside")
+    theme_bw(base_size = basesize)
 }
 
 plot_position_pvalue <- function() {
   ggplot(merged, aes(x = Position, y = -log10(P_value))) +
     geom_point(
-      data = if (has_pvalue_cut) merged |> filter(P_value <= pvalue_cutoff) else merged,
+      data = apply_pvalue_cut(merged),
       color = "black", size = 0.7
     ) +
     geom_point(
@@ -146,8 +149,7 @@ plot_position_pvalue <- function() {
       title = if (has_pvalue_cut) sprintf("Position vs p-values (≤ %g)", pvalue_cutoff) else "Position vs p-values"
     ) +
     theme_bw(base_size = basesize) +
-    facet_wrap(~Calibration, labeller = facet_labels) +
-    theme(strip.placement = "outside")
+    facet_wrap(~Calibration, labeller = facet_labels)
 }
 
 plot_position_energy <- function() {
@@ -158,7 +160,7 @@ plot_position_energy <- function() {
 
   ggplot(base_data, aes(x = Position, y = Energy)) +
     geom_point(
-      data = if (has_pvalue_cut) base_data |> filter(P_value <= pvalue_cutoff) else base_data,
+      data = apply_pvalue_cut(base_data),
       color = "black", size = 0.7
     ) +
     geom_point(
@@ -174,8 +176,184 @@ plot_position_energy <- function() {
       title = if (has_pvalue_cut) sprintf("Position vs Energy (p-value ≤ %g)", pvalue_cutoff) else "Position vs Energy"
     ) +
     facet_wrap(~facet_label) +
+    theme_bw(base_size = basesize)
+}
+
+plot_volcano <- function() {
+  ggplot(merged, aes(x = Energy, y = -log10(P_value))) +
+    geom_point(
+      data = apply_pvalue_cut(merged),
+      color = "black", size = 0.6, alpha = 0.4
+    ) +
+    geom_point(data = validated, aes(shape = locus_tag), color = "red", size = 2) +
+    scale_shape_manual(name = "Validated hits", values = hit_shapes, labels = hit_labels) +
+    facet_wrap(~Calibration, labeller = facet_labels) +
+    labs(
+      x = "Energy (KCal/Mol)", y = "-log10(p-value)",
+      title = if (has_pvalue_cut) sprintf("Volcano (p ≤ %g)", pvalue_cutoff) else "Volcano: Energy vs p-value"
+    ) +
+    theme_bw(base_size = basesize)
+}
+
+plot_pvalue_ecdf <- function() {
+  data <- merged |> mutate(facet_label = "p-value ECDF vs Uniform")
+  ggplot(data, aes(x = P_value, color = Calibration)) +
+    stat_ecdf(geom = "step", linewidth = 0.6) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "black") +
+    scale_color_manual(name = NULL, values = calibration_colors, labels = calibration_labels) +
+    labs(
+      x = "p-value", y = "Empirical CDF",
+      title = "Calibration QC"
+    ) +
+    facet_wrap(~facet_label) +
+    theme_bw(base_size = basesize)
+}
+
+plot_calibration_delta <- function() {
+  variants_present <- as.character(unique(merged$Calibration))
+  if (!all(c("uncalibrated", "calibrated") %in% variants_present)) {
+    return(NULL)
+  }
+
+  paired <- merged |>
+    select(miRNA, Gene, locus_tag, gene_name, protein_name, Position, Calibration, P_value) |>
+    group_by(miRNA, Gene, locus_tag, gene_name, protein_name, Position, Calibration) |>
+    summarise(P_value = min(P_value), .groups = "drop") |>
+    pivot_wider(
+      names_from  = Calibration,
+      values_from = P_value
+    ) |>
+    filter(!is.na(uncalibrated) & !is.na(calibrated)) |>
+    mutate(uncal_log = -log10(uncalibrated), cal_log = -log10(calibrated))
+
+  validated_paired <- paired |> semi_join(validated_best, by = c("miRNA", "locus_tag"))
+
+  paired           <- paired           |> mutate(facet_label = "Calibrated vs Uncalibrated")
+  validated_paired <- validated_paired |> mutate(facet_label = "Calibrated vs Uncalibrated")
+
+  ggplot(paired, aes(x = uncal_log, y = cal_log)) +
+    geom_point(color = "black", size = 0.4, alpha = 0.25) +
+    geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "blue") +
+    geom_point(data = validated_paired, aes(shape = locus_tag), color = "red", size = 2.5) +
+    scale_shape_manual(name = "Validated hits", values = hit_shapes, labels = hit_labels) +
+    labs(
+      x = "-log10(p-value), uncalibrated",
+      y = "-log10(p-value), calibrated",
+      title = "Per-hit calibration impact"
+    ) +
+    facet_wrap(~facet_label) +
+    theme_bw(base_size = basesize)
+}
+
+plot_per_mirna <- function() {
+  top_mirnas <- merged |>
+    count(miRNA, sort = TRUE) |>
+    slice_head(n = per_mirna_top_n) |>
+    pull(miRNA)
+  data <- merged |>
+    filter(miRNA %in% top_mirnas) |>
+    mutate(miRNA = factor(miRNA, levels = top_mirnas))
+
+  ggplot(data, aes(x = Calibration, y = -log10(P_value), fill = Calibration)) +
+    geom_violin(alpha = 0.55, color = NA) +
+    geom_boxplot(width = 0.18, alpha = 0.85, outlier.size = 0.3) +
+    facet_wrap(~miRNA, scales = "free_y") +
+    scale_fill_manual(values = calibration_colors, labels = calibration_labels) +
+    labs(
+      x = NULL, y = "-log10(p-value)",
+      title = sprintf("Per-miRNA p-value distribution (top %d by hit count)", length(top_mirnas))
+    ) +
     theme_bw(base_size = basesize) +
-    theme(strip.placement = "outside")
+    theme(legend.position = "none", axis.text.x = element_text(angle = 30, hjust = 1))
+}
+
+plot_position_density <- function() {
+  if (has_pvalue_cut) {
+    data <- merged |>
+      mutate(p_tier = factor(
+        if_else(P_value <= pvalue_cutoff, "significant", "non-significant"),
+        levels = c("non-significant", "significant")
+      ))
+    aes_used  <- aes(x = Position, fill = p_tier)
+    fill_name <- sprintf("p ≤ %g", pvalue_cutoff)
+    fill_vals <- c("non-significant" = "#bdbdbd", "significant" = "#377eb8")
+  } else {
+    data <- merged
+    aes_used  <- aes(x = Position, fill = Calibration)
+    fill_name <- NULL
+    fill_vals <- calibration_colors
+  }
+  ggplot(data, aes_used) +
+    geom_histogram(binwidth = 0.02, alpha = 0.8, position = "stack") +
+    facet_wrap(~Calibration, labeller = facet_labels) +
+    scale_fill_manual(name = fill_name, values = fill_vals) +
+    labs(
+      x = "Relative position along gene (0 = 5', 1 = 3')",
+      y = "Hit count",
+      title = "Distribution of hit positions"
+    ) +
+    theme_bw(base_size = basesize)
+}
+
+#----- Canonical-seed classification (6mer / 7mer-A1 / 7mer-m8 / 8mer / none).
+# RNAhybrid prints miRNA 3'->5' left-to-right, so the rightmost miRNA-bearing
+# column is nt 1 (5' end). Walking leftward over miRNA-present columns
+# (matches OR unmatches non-space) enumerates nt 2, 3, ..., 8 and skips
+# target-bulge columns where the miRNA strand is empty.
+classify_seed_row <- function(m_matches, m_unmatches, t_matches, t_unmatches) {
+  mm <- strsplit(m_matches,   "", fixed = TRUE)[[1]]
+  mu <- strsplit(m_unmatches, "", fixed = TRUE)[[1]]
+  tm <- strsplit(t_matches,   "", fixed = TRUE)[[1]]
+  tu <- strsplit(t_unmatches, "", fixed = TRUE)[[1]]
+
+  n <- max(length(mm), length(mu), length(tm), length(tu))
+  pad <- function(v) c(v, rep(" ", n - length(v)))
+  mm <- pad(mm); mu <- pad(mu); tm <- pad(tm); tu <- pad(tu)
+
+  m_present <- (mm != " ") | (mu != " ")
+  m_cols    <- which(m_present)
+  if (length(m_cols) < 8) return("none")
+
+  nt_cols <- rev(m_cols)             # nt_cols[k] = alignment col of miRNA nt k
+  paired  <- function(k) mm[nt_cols[k]] != " " && tm[nt_cols[k]] != " "
+
+  if (!all(vapply(2:7, paired, logical(1)))) return("none")
+  pos8 <- paired(8)
+
+  t_at_1 <- if (tm[nt_cols[1]] != " ") tm[nt_cols[1]] else tu[nt_cols[1]]
+  a1     <- !is.na(t_at_1) && t_at_1 == "A"
+
+  if (pos8 &&  a1) return("8mer")
+  if (pos8)        return("7mer-m8")
+  if (a1)          return("7mer-A1")
+  "6mer"
+}
+
+plot_seed_class <- function() {
+  seed_levels <- c("8mer", "7mer-m8", "7mer-A1", "6mer", "none")
+  data <- merged |>
+    mutate(seed_class = factor(
+      mapply(
+        classify_seed_row,
+        miRNA_matches, miRNA_unmatches, Target_matches, Target_unmatches,
+        SIMPLIFY = TRUE, USE.NAMES = FALSE
+      ),
+      levels = seed_levels
+    ))
+
+  ggplot(data, aes(x = seed_class, y = -log10(P_value), fill = seed_class)) +
+    geom_violin(alpha = 0.55, color = NA, scale = "width") +
+    geom_boxplot(width = 0.18, alpha = 0.9, outlier.size = 0.3) +
+    facet_wrap(~Calibration, labeller = facet_labels) +
+    scale_fill_brewer(palette = "Set2") +
+    labs(
+      x = "Seed class (canonical miRNA targeting)",
+      y = "-log10(p-value)",
+      title = "p-value distribution by seed class"
+    ) +
+    theme_bw(base_size = basesize) +
+    theme(legend.position = "none",
+          axis.text.x = element_text(angle = 30, hjust = 1))
 }
 
 
@@ -183,7 +361,13 @@ plot_position_energy <- function() {
 plot_builders <- list(
   pvalue_distribution = plot_pvalue_distribution,
   position_pvalue     = plot_position_pvalue,
-  position_energy     = plot_position_energy
+  position_energy     = plot_position_energy,
+  volcano             = plot_volcano,
+  pvalue_ecdf         = plot_pvalue_ecdf,
+  calibration_delta   = plot_calibration_delta,
+  per_mirna           = plot_per_mirna,
+  position_density    = plot_position_density,
+  seed_class          = plot_seed_class
 )
 
 
@@ -205,24 +389,46 @@ if (length(unknown) > 0) {
 }
 
 plots <- lapply(selected, function(name) plot_builders[[name]]())
+# Builders may return NULL when their preconditions aren't met (e.g. paired
+# calibration_delta in a single-variant run) — drop those silently.
+plots <- Filter(Negate(is.null), plots)
+n     <- length(plots)
+
+if (n == 0) {
+  stop("build_plots: no plots to render (all selected builders skipped — check rnacalibrate.mode and build_plots.type).")
+}
 
 
 #----- Compose & save -----#
-# Page width: 9.5 in (single), 16 in (double), 18 in (triple = legacy "all").
-# Layout widths: equal for the 2-plot case; (2, 2, 1) for the 3-plot case to
-# preserve the legacy arranger.R aesthetic where position_energy is narrower.
-n <- length(plots)
+# Equal column widths everywhere. n <= 3 stays in a single row at legacy widths
+# (9.5 / 12 / 18 inches). n > 3 wraps onto 3 columns x ceil(n/3) rows; partial
+# last rows are padded with plot_spacer() to keep column widths uniform.
 if (n == 1) {
-  combined  <- plots[[1]]
-  out_width <- 9.5
+  combined   <- plots[[1]]
+  out_width  <- 9.5
+  out_height <- 5
+} else if (n <= 3) {
+  combined   <- (Reduce(`|`, plots) + plot_layout(guides = "collect")) &
+                  theme(legend.position = "bottom")
+  out_width  <- if (n == 2) 12 else 18
+  out_height <- 5
 } else {
-  layout_widths <- if (n == 3) c(2, 2, 1) else rep(1, n)
-  out_width     <- if (n == 2) 16 else 18
-  combined      <- (Reduce(`|`, plots) + plot_layout(widths = layout_widths, guides = "collect")) & theme(legend.position = "bottom")
+  n_rows <- ceiling(n / 3)
+  pad    <- 3L * n_rows - n
+  if (pad > 0L) {
+    plots <- c(plots, replicate(pad, patchwork::plot_spacer(), simplify = FALSE))
+  }
+  # widths = rep(1, 3) forces equal column widths; without it patchwork
+  # distributes width by intrinsic content (dual-facet plots end up wider
+  # than single-facet ones) and the right columns visibly shrink.
+  combined   <- wrap_plots(plots, ncol = 3, widths = rep(1, 3), guides = "collect") &
+                  theme(legend.position = "bottom")
+  out_width  <- 18
+  out_height <- 5 * n_rows
 }
 
 dir.create(dirname(snakemake@output$pdf), showWarnings = FALSE, recursive = TRUE)
 ggsave(
   snakemake@output$pdf, combined,
-  width = out_width, height = 5, units = "in"
+  width = out_width, height = out_height, units = "in"
 )

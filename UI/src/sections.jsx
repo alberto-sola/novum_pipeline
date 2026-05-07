@@ -209,6 +209,7 @@ function RNACalibrateSection({ cfg, setCfg }) {
                 className="input mono"
                 type="number"
                 step="1"
+                min={0}
                 value={r.k}
                 disabled={inert}
                 onChange={(e) => set({ k: Number(e.target.value) })}
@@ -219,6 +220,7 @@ function RNACalibrateSection({ cfg, setCfg }) {
                 className="input mono"
                 type="number"
                 step="1"
+                min={0}
                 value={r.max_target_length}
                 disabled={inert}
                 onChange={(e) => set({ max_target_length: Number(e.target.value) })}
@@ -307,20 +309,27 @@ function RNAHybridSection({ cfg, setCfg }) {
           </div>
           <div className="grid-2">
             <NullableField name="Energy" doc="min free energy (kcal/mol)"
+              max={0}
               value={r.energy} onChange={(v) => setF("energy", v)} />
             <NullableField name="p-value" doc="p-value cutoff"
+              min={0}
               value={r.pvalue} onChange={(v) => setF("pvalue", v)} />
             <NullableField name="Hits" doc="max hits per target" kind="integer"
+              min={0}
               value={r.hits} onChange={(v) => setF("hits", v)} />
             <NullableField name="U" doc="max internal loop size" kind="integer"
+              min={0}
               value={r.u} onChange={(v) => setF("u", v)} />
             <NullableField name="V" doc="max bulge loop size" kind="integer"
+              min={0}
               value={r.v} onChange={(v) => setF("v", v)} />
             <NullableField name="Seed" doc="start,end nt" kind="pair"
+              min={0}
               pairLabels={["start nt", "end nt"]}
               value={r.seed} onChange={(v) => setF("seed", v)} />
             <div style={{ gridColumn: "1 / -1" }}>
               <NullableField name="distribution" doc="mean,std (integers)" kind="pair"
+                min={0}
                 pairLabels={["mean", "std"]}
                 value={r.distribution}
                 onChange={(v) => setF("distribution", v)}
@@ -339,9 +348,8 @@ function RNAHybridSection({ cfg, setCfg }) {
 function BuildPlotsSection({ cfg, setCfg }) {
   const bp = cfg.build_plots;
   const set = (patch) => setCfg({ ...cfg, build_plots: { ...bp, ...patch } });
-  const allPlotTypes = window.PLOT_TYPES.map((p) => p.value);
   const enabled = bp.types.length > 0;
-  const setEnabled = (v) => set({ types: v ? allPlotTypes : [] });
+  const setEnabled = (v) => set({ types: v ? window.PLOT_TYPES.map((p) => p.value) : [] });
   const toggleType = (val) => {
     set({ types: bp.types.includes(val) ? bp.types.filter((t) => t !== val) : [...bp.types, val] });
   };
@@ -378,7 +386,7 @@ function BuildPlotsSection({ cfg, setCfg }) {
       }
     >
       <div className="stack lg" style={{ opacity: enabled ? 1 : 0.5, pointerEvents: enabled ? "auto" : "none", transition: "opacity 0.15s" }}>
-        <Field label="Plot types" hint="select any · all three = “all”">
+        <Field label="Plot types" hint={`select any · ${bp.types.length}/${window.PLOT_TYPES.length} on`}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {window.PLOT_TYPES.map((p) => {
               const on = bp.types.includes(p.value);
@@ -400,12 +408,13 @@ function BuildPlotsSection({ cfg, setCfg }) {
             })}
           </div>
         </Field>
-        <div className="grid-2">
+        <div className="grid-3">
           <Field label="Base font size" hint="int">
             <input
               className="input mono"
               type="number"
               step="1"
+              min={0}
               value={bp.basesize}
               onChange={(e) => set({ basesize: Number(e.target.value) })}
             />
@@ -415,8 +424,19 @@ function BuildPlotsSection({ cfg, setCfg }) {
               className="input mono"
               type="number"
               step="0.001"
+              min={0}
               value={bp.pvalue}
               onChange={(e) => set({ pvalue: Number(e.target.value) })}
+            />
+          </Field>
+          <Field label="Top-N miRNAs" hint="int · per-miRNA plot cap">
+            <input
+              className="input mono"
+              type="number"
+              min={1}
+              step="1"
+              value={bp.per_mirna_top_n}
+              onChange={(e) => set({ per_mirna_top_n: Number(e.target.value) })}
             />
           </Field>
         </div>
