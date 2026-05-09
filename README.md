@@ -4,27 +4,33 @@ A Snakemake workflow that runs RNAhybrid on miRNA queries against bacterial codi
 
 ## Workflow
 
-```mermaid
-flowchart TD
-    Q["query.fa (miRNAs)"]
-    T["target.fna (CDS)"]
-    Q --> RC[rnacalibrate]
-    T --> RC
-    Q --> RH[rnahybrid]
-    T --> RH
-    RC -- per-miRNA xi / theta --> RH
-    RH --> TR[tidy_rnahybrid]
-    TR --> AR[annotate_rnahybrid]
-    AR --> ER[enhance_rnahybrid]
-    AR --> BP[build_plots]
+```text
+queries ──┐                              ┌── tidy ─ annotate ─ enhance
+          ├── (rnacalibrate)? ─ rnahybrid ┤
+targets ──┘                              └── (plots, optional)
 ```
 
-1. **rnacalibrate** *(optional)* — fits an extreme-value distribution to randomized targets and emits one (xi, theta) pair **per query miRNA**.
-2. **rnahybrid** — runs RNAhybrid in parallel via GNU Parallel; in calibrated mode, each (miRNA, target chunk) pair invokes RNAhybrid with that miRNA's own (xi, theta).
-3. **tidy_rnahybrid** — filters, selects, and arranges the raw output into a tidy CSV.
+1. **rnacalibrate** *(optional)* — fits an extreme-value distribution per query miRNA, emitting one (xi, theta) pair each.
+2. **rnahybrid** — runs in parallel via GNU Parallel. In calibrated mode each (miRNA, target chunk) pair uses that miRNA's own (xi, theta).
+3. **tidy_rnahybrid** — filters and arranges the raw output into a tidy CSV.
 4. **annotate_rnahybrid** — parses FASTA headers from the target genome and merges metadata onto the tidy rows.
 5. **enhance_rnahybrid** — appends human-readable alignment visualizations.
-6. **build_plots** *(optional)* — renders configurable ggplot2 PDFs from the annotated tables. Skipped entirely when `build_plots.type` is unset.
+6. **build_plots** *(optional)* — renders configurable ggplot2 PDFs. Skipped entirely when `build_plots.type` is unset.
+
+## Quick start
+
+If you already have conda and Snakemake set up (otherwise see [Dependencies](#dependencies)):
+
+1. Drop your input FASTAs into `Data/Raw/` and edit `Config/config.yaml` so each `queries:` and `targets:` key points at them. The two mappings must share keys.
+2. Run:
+
+   ```bash
+   snakemake --use-conda --cores 8
+   ```
+
+3. Results land under `Data/Results/<sample>/`. See [Outputs](#outputs) for the layout.
+
+Need a graphical config editor? Skip ahead to the [UI](#config-editor-ui--optional) once you've installed dependencies.
 
 ## Dependencies
 
@@ -42,7 +48,7 @@ conda config --add channels conda-forge
 conda config --set channel_priority strict
 ```
 
-Recommended channel order (bioconda is built on top of conda-forge, so conda-forge must have higher priority to avoid ABI mismatches):
+Channel order matters: bioconda is built on top of conda-forge, so conda-forge must have higher priority to avoid ABI mismatches.
 
 ```text
 conda-forge
@@ -57,21 +63,9 @@ conda create -n snakemake-modern python=3.11 snakemake-minimal
 conda activate snakemake-modern
 ```
 
-## Run
+### Config editor (UI) — optional
 
-```bash
-snakemake --use-conda --cores N
-```
-
-To re-render only the plots after editing the `build_plots` block:
-
-```bash
-snakemake --use-conda --cores N --forcerun build_plots
-```
-
-### Config editor (UI)
-
-A PyWebView desktop app at `UI/launcher.py` provides a graphical editor for [`Config/config.yaml`](Config/config.yaml) and can kick off the pipeline directly. Install its extra dependencies into the same conda env that has `snakemake` on PATH, then launch it:
+A PyWebView desktop app at `UI/launcher.py` edits `Config/config.yaml` graphically and can kick off the pipeline directly. Install its extras into the same env that has `snakemake` on PATH, then launch:
 
 ```bash
 conda activate snakemake-modern
@@ -79,11 +73,13 @@ pip install pywebview pyqt5 pyqtwebengine
 python UI/launcher.py
 ```
 
-The launcher resolves the repo root from its own location, so you can run it from any working directory. Snakemake's stdout and stderr are inherited by the terminal you launched it from — that is where to watch progress when you trigger a run from the UI.
+The launcher resolves the repo root from its own location, so it works from any working directory. Snakemake's stdout/stderr are inherited by the terminal you launched it from — that's where to watch progress when you trigger runs from the UI.
 
 ## Configuration
 
-Edit [`Config/config.yaml`](Config/config.yaml). Example:
+Edit [`Config/config.yaml`](Config/config.yaml). It has four blocks: `queries`/`targets` (inputs), `rnacalibrate` (calibration mode + parameters), `rnahybrid` (RNAhybrid options), and `build_plots` (plotting, optional).
+
+Example:
 
 ```yaml
 queries:
@@ -153,6 +149,12 @@ When calibration runs, the artifact at `{results_dir}/{sample}/w_calibration/rna
 
 The `build_plots` block is opt-in: omit it (or remove `type:`) and no plot job is scheduled, no R env is materialized.
 
+To re-render plots after editing `build_plots` without re-running the upstream pipeline:
+
+```bash
+snakemake --use-conda --cores N --forcerun build_plots
+```
+
 - **`type`** — which panels to render: `pvalue_distribution`, `position_pvalue`, `position_energy`, `all`, or any comma-separated subset (e.g. `"pvalue_distribution,position_pvalue"`). Panels appear in the order listed.
 - **`basesize`** — ggplot2 base font size.
 - **`pvalue`** — cutoff applied to the scatter points in `position_pvalue` and `position_energy` (the density plot ignores it).
@@ -190,4 +192,7 @@ One tree per `targets:` key, under `{results_dir}/{sample}/`:
 
 If you use this workflow in a publication, please cite this repository and the external tools it relies on:
 
-- **RNAhybrid**: Kruger, J. and Rehmsmeier, M. (2006). RNAhybrid: microRNA target prediction easy, fast and flexible. *Nucleic Acids Research*, 34(Web Server issue), W451--W454. https://doi.org/10.1093/nar/gkl243
+- **RNAhybrid / RNAcalibrate**: Rehmsmeier, M., Steffen, P., Höchsmann, M., and Giegerich, R. (2004). Fast and effective prediction of microRNA/target duplexes. *RNA*, 10(10), 1507–1517. https://doi.org/10.1261/rna.5248604
+- **RNAhybrid (web server)**: Krüger, J. and Rehmsmeier, M. (2006). RNAhybrid: microRNA target prediction easy, fast and flexible. *Nucleic Acids Research*, 34(Web Server issue), W451–W454. https://doi.org/10.1093/nar/gkl243
+- **Snakemake**: Mölder, F., Jablonski, K. P., Letcher, B., et al. (2021). Sustainable data analysis with Snakemake. *F1000Research*, 10, 33. https://doi.org/10.12688/f1000research.29032.2
+- **GNU Parallel**: Tange, O. (2011). GNU Parallel: The command-line power tool. *;login: The USENIX Magazine*, 36(1), 42–47.
