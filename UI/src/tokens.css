@@ -452,6 +452,21 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   width: 8px; height: 8px; border-radius: 50%;
   background: var(--accent); box-shadow: 0 0 0 3px var(--accent-a20);
 }
+.status-dot.warn {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px rgba(208, 153, 69, 0.18);
+}
+
+/* Inline accent indicator (e.g. drawer-trigger button). Margin-right is
+   baked in because every current use precedes label text. */
+.accent-dot {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-a18);
+  margin-right: 2px;
+}
 
 /* YAML drawer — centered card, slides up from bottom of app window */
 .yaml-drawer {
@@ -538,3 +553,343 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* section anchor scroll offset */
 section[data-anchor] { scroll-margin-top: 20px; }
+
+/* ───────────────────────── hero & stat ─────────────────────────
+   Header banner above the form. The teal-soft gradient is the
+   strongest accent moment in the static UI; it sets the biological
+   tone the rest of the surface defers to. */
+.hero {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 18px 22px;
+  background:
+    linear-gradient(135deg, var(--accent-soft), transparent 70%),
+    var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+}
+.hero .hero-body { flex: 1; min-width: 0; }
+.hero .eyebrow-h {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent-ink);
+}
+.hero .ttl {
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin-top: 4px;
+}
+.hero .sub {
+  font-size: 13px;
+  color: var(--fg-3);
+  margin-top: 4px;
+}
+.hero .stats { display: flex; gap: 10px; flex-shrink: 0; }
+
+.stat {
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  min-width: 76px;
+  text-align: center;
+}
+.stat .v {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+.stat .l {
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-4);
+  margin-top: 2px;
+}
+
+/* ───────────────────────── toast ─────────────────────────
+   Tiny status pill anchored to the bottom-right. Reserved for
+   one-shot confirmations; persistent state lives in the activity
+   rail or run overlay instead. */
+.toast {
+  position: fixed;
+  bottom: 96px;
+  right: 28px;
+  padding: 10px 14px;
+  background: var(--fg);
+  color: var(--bg);
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+  font-weight: 500;
+  box-shadow: var(--shadow-pop);
+  z-index: 70;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  animation: toast-rise 0.24s cubic-bezier(.2,.8,.2,1);
+}
+.toast.success {
+  background: var(--accent);
+  color: white;
+}
+[data-theme="dark"] .toast.success { color: rgb(4, 6, 8); }
+.toast.danger { background: var(--danger); color: white; }
+@keyframes toast-rise {
+  from { transform: translateY(8px); opacity: 0; }
+  to   { transform: translateY(0); opacity: 1; }
+}
+
+/* ───────────────────────── spinner ─────────────────────────
+   "Hybridization" indicator: two counter-rotating rings around a
+   pulsing seed. Reads as molecular orbit at large size, as a
+   simple progress dot inline in buttons.
+
+   Implementation note: the inner ring uses --inner-inset so we can
+   override it on smaller sizes without redeclaring the rule. */
+.spinner {
+  --size: 96px;
+  --thickness: 1.6px;
+  --inner-inset: 22%;
+  position: relative;
+  width: var(--size);
+  height: var(--size);
+  flex-shrink: 0;
+}
+.spinner::before,
+.spinner::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  border: var(--thickness) solid transparent;
+}
+.spinner::before {
+  inset: 0;
+  border-top-color: var(--accent);
+  border-right-color: var(--accent-line);
+  animation: orbit-cw 2.4s cubic-bezier(.45,.05,.55,.95) infinite;
+}
+.spinner::after {
+  inset: var(--inner-inset);
+  border-bottom-color: var(--accent-ink);
+  border-left-color: var(--accent-line);
+  animation: orbit-ccw 1.6s cubic-bezier(.45,.05,.55,.95) infinite;
+}
+.spinner .seed {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 0 var(--accent-a30);
+  animation: seed-pulse 2.2s ease-out infinite;
+}
+.spinner.sm  { --size: 14px; --thickness: 1.5px; --inner-inset: 0; }
+.spinner.sm::after,
+.spinner.sm .seed { display: none; }
+.spinner.lg  { --size: 112px; }
+
+/* Done states: spinner morphs into a tick or a cross when the run
+   ends. We keep the outer ring for shape continuity, but freeze
+   the animation and overlay an SVG glyph. */
+.spinner.done::before,
+.spinner.done::after { animation: none; opacity: 0.35; }
+.spinner.done .seed { animation: none; }
+.spinner.success::before { border-color: var(--accent); }
+.spinner.failure::before { border-color: var(--danger); }
+.spinner .glyph-overlay {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 0.24s, transform 0.24s cubic-bezier(.2,.8,.2,1);
+}
+.spinner.done .glyph-overlay { opacity: 1; transform: scale(1); }
+.spinner.failure .glyph-overlay { color: var(--danger); }
+
+@keyframes orbit-cw  { to { transform: rotate(360deg); } }
+@keyframes orbit-ccw { to { transform: rotate(-360deg); } }
+@keyframes seed-pulse {
+  0%   { box-shadow: 0 0 0 0   var(--accent-a30); }
+  70%  { box-shadow: 0 0 0 18px rgba(0, 0, 0, 0); }
+  100% { box-shadow: 0 0 0 0   rgba(0, 0, 0, 0); }
+}
+
+/* ───────────────────────── run overlay ─────────────────────────
+   Modal blocker shown for the duration of a snakemake run. Sits
+   inside .window so it only covers the app surface, not the full
+   viewport — matches yaml-drawer's containment strategy. */
+.run-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  background: rgba(19, 22, 26, 0.42);
+  -webkit-backdrop-filter: blur(8px) saturate(1.15);
+  backdrop-filter: blur(8px) saturate(1.15);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.28s ease-out;
+}
+[data-theme="dark"] .run-overlay { background: rgba(0, 0, 0, 0.55); }
+.run-overlay.open { opacity: 1; pointer-events: auto; }
+
+.run-card {
+  width: min(440px, calc(100% - 64px));
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  padding: 36px 32px 22px;
+  box-shadow: var(--shadow-pop);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  transform: translateY(10px) scale(0.97);
+  opacity: 0;
+  transition:
+    transform 0.34s cubic-bezier(.2,.8,.2,1),
+    opacity 0.28s ease-out;
+}
+.run-overlay.open .run-card {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}
+/* hairline accent at the top edge of the card */
+.run-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent) 40%,
+    var(--accent) 60%,
+    transparent
+  );
+  opacity: 0.55;
+}
+.run-card .glyph-wrap { display: flex; justify-content: center; margin-bottom: 18px; }
+.run-card .ttl {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--fg);
+}
+.run-card .sub {
+  font-size: 12.5px;
+  color: var(--fg-3);
+  margin-top: 6px;
+  line-height: 1.5;
+}
+.run-card .meta {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px dashed var(--line);
+  display: flex;
+  gap: 18px;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--fg-4);
+  letter-spacing: 0.02em;
+}
+.run-card .meta .v {
+  color: var(--fg-2);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+.run-card .ctas {
+  margin-top: 18px;
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+/* ───────────────────────── activity rail ─────────────────────────
+   Replaces the static Ready/Resolve indicator in the actions bar
+   when a run is active. The dot has an outward ripple so the bar
+   stays alive even when the user scrolls away from the overlay. */
+.activity-rail {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--fg-2);
+}
+.activity-rail .live-dot {
+  position: relative;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+.activity-rail .live-dot::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: live-ripple 1.8s ease-out infinite;
+}
+.activity-rail.success .live-dot { background: var(--accent); }
+.activity-rail.failure .live-dot { background: var(--danger); }
+.activity-rail.failure .live-dot::after { background: var(--danger); }
+.activity-rail .elapsed {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--fg-3);
+}
+@keyframes live-ripple {
+  0%   { transform: scale(1);   opacity: 0.55; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+
+/* Solid (non-pulsing) dot for transient states like "saving". */
+.activity-rail.solid .live-dot::after { animation: none; opacity: 0; }
+
+/* ───────────────────────── busy buttons ─────────────────────────
+   When a button is mid-action we lock pointer events, dim the
+   surface a hair, and (for primary) pull a shimmer across to keep
+   the action visibly alive without distracting from the overlay. */
+.btn[data-busy="true"] {
+  pointer-events: none;
+  opacity: 0.92;
+}
+.btn.primary {
+  position: relative;
+  overflow: hidden;
+}
+.btn.primary[data-busy="true"]::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.22) 50%,
+    transparent 100%
+  );
+  transform: translateX(-100%);
+  animation: btn-shimmer 1.5s ease-in-out infinite;
+  pointer-events: none;
+}
+@keyframes btn-shimmer {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}

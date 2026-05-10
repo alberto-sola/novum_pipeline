@@ -234,6 +234,9 @@ function SaveIcon() { return <svg width="13" height="13" viewBox="0 0 16 16" fil
 function SunIcon() { return <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden><circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.3 3.3l1 1M11.7 11.7l1 1M3.3 12.7l1-1M11.7 4.3l1-1" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>; }
 function MoonIcon() { return <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden><path d="M13 9.5A5.5 5.5 0 0 1 6.5 3c0-.5.07-1 .2-1.5A6 6 0 1 0 14.5 9.3c-.5.13-1 .2-1.5.2Z" fill="currentColor"/></svg>; }
 function CopyIcon() { return <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden><rect x="4" y="4" width="9" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.3"/><path d="M3 10.5V3.5A.5.5 0 0 1 3.5 3h7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round"/></svg>; }
+function CheckIcon({ size = 14 }) { return <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden><path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>; }
+function XIcon({ size = 14 }) { return <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>; }
+function StopIcon() { return <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden><rect x="2.5" y="2.5" width="7" height="7" rx="1" fill="currentColor"/></svg>; }
 
 // --- nullable numeric input --------------------------------------
 
@@ -324,9 +327,266 @@ function NullableField({
   );
 }
 
+// --- feedback / status -------------------------------------------
+
+// Dual-orbit spinner. `state` swaps the live spin for a tick or cross
+// when the run terminates; `size` toggles the in-button "sm" variant.
+function Spinner({ state = "running", size = "md" }) {
+  const cls = [
+    "spinner",
+    size === "sm" ? "sm" : size === "lg" ? "lg" : "",
+    state === "success" ? "done success" : "",
+    state === "failure" ? "done failure" : "",
+  ].filter(Boolean).join(" ");
+  return (
+    <div className={cls} role="status" aria-live="polite" aria-label="Working">
+      {size !== "sm" && <span className="seed" />}
+      {state === "success" && (
+        <span className="glyph-overlay"><CheckIcon size={36} /></span>
+      )}
+      {state === "failure" && (
+        <span className="glyph-overlay"><XIcon size={32} /></span>
+      )}
+    </div>
+  );
+}
+
+// Bottom-right status pill. `tone` ∈ "neutral" | "success" | "danger"
+// (neutral matches the dark-pill default).
+function Toast({ tone = "neutral", children }) {
+  const cls = `toast ${tone === "success" ? "success" : tone === "danger" ? "danger" : ""}`;
+  return <div className={cls}>{children}</div>;
+}
+
+// Mono mm:ss (or h:mm:ss for >1h runs) formatter — defensive against
+// undefined while polling.
+function formatElapsed(seconds) {
+  const s = Math.max(0, Math.floor(seconds || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  const pad = (n) => String(n).padStart(2, "0");
+  return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
+}
+
+// In-bar live indicator used while a run (or save) is mid-flight. The
+// `tone` knob lets us reuse this shell post-run to mirror final state.
+function ActivityRail({ label, elapsed, tone = "live" }) {
+  const cls = `activity-rail ${tone === "live" ? "" : tone} ${tone === "saving" ? "solid" : ""}`;
+  return (
+    <span className={cls}>
+      <span className="live-dot" aria-hidden />
+      <span>{label}</span>
+      {elapsed != null && <span className="elapsed">· {formatElapsed(elapsed)}</span>}
+    </span>
+  );
+}
+
+function RunOverlay({ open, status, onCancel, onClose, threads, queries, targets }) {
+  const state = status?.state || "running";
+  const elapsed = status?.elapsed || 0;
+  const code = status?.returncode;
+
+  const VIEWS = {
+    running: {
+      glyph: "running",
+      headline: "Hybridization in progress",
+      sub: `Running snakemake · ${queries} quer${queries === 1 ? "y" : "ies"} × ${targets} target${targets === 1 ? "" : "s"} · ${threads} threads`,
+    },
+    succeeded: {
+      glyph: "success",
+      headline: "Pipeline complete",
+      sub: "Snakemake finished cleanly. Outputs are in your results directory.",
+    },
+    failed: {
+      glyph: "failure",
+      headline: "Pipeline failed",
+      sub: `Snakemake exited with code ${code}. Check the launcher terminal for the trace.`,
+    },
+    cancelled: {
+      glyph: "failure",
+      headline: "Pipeline cancelled",
+      sub: "The run was stopped before it finished.",
+    },
+  };
+  const view = VIEWS[state] || VIEWS.running;
+
+  return (
+    <div className={`run-overlay ${open ? "open" : ""}`} aria-hidden={!open}>
+      <div className="run-card" role="dialog" aria-modal="true" aria-label={view.headline}>
+        <div className="glyph-wrap">
+          <Spinner state={view.glyph} size={state === "running" ? "lg" : "md"} />
+        </div>
+        <div className="ttl">{view.headline}</div>
+        <div className="sub">{view.sub}</div>
+        <div className="meta">
+          <span>elapsed <span className="v">{formatElapsed(elapsed)}</span></span>
+          {status?.pid && <span>pid <span className="v">{status.pid}</span></span>}
+          {state !== "running" && code != null && (
+            <span>exit <span className="v">{code}</span></span>
+          )}
+        </div>
+        <div className="ctas">
+          {state === "running" ? (
+            <button className="btn sm" onClick={onCancel} aria-label="Cancel run">
+              <StopIcon /> Cancel run
+            </button>
+          ) : (
+            <button className="btn primary sm" onClick={onClose} aria-label="Dismiss">
+              <CheckIcon size={12} /> Dismiss
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- layout ------------------------------------------------------
+
+function Stat({ label, value }) {
+  return (
+    <div className="stat">
+      <div className="v">{value}</div>
+      <div className="l">{label}</div>
+    </div>
+  );
+}
+
+function Hero({ cfg }) {
+  const setCount = useMemo(
+    () => window.RNAHYBRID_NULLABLE_KEYS.filter((k) => cfg.rnahybrid[k].set).length,
+    [cfg.rnahybrid],
+  );
+  return (
+    <div className="hero">
+      <div className="hero-body">
+        <div className="eyebrow-h">Configure run</div>
+        <div className="ttl">RNA → bacterial target hybridization</div>
+        <div className="sub">Build your pipeline config, then hit run.</div>
+      </div>
+      <div className="stats">
+        <Stat label="Queries" value={cfg.queries.length} />
+        <Stat label="Targets" value={cfg.targets.length} />
+        <Stat label="Threads" value={cfg.rnahybrid.threads} />
+        <Stat label="Set params" value={`${setCount}/${window.RNAHYBRID_NULLABLE_KEYS.length}`} />
+      </div>
+    </div>
+  );
+}
+
+// Sticky footer holding the readiness summary and primary actions.
+// `pipelineState`/`elapsed` come from the parent state machine and
+// drive the activity rail when the pipeline is alive.
+function ActionsBar({
+  cfg, onSave, onRun, onToggleYAML, theme, onTheme,
+  pipelineState, elapsed, savingState,
+}) {
+  const queriesOk = cfg.queries.length >= 1 && cfg.queries.every((q) => q.key.trim() && q.path.trim());
+  const targetsOk = cfg.targets.length >= 1 && cfg.targets.every((t) => t.key.trim() && t.path && t.path.trim());
+  const ready = queriesOk && targetsOk && cfg.results_dir.trim();
+
+  const running = pipelineState === "running";
+  const saving = savingState === "saving";
+  const canRun = ready && !running && !saving;
+
+  let status;
+  if (running) {
+    status = <ActivityRail label="Pipeline running" elapsed={elapsed} />;
+  } else if (saving) {
+    status = <ActivityRail label="Saving config" tone="saving" />;
+  } else if (ready) {
+    status = (
+      <div className="status">
+        <span className="status-dot" />
+        <span>
+          Ready · {cfg.queries.length} × query · {cfg.targets.length} × target · {cfg.rnahybrid.threads} threads
+        </span>
+      </div>
+    );
+  } else {
+    status = (
+      <div className="status">
+        <span className="status-dot warn" />
+        <span>Resolve required fields to run</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="actions-bar">
+      {status}
+      <button
+        className="btn ghost sm"
+        onClick={() => onTheme(theme === "dark" ? "light" : "dark")}
+        title="Toggle theme"
+        aria-label="Toggle theme"
+        style={{ marginLeft: 10 }}
+      >
+        {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+      </button>
+      <div style={{ flex: 1 }} />
+      <div style={{ display: "flex", gap: 8 }}>
+        <button className="btn" onClick={onToggleYAML}>
+          <span className="accent-dot" />
+          <CodeIcon /> config.yaml
+        </button>
+        <button className="btn" onClick={onSave} data-busy={saving} disabled={running}>
+          {saving ? <Spinner size="sm" /> : <SaveIcon />}
+          {saving ? "Saving…" : "Save"}
+        </button>
+        <button
+          className="btn primary"
+          onClick={onRun}
+          disabled={!canRun}
+          data-busy={running}
+        >
+          {running ? <Spinner size="sm" /> : <PlayIcon />}
+          {running ? "Running…" : "Run pipeline"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Slide-up YAML drawer with syntax highlighting and copy/save actions.
+function YAMLDrawer({ open, onClose, cfg, onSave }) {
+  const lines = useMemo(() => window.buildYAML(cfg), [cfg]);
+  const html = useMemo(() => window.renderYAML(lines), [lines]);
+  // `plain` is only needed when the user clicks Copy — compute lazily so the
+  // drawer doesn't pay for it on every keystroke that mutates `cfg`.
+  const copy = () => navigator.clipboard?.writeText(window.renderYAMLPlain(lines));
+
+  return (
+    <React.Fragment>
+      <div className={`yaml-backdrop ${open ? "open" : ""}`} onClick={onClose} />
+      <aside className={`yaml-drawer ${open ? "open" : ""}`} aria-hidden={!open}>
+        <div className="head">
+          <div>
+            <div className="ttl">Generated config</div>
+            <div className="path">Config/config.yaml</div>
+          </div>
+          <button className="btn ghost sm" onClick={onClose} aria-label="Close">✕</button>
+        </div>
+        <div className="body">
+          <pre className="yaml-panel" dangerouslySetInnerHTML={{ __html: html }} />
+        </div>
+        <div className="foot">
+          <button className="btn sm" onClick={copy}><CopyIcon /> Copy</button>
+          <button className="btn primary sm" onClick={onSave}><SaveIcon /> Save to disk</button>
+        </div>
+      </aside>
+    </React.Fragment>
+  );
+}
+
 // export to window for other scripts
 Object.assign(window, {
   Toggle, Check, Field, PathInput, KeyedFileRow,
   FolderIcon, PlusIcon, TrashIcon, CodeIcon, PlayIcon, SaveIcon, SunIcon, MoonIcon, CopyIcon,
+  CheckIcon, XIcon, StopIcon,
   NullableField, useApiList, useListEditor, promptBrowse,
+  Spinner, Toast, ActivityRail, RunOverlay,
+  Hero, Stat, ActionsBar, YAMLDrawer,
+  formatElapsed,
 });
