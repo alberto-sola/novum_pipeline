@@ -153,10 +153,13 @@ plot_position_pvalue <- function() {
 }
 
 plot_position_energy <- function() {
+  # Energy is largely calibration-invariant, so we render only one variant
+  # (preferring calibrated when available) and label the strip accordingly
+  # instead of claiming both panels are present.
   pick <- if (any(merged$Calibration == "calibrated")) "calibrated" else "uncalibrated"
   base_data <- merged |>
     filter(Calibration == pick) |>
-    mutate(facet_label = "With/WithOut Calibration")
+    mutate(facet_label = calibration_labels[[pick]])
 
   ggplot(base_data, aes(x = Position, y = Energy)) +
     geom_point(

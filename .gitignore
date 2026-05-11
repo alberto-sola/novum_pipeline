@@ -14,5 +14,7 @@ CLAUDE.md
 Data/*
 graphify-out
 .graphifyignore
-data-prep/
-!fetch_genomes.py
+# `!data-prep/fetch_genomes.py` only takes effect when the parent dir is
+# pattern-matched (`data-prep/*`), not when the dir itself is excluded.
+data-prep/*
+!data-prep/fetch_genomes.py
