@@ -488,7 +488,7 @@ function ActionsBar({
 
   const running = pipelineState === "running";
   const saving = savingState === "saving";
-  const canRun = ready && !running && !saving;
+  const canRun = ready && pipelineState === "idle" && !saving;
 
   let status;
   if (running) {

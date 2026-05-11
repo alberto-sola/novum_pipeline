@@ -156,7 +156,7 @@ plot_position_energy <- function() {
   pick <- if (any(merged$Calibration == "calibrated")) "calibrated" else "uncalibrated"
   base_data <- merged |>
     filter(Calibration == pick) |>
-    mutate(facet_label = "With/WithOut Calibration")
+    mutate(facet_label = calibration_labels[[pick]])
 
   ggplot(base_data, aes(x = Position, y = Energy)) +
     geom_point(
