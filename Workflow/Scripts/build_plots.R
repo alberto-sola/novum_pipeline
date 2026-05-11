@@ -153,9 +153,6 @@ plot_position_pvalue <- function() {
 }
 
 plot_position_energy <- function() {
-  # Energy is largely calibration-invariant, so we render only one variant
-  # (preferring calibrated when available) and label the strip accordingly
-  # instead of claiming both panels are present.
   pick <- if (any(merged$Calibration == "calibrated")) "calibrated" else "uncalibrated"
   base_data <- merged |>
     filter(Calibration == pick) |>

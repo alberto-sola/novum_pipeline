@@ -488,9 +488,6 @@ function ActionsBar({
 
   const running = pipelineState === "running";
   const saving = savingState === "saving";
-  // Require the previous terminal state to be acknowledged (overlay dismissed,
-  // pipelineState back to "idle") before a new run can be launched — otherwise
-  // a stale failed/cancelled overlay can sit on top of a fresh run.
   const canRun = ready && pipelineState === "idle" && !saving;
 
   let status;
