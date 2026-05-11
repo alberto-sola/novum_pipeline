@@ -35,7 +35,7 @@ def parse_fasta_annotations(fasta_path):
     duplicates = annotations.duplicated(subset=["Gene"]).sum()
     if duplicates:
         print(
-            f"annotate_rnahybrid: dropped {duplicates} duplicate Gene row(s) from FASTA annotations.",
+            f"annotate: dropped {duplicates} duplicate Gene row(s) from FASTA annotations.",
             file=sys.stderr,
         )
     annotations = annotations.drop_duplicates(subset=["Gene"])
@@ -43,18 +43,16 @@ def parse_fasta_annotations(fasta_path):
     return annotations
 
 
-#----- Left-joins the FASTA annotations onto the tidy RNAhybrid table, inserting them right after the P_value column -----#
-def annotate_results(tidy_csv_path, fasta_path, output_path):
+#----- Left-joins the FASTA annotations onto the tidy table, inserting them after `insert_after` column -----#
+def annotate_results(tidy_csv_path, fasta_path, output_path, insert_after):
     tidy = pd.read_csv(tidy_csv_path)
     annotations = parse_fasta_annotations(fasta_path)
 
     annotated = tidy.merge(annotations, on="Gene", how="left")
 
-    insert_after = "P_value"
     if insert_after not in tidy.columns:
         raise ValueError(f"tidy CSV is missing required column {insert_after!r}")
 
-    # Insert annotations after the P_value column.
     fasta_columns = [column for column in annotations.columns if column != "Gene"]
     ordered_columns = []
     for column in tidy.columns:
@@ -74,6 +72,7 @@ def run_from_snakemake(snakemake):
         tidy_csv_path=snakemake.input.tidy,
         fasta_path=snakemake.input.target,
         output_path=snakemake.output.annotated,
+        insert_after=snakemake.params.insert_after,
     )
 
 run_from_snakemake(snakemake)
