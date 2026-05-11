@@ -5,6 +5,7 @@ configfile: "Config/config.yaml"
 targets             = config["targets"]
 rnacalibrate_config = config.get("rnacalibrate", {}) or {}
 rnahybrid_config    = config.get("rnahybrid", {}) or {}
+intarna_config      = config.get("intarna", {}) or {}
 results_dir         = config.get("results_dir", "Data/Results").rstrip("/")
 max_target_length   = rnacalibrate_config.get("max_target_length", 50000)
 
@@ -59,12 +60,32 @@ def _resolve_mode(cfg):
 
 variants = _MODE_TO_VARIANTS[_resolve_mode(rnacalibrate_config)]
 
+#----- Resolve which IntaRNA accessibility variants to produce -----#
+W_ACCESSIBILITY  = "w_accessibility"
+WO_ACCESSIBILITY = "wo_accessibility"
+
+_ACC_MODE_TO_VARIANTS = {
+    "on":   [W_ACCESSIBILITY],
+    "off":  [WO_ACCESSIBILITY],
+    "both": [W_ACCESSIBILITY, WO_ACCESSIBILITY],
+}
+
+def _resolve_acc_mode(cfg):
+    mode = cfg.get("acc_mode", "both")
+    if mode not in _ACC_MODE_TO_VARIANTS:
+        raise ValueError(
+            f"intarna.acc_mode must be one of {list(_ACC_MODE_TO_VARIANTS)}, got {mode!r}"
+        )
+    return mode
+
+intarna_variants = _ACC_MODE_TO_VARIANTS[_resolve_acc_mode(intarna_config)]
+
 
 #----- Per-variant calibration routing: the {variant} wildcard is constrained to
 #      the two calibration literals; calibration_input(wc) supplies the JSON only
 #      for w_calibration so a single rnahybrid rule serves both branches -----#
 wildcard_constraints:
-    variant = f"{W_CALIBRATION}|{WO_CALIBRATION}"
+    variant = "|".join([W_CALIBRATION, WO_CALIBRATION, W_ACCESSIBILITY, WO_ACCESSIBILITY])
 
 
 def calibration_input(wc):
@@ -80,6 +101,11 @@ rule all:
             f"{results_dir}" + "/{sample}/{variant}/rnahybrid_enhanced.txt",
             sample=targets.keys(),
             variant=variants,
+        ),
+        expand(
+            f"{results_dir}" + "/{sample}/{variant}/intarna_enhanced.txt",
+            sample=targets.keys(),
+            variant=intarna_variants,
         ),
         *(expand(
             f"{results_dir}" + "/{sample}/plots_" + build_plots_slug + ".pdf",
@@ -107,6 +133,8 @@ rule rnacalibrate:
 
 #----- Run RNAhybrid on multiple cores -----#
 rule rnahybrid:
+    wildcard_constraints:
+        variant = f"{W_CALIBRATION}|{WO_CALIBRATION}"
     input:
         query=lambda wc: queries[wc.sample],
         target=lambda wc: targets[wc.sample],
@@ -132,6 +160,8 @@ rule rnahybrid:
 
 #----- Filter, select, arrange the RNAhybrid's output -----#
 rule tidy_rnahybrid:
+    wildcard_constraints:
+        variant = f"{W_CALIBRATION}|{WO_CALIBRATION}"
     input:
         compact=f"{results_dir}" + "/{sample}/{variant}/rnahybrid_output.tsv"
     output:
@@ -143,6 +173,8 @@ rule tidy_rnahybrid:
 
 #----- Parse metadata from the target file (genome) and merge them with the tidied output -----#
 rule annotate_rnahybrid:
+    wildcard_constraints:
+        variant = f"{W_CALIBRATION}|{WO_CALIBRATION}"
     input:
         tidy=f"{results_dir}" + "/{sample}/{variant}/tidy_output.csv",
         target=lambda wc: targets[wc.sample]
@@ -150,11 +182,15 @@ rule annotate_rnahybrid:
         annotated=f"{results_dir}" + "/{sample}/{variant}/rnahybrid_annotated.csv"
     conda:
         "Workflow/Envs/postprocess.yaml"
+    params:
+        insert_after="P_value"
     script:
-        "Workflow/Scripts/annotate_rnahybrid.py"
+        "Workflow/Scripts/annotate.py"
 
 #----- Visualize RNAhybrid alignments + all the data -----#
 rule enhance_rnahybrid:
+    wildcard_constraints:
+        variant = f"{W_CALIBRATION}|{WO_CALIBRATION}"
     input:
         annotated=f"{results_dir}" + "/{sample}/{variant}/rnahybrid_annotated.csv"
     output:
@@ -163,6 +199,67 @@ rule enhance_rnahybrid:
         "Workflow/Envs/postprocess.yaml"
     script:
         "Workflow/Scripts/enhance_rnahybrid.py"
+
+#----- Run IntaRNA on multiple cores (native --threads, no external chunking) -----#
+rule intarna:
+    wildcard_constraints:
+        variant = f"{W_ACCESSIBILITY}|{WO_ACCESSIBILITY}"
+    input:
+        query=lambda wc: queries[wc.sample],
+        target=lambda wc: targets[wc.sample]
+    output:
+        csv=f"{results_dir}" + "/{sample}/{variant}/intarna_output.csv"
+    conda:
+        "Workflow/Envs/intarna.yaml"
+    threads:
+        int(intarna_config.get("threads", 1))
+    params:
+        intarna=intarna_config
+    script:
+        "Workflow/Scripts/intarna.py"
+
+#----- Filter, rename, and normalize the IntaRNA CSV output -----#
+rule tidy_intarna:
+    wildcard_constraints:
+        variant = f"{W_ACCESSIBILITY}|{WO_ACCESSIBILITY}"
+    input:
+        csv=f"{results_dir}" + "/{sample}/{variant}/intarna_output.csv",
+        target=lambda wc: targets[wc.sample]
+    output:
+        tidy=f"{results_dir}" + "/{sample}/{variant}/intarna_tidy.csv"
+    conda:
+        "Workflow/Envs/intarna.yaml"
+    script:
+        "Workflow/Scripts/tidy_intarna.py"
+
+#----- Parse metadata from the target FASTA and merge with the IntaRNA tidy output -----#
+rule annotate_intarna:
+    wildcard_constraints:
+        variant = f"{W_ACCESSIBILITY}|{WO_ACCESSIBILITY}"
+    input:
+        tidy=f"{results_dir}" + "/{sample}/{variant}/intarna_tidy.csv",
+        target=lambda wc: targets[wc.sample]
+    output:
+        annotated=f"{results_dir}" + "/{sample}/{variant}/intarna_annotated.csv"
+    conda:
+        "Workflow/Envs/postprocess.yaml"
+    params:
+        insert_after="E"
+    script:
+        "Workflow/Scripts/annotate.py"
+
+#----- Visualize IntaRNA alignments and energy data as a per-record human-readable report -----#
+rule enhance_intarna:
+    wildcard_constraints:
+        variant = f"{W_ACCESSIBILITY}|{WO_ACCESSIBILITY}"
+    input:
+        annotated=f"{results_dir}" + "/{sample}/{variant}/intarna_annotated.csv"
+    output:
+        enhanced=f"{results_dir}" + "/{sample}/{variant}/intarna_enhanced.txt"
+    conda:
+        "Workflow/Envs/postprocess.yaml"
+    script:
+        "Workflow/Scripts/enhance_intarna.py"
 
 #----- Build configurable ggplot2 plots from the annotated tables -----#
 rule build_plots:

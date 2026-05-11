@@ -53,5 +53,54 @@ build_plots:
     - rnpA,hsa-miR-4747-3p
   protein:
 
+#----- Parameters for IntaRNA -----#
+intarna:
+  # on | off | both — drives w_accessibility / wo_accessibility variants (mirrors rnacalibrate.mode)
+  # wo_accessibility locks the §10.1 RNAhybrid-emulation profile (--noSeed --acc=N --intLoopMax=30 --mode=M)
+  # and ignores mode, model, int_len_max, int_loop_max, seed.*, and accessibility.*.
+  # Only output.* and extra_args are honored for that variant.
+  acc_mode: both
+  threads: 16
+
+  # Interaction model (w_accessibility only)
+  mode: H                      # H heuristic | M exact | S seed-only
+  model: X                     # X seed-extension | S legacy | B helix-block | P ensemble
+  int_len_max: 0               # 0 = auto (min of seq length, accW)
+  int_loop_max: 10             # wo_accessibility forces 30
+
+  # Seed (w_accessibility only; wo_accessibility sets --noSeed)
+  seed:
+    bp: 7                      # --seedBP [2..20]
+    max_E: null                # --seedMaxE
+    max_E_hybrid: null         # --seedMaxEhybrid
+    min_Pu: null               # --seedMinPu
+    no_GU: false               # --seedNoGU
+    no_GU_end: false           # --seedNoGUend
+    q_range: null              # --seedQRange  e.g. "1-7,12-20" for canonical miRNA seed
+    t_range: null              # --seedTRange
+    max_UP: null               # --seedMaxUP
+    out_best_only: false       # --outBestSeedOnly
+
+  # Accessibility (w_accessibility only; wo_accessibility sets --acc=N)
+  accessibility:
+    w: null                    # --accW  (0 → RNAup-like global; null → IntaRNA default ~150)
+    l: null                    # --accL  (0 → global; null → IntaRNA default ~100)
+    no_lp: false               # --accNoLP
+    no_gu_end: false           # --accNoGUend
+
+  # Output filtering (both variants)
+  output:
+    max_E: -18                 # --outMaxE  (comparable to RNAhybrid -e)
+    delta_E: null              # --outDeltaE
+    number: 1                  # --outNumber [0..1000]; 1 = best hit per pair (RNAhybrid parity)
+    overlap: B                 # --outOverlap N|T|Q|B
+    min_Pu: null               # --outMinPu
+    no_lp: false               # --outNoLP
+    no_gu_end: false           # --outNoGUend
+    csv_cols: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
+
+  # Escape hatch: appended verbatim (e.g. helix-block flags, --accFile, --qRegion)
+  extra_args: []
+
 #----- Where outputs should be generated -----#
 results_dir: Data/Results/

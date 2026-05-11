@@ -1,0 +1,9 @@
+name: intarna
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.11
+  - intarna=3.4.1
+  - pandas
