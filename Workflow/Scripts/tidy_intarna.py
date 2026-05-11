@@ -54,6 +54,10 @@ def tidy_intarna(input_path, target_fasta_path, output_path):
 
     df["Gene_length"] = df["Gene_length"].astype(int)
 
+    if (df["Gene_length"] <= 0).any():
+        bad = df.loc[df["Gene_length"] <= 0, "Gene"].unique().tolist()
+        raise ValueError(f"Non-positive Gene_length in target FASTA for: {bad}")
+
     # Normalize position to a 0-1 fraction for cross-pipeline comparability with tidy_rnahybrid.
     df["Position"] = df["Start1"].astype(float) / df["Gene_length"]
 

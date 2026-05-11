@@ -19,31 +19,19 @@ def _fmt(value):
     return "NA" if pd.isna(value) else str(value)
 
 
-def _parse_dp(hybrid_dp_field):
-    """Return (target_dp, query_dp) from the 'target&query' hybridDP field."""
-    if "&" not in str(hybrid_dp_field):
-        return str(hybrid_dp_field), ""
-    left, right = str(hybrid_dp_field).split("&", 1)
-    return left, right
-
-
-def _parse_subseq(subseq_dp_field):
-    """Return (target_seq, query_seq) from the 'target&query' subseqDP field."""
-    if "&" not in str(subseq_dp_field):
-        return str(subseq_dp_field), ""
-    left, right = str(subseq_dp_field).split("&", 1)
+def _split_target_query(field):
+    text = str(field)
+    if "&" not in text:
+        return text, ""
+    left, right = text.split("&", 1)
     return left, right
 
 
 def _render_duplex(subseq_dp, hybrid_dp):
-    """
-    Render an ASCII duplex from IntaRNA's hybridDP dot-bracket notation.
-
-    target reads 5'→3' left-to-right; miRNA reads 3'→5' (displayed reversed).
-    Base-paired positions (target_dp[i] == '(') are shown with '|'.
-    """
-    target_seq, query_seq = _parse_subseq(subseq_dp)
-    target_dp,  query_dp  = _parse_dp(hybrid_dp)
+    # target reads 5'→3' left-to-right; miRNA reads 3'→5' (displayed reversed).
+    # Base-paired positions are target_dp[i] == '('.
+    target_seq, query_seq = _split_target_query(subseq_dp)
+    target_dp,  query_dp  = _split_target_query(hybrid_dp)
 
     n = max(len(target_seq), len(target_dp))
     indicator = "".join(
