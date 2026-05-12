@@ -16,3 +16,5 @@ graphify-out
 .graphifyignore
 data-prep/*
 !data-prep/fetch_genomes.py
+
+IntaRNA_instructions*

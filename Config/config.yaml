@@ -1,12 +1,10 @@
 #----- miRNAs (one query FASTA per target sample, joined by key) -----#
 queries:
   escherichia: Data/Raw/RNAs/validated_escherichia.fa
-  bacteroides: Data/Raw/RNAs/validated_bacteroides.fa
 
 #----- Genomes, even more than one -----#
 targets:
   escherichia: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
-  bacteroides: Data/Raw/genomes/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
@@ -34,23 +32,18 @@ build_plots:
   # volcano | pvalue_ecdf | calibration_delta | per_mirna |
   # position_density | seed_class | all
   # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
-  type: pvalue_distribution,position_pvalue,position_energy
+  type: all
   basesize: 12
   pvalue: 0.01
   # cap for plot_per_mirna (top-N miRNAs by hit count)
   per_mirna_top_n: 12
   # entry,miRNA
   locus:
-    - FE838_RS16060
-    - FE838_RS16090
-    - FE838_RS16070
-    - FE838_RS16075
-    - FE838_RS16085
-    - FE838_RS16065
-    - FE838_RS16080
+
   gene:
-    - yegH,hsa-miR-1226-5p
-    - rnpA,hsa-miR-4747-3p
+    - yegH
+    - trmL
+
   protein:
 
 #----- Parameters for IntaRNA -----#
@@ -59,12 +52,12 @@ intarna:
   # wo_accessibility locks the §10.1 RNAhybrid-emulation profile (--noSeed --acc=N --intLoopMax=30 --mode=M)
   # and ignores mode, model, int_len_max, int_loop_max, seed.*, and accessibility.*.
   # Only output.* and extra_args are honored for that variant.
-  acc_mode: both
+  acc_mode: on
   threads: 16
 
   # Interaction model (w_accessibility only)
   mode: H                      # H heuristic | M exact | S seed-only
-  model: X                     # X seed-extension | S legacy | B helix-block | P ensemble
+  model: S                     # X seed-extension | S legacy | B helix-block | P ensemble
   int_len_max: 0               # 0 = auto (min of seq length, accW)
   int_loop_max: 10             # wo_accessibility forces 30
 
