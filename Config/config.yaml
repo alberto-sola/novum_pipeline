@@ -71,9 +71,7 @@ intarna:
 
   # Seed (wo_accessibility: set disable: true to suppress seed enforcement)
   seed:
-
-
-    disable: false             # when true, emit --noSeed and skip all other seed flags
+    disable: true             # when true, emit --noSeed and skip all other seed flags
     bp: null                   # null → derived from top-level seed; set explicitly to override [2..20]; if both null, IntaRNA default (7) applies
     max_E: null                # --seedMaxE
     max_E_hybrid: null         # --seedMaxEhybrid

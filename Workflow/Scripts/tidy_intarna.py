@@ -13,6 +13,7 @@ OUTPUT_COLUMNS = [
 REQUIRED_COLS = {"id1", "id2", "start1", "end1", "start2", "end2", "E"}
 
 
+#----- Streams the target FASTA once and returns a {Gene → cumulative sequence length} map for downstream position normalization -----#
 def _parse_gene_lengths(fasta_path):
     lengths = {}
     current_id = None
@@ -33,6 +34,7 @@ def _parse_gene_lengths(fasta_path):
     return lengths
 
 
+#----- Renames IntaRNA's columns to the pipeline's canonical names, joins gene lengths, computes a 0–1 Position fraction, and emits an energy-sorted CSV -----#
 def tidy_intarna(input_path, target_fasta_path, output_path):
     df = pd.read_csv(input_path, sep=";", dtype={"id1": str, "id2": str})
 

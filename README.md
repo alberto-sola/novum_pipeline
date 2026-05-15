@@ -21,7 +21,7 @@ queries + targets ────────┤                                   
 
 ### IntaRNA arm
 
-7. **intarna** — runs IntaRNA with native `--threads`; no external chunking. The `wo_accessibility` variant locks the §10.1 RNAhybrid-emulation profile (`--noSeed --acc=N --intLoopMax=30 --mode=M`) for an apples-to-apples comparison.
+7. **intarna** — runs IntaRNA with native `--threads`; no external chunking. The `w_accessibility` and `wo_accessibility` variants differ only in `--acc=C` vs `--acc=N`; every other IntaRNA parameter applies uniformly to both. See [IntaRNA & accessibility mode](#intarna--accessibility-mode) for the §10.1 RNAhybrid-emulation recipe.
 8. **tidy_intarna** — filters and renames columns; computes `Position = Start1 / Gene_length` for positional comparability with the RNAhybrid arm.
 9. **annotate_intarna** — parses FASTA headers and merges metadata (shares `annotate.py`, inserting after the `E` column).
 10. **enhance_intarna** — per-record human-readable report with energy, accessibility, and seed metadata plus a duplex block rendered from `subseqDP`/`hybridDP`.
@@ -86,7 +86,7 @@ The launcher resolves the repo root from its own location, so it works from any 
 
 ## Configuration
 
-Edit [`Config/config.yaml`](Config/config.yaml). It has five blocks: `queries`/`targets` (inputs), `rnacalibrate` (calibration mode + parameters), `rnahybrid` (RNAhybrid options), `intarna` (IntaRNA options, new), and `build_plots` (plotting, optional).
+Edit [`Config/config.yaml`](Config/config.yaml). Top-level keys `threads`, `hits`, `max_energy`, and `seed` are shared by both arms (single source of truth so the two tools can't drift). Tool-specific options live under `rnahybrid` and `intarna`; calibration under `rnacalibrate`; inputs under `queries`/`targets`; optional plotting under `build_plots`.
 
 Example:
 
@@ -99,6 +99,11 @@ targets:
   escherichia: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
   bacteroides: Data/Raw/genomes/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
 
+threads: 16
+hits: null
+max_energy: -18
+seed: null
+
 rnacalibrate:
   mode: both
   k: 10000
@@ -106,49 +111,11 @@ rnacalibrate:
   randomize_targets: true
 
 rnahybrid:
-  threads: 16
   species: 3utr_human
-  hits: null
-  u: null
-  v: null
-  energy: -18
+  internal_loop_max: null
+  bulge_loop_max: null
   pvalue: null
-  seed: null
   distribution: null
-
-intarna:
-  acc_mode: both
-  threads: 16
-  mode: H
-  model: S
-  int_len_max: 0
-  int_loop_max: 10
-  seed:
-    bp: 7
-    max_E: null
-    max_E_hybrid: null
-    min_Pu: null
-    no_GU: false
-    no_GU_end: false
-    q_range: null
-    t_range: null
-    max_UP: null
-    out_best_only: false
-  accessibility:
-    w: null
-    l: null
-    no_lp: false
-    no_gu_end: false
-  output:
-    max_E: -18
-    delta_E: null
-    number: 1
-    overlap: B
-    min_Pu: null
-    no_lp: false
-    no_gu_end: false
-    csv_cols: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
-  extra_args: []
 
 build_plots:
   type: position_pvalue,pvalue_distribution
@@ -166,6 +133,38 @@ build_plots:
     - yegH,hsa-miR-1226-5p
     - rnpA,hsa-miR-4747-3p
   protein:
+
+intarna:
+  accessibility: "on"
+  mode: H
+  model: S
+  int_len_max: 0
+  int_loop_max: 10
+  seed:
+    disable: false
+    bp: null
+    max_E: null
+    max_E_hybrid: null
+    min_Pu: null
+    no_GU: false
+    no_GU_end: false
+    q_range: null
+    t_range: null
+    max_UP: null
+    out_best_only: false
+  accessibility_params:
+    window: null
+    max_bp_span: null
+    no_lp: false
+    no_gu_end: false
+  output:
+    delta_E: null
+    overlap: B
+    min_Pu: null
+    no_lp: false
+    no_gu_end: false
+    csv_cols: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
+  extra_args: []
 
 results_dir: Data/Results/
 ```
@@ -190,17 +189,45 @@ When calibration runs, the artifact at `{results_dir}/{sample}/w_calibration/rna
 
 ### IntaRNA & accessibility mode
 
-`intarna.acc_mode` selects which accessibility variant(s) the IntaRNA arm produces — analogous to `rnacalibrate.mode` on the RNAhybrid side:
+`intarna.accessibility` selects which accessibility variant(s) the IntaRNA arm produces — analogous to `rnacalibrate.mode` on the RNAhybrid side:
 
-- **`on`** — runs IntaRNA with RNA accessibility correction enabled (`--acc=C`). Outputs land under `{results_dir}/{sample}/w_accessibility/`. The `mode`, `model`, `int_len_max`, `int_loop_max`, `seed.*`, and `accessibility.*` config keys all apply.
-- **`off`** — runs the **§10.1 RNAhybrid-emulation profile**: IntaRNA is locked to `--noSeed --acc=N --intLoopMax=30 --mode=M`. The config keys `mode`, `model`, `int_len_max`, `int_loop_max`, `seed.*`, and `accessibility.*` are **silently ignored** for this variant. Only `output.*` and `extra_args` are honored. Outputs land under `{results_dir}/{sample}/wo_accessibility/`. This is the canonical apples-to-apples profile for comparison against RNAhybrid: no seed constraint, no accessibility correction, exact mode, energy threshold comparable to `rnahybrid.energy`.
-- **`both`** — produces both `w_accessibility/` and `wo_accessibility/` trees in one run.
+- **`"on"`** — runs IntaRNA with RNA accessibility correction enabled (`--acc=C`). Outputs land under `{results_dir}/{sample}/w_accessibility/`.
+- **`"off"`** — runs IntaRNA with no accessibility correction (`--acc=N`). Outputs land under `{results_dir}/{sample}/wo_accessibility/`.
+- **`"both"`** — produces both trees in one run.
 
-`intarna.threads` maps to IntaRNA's native `--threads` flag; the IntaRNA arm does not use GNU Parallel (unlike the RNAhybrid arm, which chunks targets externally).
+The two variants differ **only** in `--acc=N` vs `--acc=C`. All other IntaRNA config keys (`mode`, `model`, `int_len_max`, `int_loop_max`, `seed.*`, `accessibility_params.*`) apply uniformly. The `accessibility_params.*` flags are still passed under `--acc=N` (where they're a no-op) so the command line stays consistent.
 
-`output.csv_cols` is the column whitelist passed to IntaRNA via `--outCsvCols`. The downstream `tidy_intarna` rule requires at minimum `id1, id2, start1, end1, start2, end2, E`; trimming `csv_cols` below that will break the IntaRNA arm. The `hybridDP` and `subseqDP` columns are also required if you want `enhance_intarna` to render alignment visualizations.
+The top-level `threads` maps to IntaRNA's native `--threads` flag; the IntaRNA arm does not use GNU Parallel (unlike the RNAhybrid arm, which chunks targets externally).
 
-> **YAML 1.1 gotcha:** bare `on` and `off` are parsed by PyYAML as Python `True`/`False`. The Snakefile coerces them back to strings, so `acc_mode: on` works — but `acc_mode: "on"` (quoted) is more portable if you feed the config to other tools.
+`intarna.output.csv_cols` is the column whitelist passed to IntaRNA via `--outCsvCols`. The downstream `tidy_intarna` rule requires at minimum `id1, id2, start1, end1, start2, end2, E`; trimming `csv_cols` below that will break the IntaRNA arm. The `hybridDP` and `subseqDP` columns are also required if you want `enhance_intarna` to render alignment visualizations.
+
+> **YAML 1.1 gotcha:** bare `on`/`off` are parsed by PyYAML as Python `True`/`False`. The Snakefile coerces them back to strings, so `accessibility: on` still works — but `accessibility: "on"` (quoted) is more portable if you feed the config to other tools.
+
+#### Seed handling
+
+Top-level `seed: "x,y"` (in query/miRNA coordinates) is the single declaration that drives both arms:
+
+- **RNAhybrid** receives it verbatim as `-f x,y`.
+- **IntaRNA** derives `--seedBP=y-x+1`, `--seedQRange="x-y"`, and `--seedMaxUP=0` from it. The derived `--seedBP` is validated to be in `[2, 20]`.
+
+If you need finer control, `intarna.seed.bp`, `intarna.seed.q_range`, and `intarna.seed.max_UP` act as **explicit overrides** that win over the derivation. When both the top-level `seed` and the override are null, IntaRNA's compiled defaults (`--seedBP=7`, no range restriction) apply implicitly.
+
+Set `intarna.seed.disable: true` to emit `--noSeed` (and skip every other `--seed*` flag). The toggle is **independent of `accessibility`** — `"accessibility on + seed disabled"` is now a reachable combination.
+
+#### Recipe: §10.1 RNAhybrid-emulation profile
+
+To run IntaRNA with the canonical RNAhybrid-emulation profile (`--noSeed --acc=N --intLoopMax=30 --mode=M`), set explicitly:
+
+```yaml
+intarna:
+  accessibility: "off"
+  mode: M
+  int_loop_max: 30
+  seed:
+    disable: true
+```
+
+This produces the apples-to-apples profile for comparison against RNAhybrid: no seed constraint, no accessibility correction, exact mode, energy threshold comparable to the shared `max_energy`.
 
 Cross-referencing the RNAhybrid and IntaRNA output tables (per-pair agreement, ranking deltas, etc.) is the next planned milestone on this branch and is not yet implemented.
 
@@ -244,13 +271,13 @@ One tree per `targets:` key, under `{results_dir}/{sample}/`:
 │   ├── tidy_output.csv
 │   ├── rnahybrid_annotated.csv
 │   └── rnahybrid_enhanced.txt
-├── w_accessibility/                # intarna.acc_mode = "on" or "both"
+├── w_accessibility/                # intarna.accessibility = "on" or "both"
 │   ├── intarna_output.csv
 │   ├── intarna_tidy.csv
 │   ├── intarna_annotated.csv
 │   └── intarna_enhanced.txt
-├── wo_accessibility/               # intarna.acc_mode = "off" or "both"
-│   ├── intarna_output.csv          # locked to the §10.1 RNAhybrid-emulation profile
+├── wo_accessibility/               # intarna.accessibility = "off" or "both"
+│   ├── intarna_output.csv
 │   ├── intarna_tidy.csv
 │   ├── intarna_annotated.csv
 │   └── intarna_enhanced.txt

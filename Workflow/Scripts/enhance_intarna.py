@@ -15,10 +15,12 @@ MARK_5PRIME  = "   5'"
 SEPARATOR_WIDTH = 39
 
 
+#----- Renders NaN as "NA"; otherwise just str(value). Used to keep missing-column output consistent across records -----#
 def _fmt(value):
     return "NA" if pd.isna(value) else str(value)
 
 
+#----- Splits IntaRNA's "target&query" combined sequence/dot-paren string on the '&' delimiter; returns (text, "") when '&' is absent -----#
 def _split_target_query(field):
     text = str(field)
     if "&" not in text:
@@ -27,6 +29,7 @@ def _split_target_query(field):
     return left, right
 
 
+#----- Builds the 3-line ASCII duplex block from subseqDP/hybridDP: target 5'→3', a "|" pairing indicator, and miRNA 3'→5' (display-reversed) -----#
 def _render_duplex(subseq_dp, hybrid_dp):
     # target reads 5'→3' left-to-right; miRNA reads 3'→5' (displayed reversed).
     # Base-paired positions are target_dp[i] == '('.

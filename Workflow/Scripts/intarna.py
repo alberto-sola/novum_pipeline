@@ -2,11 +2,12 @@ import subprocess
 from pathlib import Path
 
 
+# Sentinel matching the {variant} wildcard literal in the Snakefile.
 WO_ACCESSIBILITY = "wo_accessibility"
 
 
+#----- Parses the shared top-level seed "x,y" into IntaRNA's seedBP+seedQRange shape; raises if the width is outside [2,20] -----#
 def _derive_seed_from_string(seed_str):
-    """Parse top-level seed "x,y" and return derivation dict for --seedBP/--seedQRange/--seedMaxUP=0."""
     if seed_str is None:
         return None
     try:
@@ -24,6 +25,7 @@ def _derive_seed_from_string(seed_str):
     return {"bp": bp, "q_range": f"{x}-{y}"}
 
 
+#----- Appends IntaRNA --seed* flags: disable short-circuits to --noSeed; explicit config keys win over the derived seed; everything else is omitted when null -----#
 def _add_seed_flags(cmd, seed, derived_seed=None):
     if seed.get("disable"):
         cmd.append("--noSeed")
@@ -64,6 +66,7 @@ def _add_seed_flags(cmd, seed, derived_seed=None):
         cmd.append("--outBestSeedOnly")
 
 
+#----- Appends --accW/--accL/--accNoLP/--accNoGUend from the accessibility_params block, skipping any null/false entries -----#
 def _add_accessibility_flags(cmd, acc):
     if not acc:
         return
@@ -77,6 +80,7 @@ def _add_accessibility_flags(cmd, acc):
         cmd.append("--accNoGUend")
 
 
+#----- Appends --out* filtering flags; `hits` and `max_energy` come from the shared top-level config, the rest from intarna.output -----#
 def _add_output_flags(cmd, out, hits=None, max_energy=None):
     if max_energy is not None:
         cmd.append(f"--outMaxE={max_energy}")
@@ -95,6 +99,7 @@ def _add_output_flags(cmd, out, hits=None, max_energy=None):
         cmd.append(f"--outCsvCols={out['csv_cols']}")
 
 
+#----- Assembles the IntaRNA command line for one (query, target, variant); --acc=N vs --acc=C is the only variant-specific flag -----#
 def build_command(cfg, variant, query, target, out_path, threads, hits, max_energy, derived_seed):
     cmd = [
         "IntaRNA",
@@ -131,6 +136,7 @@ def build_command(cfg, variant, query, target, out_path, threads, hits, max_ener
     return cmd
 
 
+#----- Top-level driver: builds the command and runs IntaRNA once per (sample × accessibility variant) -----#
 def run_intarna(query, target, out_path, variant, cfg, threads, hits, max_energy, derived_seed):
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     cmd = build_command(cfg, variant, query, target, out_path, threads, hits, max_energy, derived_seed)
