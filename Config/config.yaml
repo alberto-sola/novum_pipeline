@@ -6,6 +6,22 @@ queries:
 targets:
   escherichia: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
+# ─── Shared across both arms ────────────────────────────────────────────────
+threads: 16
+
+hits: null                  # null → 1 per pair (tool default); set to N to get N hits per pair
+
+# With --acc=C (IntaRNA default), --outMaxE filters total E including accessibility
+# penalties (ED1+ED2), so it is not directly comparable to RNAhybrid's -e which
+# filters pure hybridisation energy. They match exactly only when
+# intarna.accessibility: off.
+max_energy: -18
+
+# "x,y" in query (miRNA) coordinates.
+# RNAhybrid receives it verbatim as -f x,y.
+# IntaRNA derives --seedBP, --seedQRange, and --seedMaxUP=0 from it.
+seed: null
+
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
   # calibrated | uncalibrated | both
@@ -16,14 +32,10 @@ rnacalibrate:
 
 #----- Parameters for RNAhybrid -----#
 rnahybrid:
-  threads: 16
   species: 3utr_human
-  hits: null
-  u: null
-  v: null
-  energy: -18
+  internal_loop_max: null
+  bulge_loop_max: null
   pvalue: null
-  seed: null
   distribution: null
 
 #----- Parameters for plots (optional; omit or set type: null to skip) -----#
@@ -39,53 +51,50 @@ build_plots:
   per_mirna_top_n: 12
   # entry,miRNA
   locus:
-
   gene:
     - yegH
     - trmL
-
   protein:
 
 #----- Parameters for IntaRNA -----#
 intarna:
-  # on | off | both — drives w_accessibility / wo_accessibility variants (mirrors rnacalibrate.mode)
-  # wo_accessibility locks the §10.1 RNAhybrid-emulation profile (--noSeed --acc=N --intLoopMax=30 --mode=M)
-  # and ignores mode, model, int_len_max, int_loop_max, seed.*, and accessibility.*.
-  # Only output.* and extra_args are honored for that variant.
-  acc_mode: on
-  threads: 16
+  # Drives w_accessibility / wo_accessibility variants (mirrors rnacalibrate.mode).
+  # The variant differs only in --acc=N vs --acc=C; mode, model, int_len_max,
+  # int_loop_max, and seed.* apply uniformly to both.
+  accessibility: "on"          # "on" | "off" | "both"
 
-  # Interaction model (w_accessibility only)
+  # Interaction model
   mode: H                      # H heuristic | M exact | S seed-only
   model: S                     # X seed-extension | S legacy | B helix-block | P ensemble
   int_len_max: 0               # 0 = auto (min of seq length, accW)
-  int_loop_max: 10             # wo_accessibility forces 30
+  int_loop_max: 10
 
-  # Seed (w_accessibility only; wo_accessibility sets --noSeed)
+  # Seed (wo_accessibility: set disable: true to suppress seed enforcement)
   seed:
-    bp: 7                      # --seedBP [2..20]
+
+
+    disable: false             # when true, emit --noSeed and skip all other seed flags
+    bp: null                   # null → derived from top-level seed; set explicitly to override [2..20]; if both null, IntaRNA default (7) applies
     max_E: null                # --seedMaxE
     max_E_hybrid: null         # --seedMaxEhybrid
     min_Pu: null               # --seedMinPu
     no_GU: false               # --seedNoGU
     no_GU_end: false           # --seedNoGUend
-    q_range: null              # --seedQRange  e.g. "1-7,12-20" for canonical miRNA seed
+    q_range: null              # --seedQRange  null → derived from top-level seed; set explicitly to override
     t_range: null              # --seedTRange
-    max_UP: null               # --seedMaxUP
+    max_UP: null               # --seedMaxUP   null → set to 0 when top-level seed is set (RNAhybrid parity), else IntaRNA default
     out_best_only: false       # --outBestSeedOnly
 
-  # Accessibility (w_accessibility only; wo_accessibility sets --acc=N)
-  accessibility:
-    w: null                    # --accW  (0 → RNAup-like global; null → IntaRNA default ~150)
-    l: null                    # --accL  (0 → global; null → IntaRNA default ~100)
+  # Accessibility params (ignored when accessibility: "off" since --acc=N is used)
+  accessibility_params:
+    window: null               # --accW  (0 → RNAup-like global; null → IntaRNA default ~150)
+    max_bp_span: null          # --accL  (0 → global; null → IntaRNA default ~100)
     no_lp: false               # --accNoLP
     no_gu_end: false           # --accNoGUend
 
   # Output filtering (both variants)
   output:
-    max_E: -18                 # --outMaxE  (comparable to RNAhybrid -e)
     delta_E: null              # --outDeltaE
-    number: 1                  # --outNumber [0..1000]; 1 = best hit per pair (RNAhybrid parity)
     overlap: B                 # --outOverlap N|T|Q|B
     min_Pu: null               # --outMinPu
     no_lp: false               # --outNoLP

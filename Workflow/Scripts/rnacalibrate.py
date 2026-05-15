@@ -63,8 +63,8 @@ def build_length_arg(stats):
     }
 
 
-#----- Assembles the RNAcalibrate command line; optional flags (u, v, seed, randomize) are appended only if set -----#
-def build_command(executable, query, target, k, max_target_length, length_arg, randomize_targets=False, u=None, v=None, seed=None):
+#----- Assembles the RNAcalibrate command line; optional flags (internal_loop_max, bulge_loop_max, seed, randomize) are appended only if set -----#
+def build_command(executable, query, target, k, max_target_length, length_arg, randomize_targets=False, internal_loop_max=None, bulge_loop_max=None, seed=None):
     command = [
         executable,
         "-k",
@@ -78,10 +78,10 @@ def build_command(executable, query, target, k, max_target_length, length_arg, r
         "-l",
         length_arg["value"],
     ]
-    if u is not None:
-        command.extend(["-u", str(u)])
-    if v is not None:
-        command.extend(["-v", str(v)])
+    if internal_loop_max is not None:
+        command.extend(["-u", str(internal_loop_max)])
+    if bulge_loop_max is not None:
+        command.extend(["-v", str(bulge_loop_max)])
     if seed is not None:
         command.extend(["-f", str(seed)])
     if randomize_targets:
@@ -127,7 +127,7 @@ def parse_rnacalibrate_output(stdout):
 
 
 #----- Top-level driver: stat the target FASTA, run RNAcalibrate, persist command + result as JSON -----#
-def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize_targets=False, u=None, v=None, seed=None):
+def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize_targets=False, internal_loop_max=None, bulge_loop_max=None, seed=None):
     executable = which_required("RNAcalibrate", "rnacalibrate", label="RNAcalibrate")
     stats = compute_target_length_stats(target)
     length_arg = build_length_arg(stats)
@@ -139,8 +139,8 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
         max_target_length=max_target_length,
         length_arg=length_arg,
         randomize_targets=randomize_targets,
-        u=u,
-        v=v,
+        internal_loop_max=internal_loop_max,
+        bulge_loop_max=bulge_loop_max,
         seed=seed,
     )
 
@@ -167,8 +167,8 @@ def run_from_snakemake(snakemake):
         k=snakemake.params.k,
         max_target_length=snakemake.params.max_target_length,
         randomize_targets=snakemake.params.randomize_targets,
-        u=snakemake.params.u,
-        v=snakemake.params.v,
+        internal_loop_max=snakemake.params.internal_loop_max,
+        bulge_loop_max=snakemake.params.bulge_loop_max,
         seed=snakemake.params.seed,
     )
 

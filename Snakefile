@@ -8,6 +8,10 @@ rnahybrid_config    = config.get("rnahybrid", {}) or {}
 intarna_config      = config.get("intarna", {}) or {}
 results_dir         = config.get("results_dir", "Data/Results").rstrip("/")
 max_target_length   = rnacalibrate_config.get("max_target_length", 50000)
+shared_threads = int(config.get("threads", 1))
+shared_hits    = config.get("hits")
+shared_max_e   = config.get("max_energy")
+shared_seed    = config.get("seed")
 
 SAMPLE_DIR         = f"{results_dir}" + "/{sample}"
 SAMPLE_VARIANT_DIR = SAMPLE_DIR + "/{variant}"
@@ -74,13 +78,13 @@ _ACC_MODE_TO_VARIANTS = {
 }
 
 def _resolve_acc_mode(cfg):
-    mode = cfg.get("acc_mode", "both")
+    mode = cfg.get("accessibility", "both")
     # YAML 1.1 parses bare `on`/`off` as Python True/False — coerce back to strings.
     if isinstance(mode, bool):
         mode = "on" if mode else "off"
     if mode not in _ACC_MODE_TO_VARIANTS:
         raise ValueError(
-            f"intarna.acc_mode must be one of {list(_ACC_MODE_TO_VARIANTS)}, got {mode!r}"
+            f"intarna.accessibility must be one of {list(_ACC_MODE_TO_VARIANTS)}, got {mode!r}"
         )
     return mode
 
@@ -134,9 +138,9 @@ rule rnacalibrate:
         k=rnacalibrate_config.get("k", 10000),
         max_target_length=max_target_length,
         randomize_targets=rnacalibrate_config.get("randomize_targets", False),
-        u=rnahybrid_config.get("u"),
-        v=rnahybrid_config.get("v"),
-        seed=rnahybrid_config.get("seed")
+        internal_loop_max=rnahybrid_config.get("internal_loop_max"),
+        bulge_loop_max=rnahybrid_config.get("bulge_loop_max"),
+        seed=shared_seed
     script:
         "Workflow/Scripts/rnacalibrate.py"
 
@@ -154,16 +158,16 @@ rule rnahybrid:
         "Workflow/Envs/rnahybrid.yaml"
     params:
         species=rnahybrid_config.get("species", "3utr_human"),
-        hits=rnahybrid_config.get("hits"),
-        u=rnahybrid_config.get("u"),
-        v=rnahybrid_config.get("v"),
-        energy=rnahybrid_config.get("energy"),
+        hits=shared_hits,
+        internal_loop_max=rnahybrid_config.get("internal_loop_max"),
+        bulge_loop_max=rnahybrid_config.get("bulge_loop_max"),
+        energy=shared_max_e,
         pvalue=rnahybrid_config.get("pvalue"),
-        seed=rnahybrid_config.get("seed"),
+        seed=shared_seed,
         distribution=rnahybrid_config.get("distribution"),
         max_target_length=max_target_length
     threads:
-        int(rnahybrid_config.get("threads", 1))
+        shared_threads
     script:
         "Workflow/Scripts/rnahybrid.py"
 
@@ -221,9 +225,12 @@ rule intarna:
     conda:
         "Workflow/Envs/intarna.yaml"
     threads:
-        int(intarna_config.get("threads", 1))
+        shared_threads
     params:
-        intarna=intarna_config
+        intarna    = intarna_config,
+        hits       = shared_hits,
+        max_energy = shared_max_e,
+        seed       = shared_seed
     script:
         "Workflow/Scripts/intarna.py"
 
