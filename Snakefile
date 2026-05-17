@@ -8,10 +8,10 @@ rnahybrid_config    = config.get("rnahybrid", {}) or {}
 intarna_config      = config.get("intarna", {}) or {}
 results_dir         = config.get("results_dir", "Data/Results").rstrip("/")
 max_target_length   = rnacalibrate_config.get("max_target_length", 50000)
-shared_threads = int(config.get("threads", 1))
-shared_hits    = config.get("hits")
-shared_max_e   = config.get("max_energy")
-shared_seed    = config.get("seed")
+shared_threads             = int(config.get("threads", 1))
+shared_max_suboptimal_hits = config.get("max_suboptimal_hits")
+shared_max_total_energy    = config.get("max_total_energy")
+shared_seed                = config.get("seed")
 
 SAMPLE_DIR         = f"{results_dir}" + "/{sample}"
 SAMPLE_VARIANT_DIR = SAMPLE_DIR + "/{variant}"
@@ -37,10 +37,10 @@ def _resolve_queries(cfg, target_keys):
 queries = _resolve_queries(config, targets.keys())
 
 #----- Optional plotting configuration -----#
-build_plots_config  = config.get("build_plots", {}) or {}
-build_plots_type    = build_plots_config.get("type")
-build_plots_enabled = build_plots_type is not None
-build_plots_slug    = (build_plots_type or "none").replace(",", "-").replace(" ", "")
+plots_config  = config.get("plots", {}) or {}
+plots_type    = plots_config.get("type")
+plots_enabled = plots_type is not None
+plots_slug    = (plots_type or "none").replace(",", "-").replace(" ", "")
 
 #----- Resolve which variants to produce -----#
 W_CALIBRATION  = "w_calibration"
@@ -54,11 +54,11 @@ _MODE_TO_VARIANTS = {
 }
 
 def _resolve_mode(cfg):
-    mode = cfg.get("mode")
+    mode = cfg.get("calibration_variant")
     if mode is not None:
         if mode not in _MODE_TO_VARIANTS:
             raise ValueError(
-                f"rnacalibrate.mode must be one of {list(_MODE_TO_VARIANTS)}, got {mode!r}"
+                f"rnacalibrate.calibration_variant must be one of {list(_MODE_TO_VARIANTS)}, got {mode!r}"
             )
         return mode
     # Deprecated fallback: `enabled: true|false` maps to a single-variant run.
@@ -78,13 +78,13 @@ _ACC_MODE_TO_VARIANTS = {
 }
 
 def _resolve_acc_mode(cfg):
-    mode = cfg.get("accessibility", "both")
+    mode = cfg.get("accessibility_variant", "both")
     # YAML 1.1 parses bare `on`/`off` as Python True/False — coerce back to strings.
     if isinstance(mode, bool):
         mode = "on" if mode else "off"
     if mode not in _ACC_MODE_TO_VARIANTS:
         raise ValueError(
-            f"intarna.accessibility must be one of {list(_ACC_MODE_TO_VARIANTS)}, got {mode!r}"
+            f"intarna.accessibility_variant must be one of {list(_ACC_MODE_TO_VARIANTS)}, got {mode!r}"
         )
     return mode
 
@@ -121,9 +121,9 @@ rule all:
             variant=intarna_variants,
         ),
         *(expand(
-            f"{SAMPLE_DIR}/plots_" + build_plots_slug + ".pdf",
+            f"{SAMPLE_DIR}/plots_" + plots_slug + ".pdf",
             sample=targets.keys(),
-        ) if build_plots_enabled else [])
+        ) if plots_enabled else [])
 
 #----- Dynamically calibrates the statistics based on the target sequence -----#
 rule rnacalibrate:
@@ -138,8 +138,8 @@ rule rnacalibrate:
         k=rnacalibrate_config.get("k", 10000),
         max_target_length=max_target_length,
         randomize_targets=rnacalibrate_config.get("randomize_targets", False),
-        internal_loop_max=rnahybrid_config.get("internal_loop_max"),
-        bulge_loop_max=rnahybrid_config.get("bulge_loop_max"),
+        max_internal_loop=rnahybrid_config.get("max_internal_loop"),
+        max_bulge_loop=rnahybrid_config.get("max_bulge_loop"),
         seed=shared_seed
     script:
         "Workflow/Scripts/rnacalibrate.py"
@@ -158,11 +158,11 @@ rule rnahybrid:
         "Workflow/Envs/rnahybrid.yaml"
     params:
         species=rnahybrid_config.get("species", "3utr_human"),
-        hits=shared_hits,
-        internal_loop_max=rnahybrid_config.get("internal_loop_max"),
-        bulge_loop_max=rnahybrid_config.get("bulge_loop_max"),
-        energy=shared_max_e,
-        pvalue=rnahybrid_config.get("pvalue"),
+        max_suboptimal_hits=shared_max_suboptimal_hits,
+        max_internal_loop=rnahybrid_config.get("max_internal_loop"),
+        max_bulge_loop=rnahybrid_config.get("max_bulge_loop"),
+        max_total_energy=shared_max_total_energy,
+        pvalue_threshold=rnahybrid_config.get("pvalue_threshold"),
         seed=shared_seed,
         distribution=rnahybrid_config.get("distribution"),
         max_target_length=max_target_length
@@ -227,10 +227,10 @@ rule intarna:
     threads:
         shared_threads
     params:
-        intarna    = intarna_config,
-        hits       = shared_hits,
-        max_energy = shared_max_e,
-        seed       = shared_seed
+        intarna             = intarna_config,
+        max_suboptimal_hits = shared_max_suboptimal_hits,
+        max_total_energy    = shared_max_total_energy,
+        seed                = shared_seed
     script:
         "Workflow/Scripts/intarna.py"
 
@@ -285,17 +285,17 @@ rule build_plots:
             variant=variants,
         )
     output:
-        pdf=f"{SAMPLE_DIR}/plots_" + build_plots_slug + ".pdf"
+        pdf=f"{SAMPLE_DIR}/plots_" + plots_slug + ".pdf"
     conda:
         "Workflow/Envs/plots.yaml"
     params:
-        type=build_plots_type,
-        basesize=build_plots_config.get("basesize", 12),
-        pvalue=build_plots_config.get("pvalue", []),
-        locus=build_plots_config.get("locus", []),
-        gene=build_plots_config.get("gene", []),
-        protein=build_plots_config.get("protein", []),
-        per_mirna_top_n=build_plots_config.get("per_mirna_top_n", 12),
+        type=plots_type,
+        basesize=plots_config.get("basesize", 12),
+        pvalue_threshold=plots_config.get("pvalue_threshold", []),
+        locus=plots_config.get("locus", []),
+        gene=plots_config.get("gene", []),
+        protein=plots_config.get("protein", []),
+        per_mirna_top_n=plots_config.get("per_mirna_top_n", 12),
         variant_labels=[VARIANT_LABELS[v] for v in variants]
     script:
         "Workflow/Scripts/build_plots.R"

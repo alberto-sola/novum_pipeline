@@ -9,7 +9,7 @@ suppressPackageStartupMessages({
 #----- Parameters from snakemake@params -----#
 plot_type      <- snakemake@params$type
 basesize       <- as.integer(snakemake@params$basesize %||% 12)
-pvalue_raw     <- snakemake@params$pvalue
+pvalue_raw     <- snakemake@params$pvalue_threshold
 pvalue_cutoff  <- if (length(pvalue_raw) == 0) NA_real_ else as.numeric(pvalue_raw)
 has_pvalue_cut <- !is.na(pvalue_cutoff)
 locus_tags     <- snakemake@params$locus   %||% character(0)
@@ -382,7 +382,7 @@ selected <- if (identical(plot_type, "all")) {
 unknown <- setdiff(selected, names(plot_builders))
 if (length(unknown) > 0) {
   stop(sprintf(
-    "Unknown build_plots.type entries: %s. Valid: %s, all, or a comma-separated subset.",
+    "Unknown plots.type entries: %s. Valid: %s, all, or a comma-separated subset.",
     paste(unknown, collapse = ", "),
     paste(names(plot_builders), collapse = ", ")
   ))
@@ -395,7 +395,7 @@ plots <- Filter(Negate(is.null), plots)
 n     <- length(plots)
 
 if (n == 0) {
-  stop("build_plots: no plots to render (all selected builders skipped — check rnacalibrate.mode and build_plots.type).")
+  stop("plots: no plots to render (all selected builders skipped — check rnacalibrate.calibration_variant and plots.type).")
 }
 
 

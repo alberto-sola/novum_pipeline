@@ -9,13 +9,13 @@ targets:
 # ─── Shared across both arms ────────────────────────────────────────────────
 threads: 16
 
-hits: null                  # null → 1 per pair (tool default); set to N to get N hits per pair
+max_suboptimal_hits: null   # null → 1 per pair (tool default); set to N to get N hits per pair
 
 # With --acc=C (IntaRNA default), --outMaxE filters total E including accessibility
 # penalties (ED1+ED2), so it is not directly comparable to RNAhybrid's -e which
 # filters pure hybridisation energy. They match exactly only when
-# intarna.accessibility: off.
-max_energy: -18
+# intarna.accessibility_variant: off.
+max_total_energy: -18
 
 # "x,y" in query (miRNA) coordinates.
 # RNAhybrid receives it verbatim as -f x,y.
@@ -25,7 +25,7 @@ seed: null
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
   # calibrated | uncalibrated | both
-  mode: both
+  calibration_variant: both
   k: 10000
   max_target_length: 50000
   randomize_targets: true
@@ -33,20 +33,20 @@ rnacalibrate:
 #----- Parameters for RNAhybrid -----#
 rnahybrid:
   species: 3utr_human
-  internal_loop_max: null
-  bulge_loop_max: null
-  pvalue: null
+  max_internal_loop: null
+  max_bulge_loop: null
+  pvalue_threshold: null
   distribution: null
 
 #----- Parameters for plots (optional; omit or set type: null to skip) -----#
-build_plots:
+plots:
   # pvalue_distribution | position_pvalue | position_energy |
   # volcano | pvalue_ecdf | calibration_delta | per_mirna |
   # position_density | seed_class | all
   # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
   type: all
   basesize: 12
-  pvalue: 0.01
+  pvalue_threshold: 0.01
   # cap for plot_per_mirna (top-N miRNAs by hit count)
   per_mirna_top_n: 12
   # entry,miRNA
@@ -58,46 +58,46 @@ build_plots:
 
 #----- Parameters for IntaRNA -----#
 intarna:
-  # Drives w_accessibility / wo_accessibility variants (mirrors rnacalibrate.mode).
-  # The variant differs only in --acc=N vs --acc=C; mode, model, int_len_max,
-  # int_loop_max, and seed.* apply uniformly to both.
-  accessibility: "on"          # "on" | "off" | "both"
+  # Drives w_accessibility / wo_accessibility variants (mirrors rnacalibrate.calibration_variant).
+  # The variant differs only in --acc=N vs --acc=C; prediction_mode, model, max_interaction_length,
+  # max_loop_size, and seed.* apply uniformly to both.
+  accessibility_variant: "on"   # "on" | "off" | "both"
 
   # Interaction model
-  mode: H                      # H heuristic | M exact | S seed-only
-  model: S                     # X seed-extension | S legacy | B helix-block | P ensemble
-  int_len_max: 0               # 0 = auto (min of seq length, accW)
-  int_loop_max: 10
+  prediction_mode: H            # H heuristic | M exact | S seed-only
+  model: S                      # X seed-extension | S legacy | B helix-block | P ensemble
+  max_interaction_length: 0     # 0 = auto (min of seq length, accW)
+  max_loop_size: 10
 
-  # Seed (wo_accessibility: set disable: true to suppress seed enforcement)
+  # Seed (wo_accessibility: set enabled: false to suppress seed enforcement)
   seed:
-    disable: true             # when true, emit --noSeed and skip all other seed flags
-    bp: null                   # null → derived from top-level seed; set explicitly to override [2..20]; if both null, IntaRNA default (7) applies
-    max_E: null                # --seedMaxE
-    max_E_hybrid: null         # --seedMaxEhybrid
-    min_Pu: null               # --seedMinPu
-    no_GU: false               # --seedNoGU
-    no_GU_end: false           # --seedNoGUend
-    q_range: null              # --seedQRange  null → derived from top-level seed; set explicitly to override
-    t_range: null              # --seedTRange
-    max_UP: null               # --seedMaxUP   null → set to 0 when top-level seed is set (RNAhybrid parity), else IntaRNA default
-    out_best_only: false       # --outBestSeedOnly
+    enabled: false                    # when false, emit --noSeed and skip all other seed flags
+    length: null                      # null → derived from top-level seed; set explicitly to override [2..20]; if both null, IntaRNA default (7) applies
+    max_energy: null                  # --seedMaxE
+    max_hybrid_energy: null           # --seedMaxEhybrid
+    min_unpaired_probability: null    # --seedMinPu
+    forbid_gu: false                  # --seedNoGU
+    forbid_gu_at_ends: false          # --seedNoGUend
+    query_range: null                 # --seedQRange  null → derived from top-level seed; set explicitly to override
+    target_range: null                # --seedTRange
+    max_unpaired_bases: null          # --seedMaxUP   null → set to 0 when top-level seed is set (RNAhybrid parity), else IntaRNA default
+    report_best_only: false           # --outBestSeedOnly
 
-  # Accessibility params (ignored when accessibility: "off" since --acc=N is used)
-  accessibility_params:
-    window: null               # --accW  (0 → RNAup-like global; null → IntaRNA default ~150)
-    max_bp_span: null          # --accL  (0 → global; null → IntaRNA default ~100)
-    no_lp: false               # --accNoLP
-    no_gu_end: false           # --accNoGUend
+  # Accessibility (ignored when accessibility_variant: "off" since --acc=N is used)
+  accessibility:
+    window: null                  # --accW  (0 → RNAup-like global; null → IntaRNA default ~150)
+    max_bp_span: null             # --accL  (0 → global; null → IntaRNA default ~100)
+    forbid_lonely_pairs: false    # --accNoLP
+    forbid_gu_at_ends: false      # --accNoGUend
 
   # Output filtering (both variants)
   output:
-    delta_E: null              # --outDeltaE
-    overlap: B                 # --outOverlap N|T|Q|B
-    min_Pu: null               # --outMinPu
-    no_lp: false               # --outNoLP
-    no_gu_end: false           # --outNoGUend
-    csv_cols: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
+    max_delta_energy: null            # --outDeltaE
+    overlap: B                        # --outOverlap N|T|Q|B
+    min_unpaired_probability: null    # --outMinPu
+    forbid_lonely_pairs: false        # --outNoLP
+    forbid_gu_at_ends: false          # --outNoGUend
+    columns: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
 
   # Escape hatch: appended verbatim (e.g. helix-block flags, --accFile, --qRegion)
   extra_args: []

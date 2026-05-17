@@ -17,7 +17,7 @@ queries + targets ────────┤                                   
 3. **tidy_rnahybrid** — filters and arranges the raw output into a tidy CSV.
 4. **annotate_rnahybrid** — parses FASTA headers from the target genome and merges metadata onto the tidy rows. Shares `Workflow/Scripts/annotate.py` with the IntaRNA arm (the `insert_after` column is parameterized per rule).
 5. **enhance_rnahybrid** — appends human-readable alignment visualizations.
-6. **build_plots** *(optional, RNAhybrid only)* — renders configurable ggplot2 PDFs. Skipped entirely when `build_plots.type` is unset. No IntaRNA / cross-arm plot stage exists yet.
+6. **build_plots** *(optional, RNAhybrid only)* — renders configurable ggplot2 PDFs. Skipped entirely when `plots.type` is unset. No IntaRNA / cross-arm plot stage exists yet.
 
 ### IntaRNA arm
 
@@ -86,7 +86,7 @@ The launcher resolves the repo root from its own location, so it works from any 
 
 ## Configuration
 
-Edit [`Config/config.yaml`](Config/config.yaml). Top-level keys `threads`, `hits`, `max_energy`, and `seed` are shared by both arms (single source of truth so the two tools can't drift). Tool-specific options live under `rnahybrid` and `intarna`; calibration under `rnacalibrate`; inputs under `queries`/`targets`; optional plotting under `build_plots`.
+Edit [`Config/config.yaml`](Config/config.yaml). Top-level keys `threads`, `max_suboptimal_hits`, `max_total_energy`, and `seed` are shared by both arms (single source of truth so the two tools can't drift). Tool-specific options live under `rnahybrid` and `intarna`; calibration under `rnacalibrate`; inputs under `queries`/`targets`; optional plotting under `plots`.
 
 Example:
 
@@ -100,27 +100,27 @@ targets:
   bacteroides: Data/Raw/genomes/GCF_014131755.1_ASM1413175v1_cds_from_genomic_bacteroides_thetaiotaomicron.fna
 
 threads: 16
-hits: null
-max_energy: -18
+max_suboptimal_hits: null
+max_total_energy: -18
 seed: null
 
 rnacalibrate:
-  mode: both
+  calibration_variant: both
   k: 10000
   max_target_length: 50000
   randomize_targets: true
 
 rnahybrid:
   species: 3utr_human
-  internal_loop_max: null
-  bulge_loop_max: null
-  pvalue: null
+  max_internal_loop: null
+  max_bulge_loop: null
+  pvalue_threshold: null
   distribution: null
 
-build_plots:
+plots:
   type: position_pvalue,pvalue_distribution
   basesize: 12
-  pvalue: 0.01
+  pvalue_threshold: 0.01
   locus:
     - FE838_RS16060
     - FE838_RS16090
@@ -135,35 +135,35 @@ build_plots:
   protein:
 
 intarna:
-  accessibility: "on"
-  mode: H
+  accessibility_variant: "on"
+  prediction_mode: H
   model: S
-  int_len_max: 0
-  int_loop_max: 10
+  max_interaction_length: 0
+  max_loop_size: 10
   seed:
-    disable: false
-    bp: null
-    max_E: null
-    max_E_hybrid: null
-    min_Pu: null
-    no_GU: false
-    no_GU_end: false
-    q_range: null
-    t_range: null
-    max_UP: null
-    out_best_only: false
-  accessibility_params:
+    enabled: true
+    length: null
+    max_energy: null
+    max_hybrid_energy: null
+    min_unpaired_probability: null
+    forbid_gu: false
+    forbid_gu_at_ends: false
+    query_range: null
+    target_range: null
+    max_unpaired_bases: null
+    report_best_only: false
+  accessibility:
     window: null
     max_bp_span: null
-    no_lp: false
-    no_gu_end: false
+    forbid_lonely_pairs: false
+    forbid_gu_at_ends: false
   output:
-    delta_E: null
+    max_delta_energy: null
     overlap: B
-    min_Pu: null
-    no_lp: false
-    no_gu_end: false
-    csv_cols: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
+    min_unpaired_probability: null
+    forbid_lonely_pairs: false
+    forbid_gu_at_ends: false
+    columns: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
   extra_args: []
 
 results_dir: Data/Results/
@@ -175,7 +175,7 @@ results_dir: Data/Results/
 
 ### Calibration mode
 
-`rnacalibrate.mode` selects which variant(s) the pipeline produces in a single invocation:
+`rnacalibrate.calibration_variant` selects which variant(s) the pipeline produces in a single invocation:
 
 - **`calibrated`** — runs `rnacalibrate` first and feeds its per-miRNA (xi, theta) into `rnahybrid`. Outputs land under `{results_dir}/{sample}/w_calibration/`.
 - **`uncalibrated`** — skips `rnacalibrate`; `rnahybrid` falls back to `rnahybrid.distribution`, or to its built-in `species` default if unset. Outputs land under `{results_dir}/{sample}/wo_calibration/`.
@@ -185,23 +185,23 @@ When calibration runs, the artifact at `{results_dir}/{sample}/w_calibration/rna
 
 `rnacalibrate.randomize_targets` maps to RNAcalibrate's `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
 
-> **Deprecated:** `rnacalibrate.enabled: true|false` is still honored when `mode` is absent (`true` → `calibrated`, `false` → `uncalibrated`), but new configs should use `mode`. Support will be removed in a future release.
+> **Deprecated:** `rnacalibrate.enabled: true|false` is still honored when `calibration_variant` is absent (`true` → `calibrated`, `false` → `uncalibrated`), but new configs should use `calibration_variant`. Support will be removed in a future release.
 
 ### IntaRNA & accessibility mode
 
-`intarna.accessibility` selects which accessibility variant(s) the IntaRNA arm produces — analogous to `rnacalibrate.mode` on the RNAhybrid side:
+`intarna.accessibility_variant` selects which accessibility variant(s) the IntaRNA arm produces — analogous to `rnacalibrate.calibration_variant` on the RNAhybrid side:
 
 - **`"on"`** — runs IntaRNA with RNA accessibility correction enabled (`--acc=C`). Outputs land under `{results_dir}/{sample}/w_accessibility/`.
 - **`"off"`** — runs IntaRNA with no accessibility correction (`--acc=N`). Outputs land under `{results_dir}/{sample}/wo_accessibility/`.
 - **`"both"`** — produces both trees in one run.
 
-The two variants differ **only** in `--acc=N` vs `--acc=C`. All other IntaRNA config keys (`mode`, `model`, `int_len_max`, `int_loop_max`, `seed.*`, `accessibility_params.*`) apply uniformly. The `accessibility_params.*` flags are still passed under `--acc=N` (where they're a no-op) so the command line stays consistent.
+The two variants differ **only** in `--acc=N` vs `--acc=C`. All other IntaRNA config keys (`prediction_mode`, `model`, `max_interaction_length`, `max_loop_size`, `seed.*`, `accessibility.*`) apply uniformly. The `accessibility.*` flags are still passed under `--acc=N` (where they're a no-op) so the command line stays consistent.
 
 The top-level `threads` maps to IntaRNA's native `--threads` flag; the IntaRNA arm does not use GNU Parallel (unlike the RNAhybrid arm, which chunks targets externally).
 
-`intarna.output.csv_cols` is the column whitelist passed to IntaRNA via `--outCsvCols`. The downstream `tidy_intarna` rule requires at minimum `id1, id2, start1, end1, start2, end2, E`; trimming `csv_cols` below that will break the IntaRNA arm. The `hybridDP` and `subseqDP` columns are also required if you want `enhance_intarna` to render alignment visualizations.
+`intarna.output.columns` is the column whitelist passed to IntaRNA via `--outCsvCols`. The downstream `tidy_intarna` rule requires at minimum `id1, id2, start1, end1, start2, end2, E`; trimming `columns` below that will break the IntaRNA arm. The `hybridDP` and `subseqDP` columns are also required if you want `enhance_intarna` to render alignment visualizations.
 
-> **YAML 1.1 gotcha:** bare `on`/`off` are parsed by PyYAML as Python `True`/`False`. The Snakefile coerces them back to strings, so `accessibility: on` still works — but `accessibility: "on"` (quoted) is more portable if you feed the config to other tools.
+> **YAML 1.1 gotcha:** bare `on`/`off` are parsed by PyYAML as Python `True`/`False`. The Snakefile coerces them back to strings, so `accessibility_variant: on` still works — but `accessibility_variant: "on"` (quoted) is more portable if you feed the config to other tools.
 
 #### Seed handling
 
@@ -210,9 +210,9 @@ Top-level `seed: "x,y"` (in query/miRNA coordinates) is the single declaration t
 - **RNAhybrid** receives it verbatim as `-f x,y`.
 - **IntaRNA** derives `--seedBP=y-x+1`, `--seedQRange="x-y"`, and `--seedMaxUP=0` from it. The derived `--seedBP` is validated to be in `[2, 20]`.
 
-If you need finer control, `intarna.seed.bp`, `intarna.seed.q_range`, and `intarna.seed.max_UP` act as **explicit overrides** that win over the derivation. When both the top-level `seed` and the override are null, IntaRNA's compiled defaults (`--seedBP=7`, no range restriction) apply implicitly.
+If you need finer control, `intarna.seed.length`, `intarna.seed.query_range`, and `intarna.seed.max_unpaired_bases` act as **explicit overrides** that win over the derivation. When both the top-level `seed` and the override are null, IntaRNA's compiled defaults (`--seedBP=7`, no range restriction) apply implicitly.
 
-Set `intarna.seed.disable: true` to emit `--noSeed` (and skip every other `--seed*` flag). The toggle is **independent of `accessibility`** — `"accessibility on + seed disabled"` is now a reachable combination.
+Set `intarna.seed.enabled: false` to emit `--noSeed` (and skip every other `--seed*` flag). The toggle is **independent of `accessibility_variant`** — `"accessibility on + seed disabled"` is now a reachable combination.
 
 #### Recipe: §10.1 RNAhybrid-emulation profile
 
@@ -220,22 +220,22 @@ To run IntaRNA with the canonical RNAhybrid-emulation profile (`--noSeed --acc=N
 
 ```yaml
 intarna:
-  accessibility: "off"
-  mode: M
-  int_loop_max: 30
+  accessibility_variant: "off"
+  prediction_mode: M
+  max_loop_size: 30
   seed:
-    disable: true
+    enabled: false
 ```
 
-This produces the apples-to-apples profile for comparison against RNAhybrid: no seed constraint, no accessibility correction, exact mode, energy threshold comparable to the shared `max_energy`.
+This produces the apples-to-apples profile for comparison against RNAhybrid: no seed constraint, no accessibility correction, exact mode, energy threshold comparable to the shared `max_total_energy`.
 
 Cross-referencing the RNAhybrid and IntaRNA output tables (per-pair agreement, ranking deltas, etc.) is the next planned milestone on this branch and is not yet implemented.
 
 ### Plots
 
-The `build_plots` block is opt-in: omit it (or remove `type:`) and no plot job is scheduled, no R env is materialized. Plots currently consume only the RNAhybrid `rnahybrid_annotated.csv` outputs; an IntaRNA / cross-referenced plot stage is future work.
+The `plots` block is opt-in: omit it (or remove `type:`) and no plot job is scheduled, no R env is materialized. Plots currently consume only the RNAhybrid `rnahybrid_annotated.csv` outputs; an IntaRNA / cross-referenced plot stage is future work.
 
-To re-render plots after editing `build_plots` without re-running the upstream pipeline:
+To re-render plots after editing `plots` without re-running the upstream pipeline:
 
 ```bash
 snakemake --use-conda --cores N --forcerun build_plots
@@ -243,7 +243,7 @@ snakemake --use-conda --cores N --forcerun build_plots
 
 - **`type`** — which panels to render: `pvalue_distribution`, `position_pvalue`, `position_energy`, `all`, or any comma-separated subset (e.g. `"pvalue_distribution,position_pvalue"`). Panels appear in the order listed.
 - **`basesize`** — ggplot2 base font size.
-- **`pvalue`** — cutoff applied to the scatter points in `position_pvalue` and `position_energy` (the density plot ignores it).
+- **`pvalue_threshold`** — cutoff applied to the scatter points in `position_pvalue` and `position_energy` (the density plot ignores it).
 - **`locus`**, **`gene`**, **`protein`** — lists of validated hits to highlight. Each entry is either:
     - **bare** — `<target>` matches any miRNA hitting that target;
     - **paired** — `<target>,<miRNA>` matches only when the row's miRNA equals the named one.
@@ -252,7 +252,7 @@ snakemake --use-conda --cores N --forcerun build_plots
 
 The `pvalue_distribution` panel draws one dashed vertical line per validated entity (lowest p-value per `(miRNA, locus_tag)`); `position_pvalue` and `position_energy` plot every alignment of the matched pairs, all keyed to the same color and shape in a shared legend.
 
-The output filename bakes the `type` value in (commas become hyphens), so cycling through types in the same `results_dir` doesn't overwrite earlier PDFs. When `rnacalibrate.mode: both`, panels are faceted by calibration variant; with one variant, the facet collapses automatically.
+The output filename bakes the `type` value in (commas become hyphens), so cycling through types in the same `results_dir` doesn't overwrite earlier PDFs. When `rnacalibrate.calibration_variant: both`, panels are faceted by calibration variant; with one variant, the facet collapses automatically.
 
 ## Outputs
 
@@ -260,28 +260,28 @@ One tree per `targets:` key, under `{results_dir}/{sample}/`:
 
 ```text
 {sample}/
-├── w_calibration/                  # rnacalibrate.mode = "calibrated" or "both"
+├── w_calibration/                  # rnacalibrate.calibration_variant = "calibrated" or "both"
 │   ├── rnacalibrate.json
 │   ├── rnahybrid_output.tsv
 │   ├── tidy_output.csv
 │   ├── rnahybrid_annotated.csv
 │   └── rnahybrid_enhanced.txt
-├── wo_calibration/                 # rnacalibrate.mode = "uncalibrated" or "both"
+├── wo_calibration/                 # rnacalibrate.calibration_variant = "uncalibrated" or "both"
 │   ├── rnahybrid_output.tsv
 │   ├── tidy_output.csv
 │   ├── rnahybrid_annotated.csv
 │   └── rnahybrid_enhanced.txt
-├── w_accessibility/                # intarna.accessibility = "on" or "both"
+├── w_accessibility/                # intarna.accessibility_variant = "on" or "both"
 │   ├── intarna_output.csv
 │   ├── intarna_tidy.csv
 │   ├── intarna_annotated.csv
 │   └── intarna_enhanced.txt
-├── wo_accessibility/               # intarna.accessibility = "off" or "both"
+├── wo_accessibility/               # intarna.accessibility_variant = "off" or "both"
 │   ├── intarna_output.csv
 │   ├── intarna_tidy.csv
 │   ├── intarna_annotated.csv
 │   └── intarna_enhanced.txt
-└── plots_<type>.pdf                # only when build_plots.type is set; RNAhybrid arm only
+└── plots_<type>.pdf                # only when plots.type is set; RNAhybrid arm only
 ```
 
 Plots currently consume only `rnahybrid_annotated.csv`; an IntaRNA / cross-referenced plot stage is future work.
