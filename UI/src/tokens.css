@@ -299,7 +299,40 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   letter-spacing: 0.06em;
 }
 .nullable.on .auto-tag { color: var(--accent-ink); }
-.nullable input { height: 30px; font-size: 12.5px; }
+
+/* Labeled grey subcard — non-nullable equivalent of `.nullable`.
+   Gives plain Fields, switchers and standalone toggles the same
+   surface-2 chrome that nullable inputs already get. */
+.subcard {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.subcard-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--fg-2);
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 18px;
+}
+.subcard-label em {
+  color: var(--fg-4);
+  font-style: normal;
+  font-weight: 400;
+}
+.nullable input,
+.subcard input,
+.subcard select { height: 30px; font-size: 12.5px; }
+.subcard .variation-switch { align-self: flex-start; }
+
 .ghost-input {
   height: 30px;
   display: flex;

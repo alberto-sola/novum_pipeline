@@ -16,26 +16,91 @@ function Toggle({ on, onChange, ariaLabel }) {
   );
 }
 
-function Check({ on, onChange, label }) {
+// Grey labeled subcard. `right` lets a Toggle/badge sit on the label row,
+// mirroring NullableField's top-row treatment.
+function Subcard({ label, hint, right, children }) {
   return (
-    <label className={`check ${on ? "on" : ""}`}>
-      <input type="checkbox" className="sr-only" checked={on} onChange={(e) => onChange(e.target.checked)} />
-      <span className="check-box" />
-      <span>{label}</span>
-    </label>
-  );
-}
-
-function Field({ label, hint, children }) {
-  return (
-    <div className="field">
-      <div className="field-label">
-        <span>{label}</span>
-        {hint && <span className="hint">{hint}</span>}
+    <div className="subcard">
+      <div className="subcard-label">
+        <span>{label}{hint && <em> · {hint}</em>}</span>
+        {right}
       </div>
       {children}
     </div>
   );
+}
+
+// Subcard whose body is a flex-wrap row of PillToggles or similar pills.
+// Used for the three IntaRNA "Constraints" blocks and any future pill row.
+function PillGroup({ label, hint, children }) {
+  return (
+    <Subcard label={label} hint={hint}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        {children}
+      </div>
+    </Subcard>
+  );
+}
+
+// Pill-style boolean toggle — same visual language as the Plots "Plot types"
+// selector. Used in place of Check for IntaRNA constraints.
+function PillToggle({ on, onChange, label }) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!on)}
+      className="btn sm"
+      aria-pressed={on}
+      style={{
+        background: on ? "var(--accent-soft)" : "var(--surface)",
+        color: on ? "var(--accent-ink)" : "var(--fg-2)",
+        borderColor: on ? "var(--accent)" : "var(--line)",
+      }}
+    >
+      {on ? "✓ " : ""}{label}
+    </button>
+  );
+}
+
+// Catches render errors anywhere in its subtree. Without this, a thrown
+// exception unmounts the whole App and the user sees a blank window.
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null, info: null };
+  }
+  static getDerivedStateFromError(error) { return { error }; }
+  componentDidCatch(error, info) {
+    this.setState({ error, info });
+    console.error("UI error:", error, info);
+  }
+  render() {
+    if (!this.state.error) return this.props.children;
+    return (
+      <div style={{
+        margin: 24, padding: 18,
+        background: "var(--danger-a12)",
+        border: "1px solid var(--danger)",
+        borderRadius: "var(--r-sm)",
+        fontFamily: "var(--font-mono)",
+        fontSize: 12.5,
+        color: "var(--fg)",
+        whiteSpace: "pre-wrap",
+      }}>
+        <div style={{ fontWeight: 700, marginBottom: 8 }}>UI render error</div>
+        <div>{String(this.state.error)}</div>
+        {this.state.info?.componentStack && (
+          <div style={{ color: "var(--fg-3)", marginTop: 8 }}>
+            {this.state.info.componentStack}
+          </div>
+        )}
+        <button className="btn sm" style={{ marginTop: 12 }}
+          onClick={() => this.setState({ error: null, info: null })}>
+          Reset
+        </button>
+      </div>
+    );
+  }
 }
 
 // Browser-preview fallback when no native file picker is available — used by
@@ -260,7 +325,7 @@ function NullableField({
     <div className={`nullable ${on ? "on" : ""} ${forcedNull ? "locked" : ""}`}>
       <div className="top">
         <div className="name">
-          {name} <em>· {doc}</em>
+          {name}{doc && <em> · {doc}</em>}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="auto-tag">
@@ -454,10 +519,10 @@ function Stat({ label, value }) {
 }
 
 function Hero({ cfg }) {
-  const setCount = useMemo(
-    () => window.RNAHYBRID_NULLABLE_KEYS.filter((k) => cfg.rnahybrid[k].set).length,
-    [cfg.rnahybrid],
-  );
+  const shared = window.SHARED_NULLABLE_KEYS.filter((k) => cfg[k]?.set).length;
+  const rh     = window.RNAHYBRID_NULLABLE_KEYS.filter((k) => cfg.rnahybrid[k]?.set).length;
+  const setCount = shared + rh;
+  const total = window.SHARED_NULLABLE_KEYS.length + window.RNAHYBRID_NULLABLE_KEYS.length;
   return (
     <div className="hero">
       <div className="hero-body">
@@ -468,8 +533,8 @@ function Hero({ cfg }) {
       <div className="stats">
         <Stat label="Queries" value={cfg.queries.length} />
         <Stat label="Targets" value={cfg.targets.length} />
-        <Stat label="Threads" value={cfg.rnahybrid.threads} />
-        <Stat label="Set params" value={`${setCount}/${window.RNAHYBRID_NULLABLE_KEYS.length}`} />
+        <Stat label="Threads" value={cfg.threads} />
+        <Stat label="Set params" value={`${setCount}/${total}`} />
       </div>
     </div>
   );
@@ -500,7 +565,7 @@ function ActionsBar({
       <div className="status">
         <span className="status-dot" />
         <span>
-          Ready · {cfg.queries.length} × query · {cfg.targets.length} × target · {cfg.rnahybrid.threads} threads
+          Ready · {cfg.queries.length} × query · {cfg.targets.length} × target · {cfg.threads} threads
         </span>
       </div>
     );
@@ -582,7 +647,8 @@ function YAMLDrawer({ open, onClose, cfg, onSave }) {
 
 // export to window for other scripts
 Object.assign(window, {
-  Toggle, Check, Field, PathInput, KeyedFileRow,
+  Toggle, Subcard, PillGroup, PillToggle, ErrorBoundary,
+  PathInput, KeyedFileRow,
   FolderIcon, PlusIcon, TrashIcon, CodeIcon, PlayIcon, SaveIcon, SunIcon, MoonIcon, CopyIcon,
   CheckIcon, XIcon, StopIcon,
   NullableField, useApiList, useListEditor, promptBrowse,

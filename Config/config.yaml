@@ -6,25 +6,15 @@ queries:
 targets:
   escherichia: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
 
-# ─── Shared across both arms ────────────────────────────────────────────────
+#----- Shared by both arms -----#
 threads: 16
-
-max_suboptimal_hits: null   # null → 1 per pair (tool default); set to N to get N hits per pair
-
-# With --acc=C (IntaRNA default), --outMaxE filters total E including accessibility
-# penalties (ED1+ED2), so it is not directly comparable to RNAhybrid's -e which
-# filters pure hybridisation energy. They match exactly only when
-# intarna.accessibility_variant: off.
-max_total_energy: -18
-
-# "x,y" in query (miRNA) coordinates.
-# RNAhybrid receives it verbatim as -f x,y.
-# IntaRNA derives --seedBP, --seedQRange, and --seedMaxUP=0 from it.
-seed: null
+max_suboptimal_hits: null             # null → 1 per pair (tool default); set to N to get N hits per pair
+seed: null                            # IntaRNA derives --seedBP, --seedQRange, and --seedMaxUP=0 from it.
+max_total_energy: -18                 # This filters total E including accessibility penalties (ED1+ED2), so it is not directly comparable to RNAhybrid's energy,
+                                      # which filters pure hybridization energy. They match exactly only when intarna.accessibility_variant: off.
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
-  # calibrated | uncalibrated | both
   calibration_variant: both
   k: 10000
   max_target_length: 50000
@@ -38,38 +28,14 @@ rnahybrid:
   pvalue_threshold: null
   distribution: null
 
-#----- Parameters for plots (optional; omit or set type: null to skip) -----#
-plots:
-  # pvalue_distribution | position_pvalue | position_energy |
-  # volcano | pvalue_ecdf | calibration_delta | per_mirna |
-  # position_density | seed_class | all
-  # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
-  type: all
-  basesize: 12
-  pvalue_threshold: 0.01
-  # cap for plot_per_mirna (top-N miRNAs by hit count)
-  per_mirna_top_n: 12
-  # entry,miRNA
-  locus:
-  gene:
-    - yegH
-    - trmL
-  protein:
-
 #----- Parameters for IntaRNA -----#
 intarna:
-  # Drives w_accessibility / wo_accessibility variants (mirrors rnacalibrate.calibration_variant).
-  # The variant differs only in --acc=N vs --acc=C; prediction_mode, model, max_interaction_length,
-  # max_loop_size, and seed.* apply uniformly to both.
-  accessibility_variant: "on"   # "on" | "off" | "both"
-
-  # Interaction model
-  prediction_mode: H            # H heuristic | M exact | S seed-only
-  model: S                      # X seed-extension | S legacy | B helix-block | P ensemble
-  max_interaction_length: 0     # 0 = auto (min of seq length, accW)
+  accessibility_variant: "on"         # "on" | "off" | "both"
+  prediction_mode: H                  # H heuristic | M exact | S seed-only
+  model: S                            # X seed-extension | S legacy | B helix-block | P ensemble
+  max_interaction_length: 0           # 0 = auto (min of seq length, accW)
   max_loop_size: 10
 
-  # Seed (wo_accessibility: set enabled: false to suppress seed enforcement)
   seed:
     enabled: false                    # when false, emit --noSeed and skip all other seed flags
     length: null                      # null → derived from top-level seed; set explicitly to override [2..20]; if both null, IntaRNA default (7) applies
@@ -83,14 +49,12 @@ intarna:
     max_unpaired_bases: null          # --seedMaxUP   null → set to 0 when top-level seed is set (RNAhybrid parity), else IntaRNA default
     report_best_only: false           # --outBestSeedOnly
 
-  # Accessibility (ignored when accessibility_variant: "off" since --acc=N is used)
   accessibility:
-    window: null                  # --accW  (0 → RNAup-like global; null → IntaRNA default ~150)
-    max_bp_span: null             # --accL  (0 → global; null → IntaRNA default ~100)
-    forbid_lonely_pairs: false    # --accNoLP
-    forbid_gu_at_ends: false      # --accNoGUend
+    window: null                      # --accW  (0 → RNAup-like global; null → IntaRNA default ~150)
+    max_bp_span: null                 # --accL  (0 → global; null → IntaRNA default ~100)
+    forbid_lonely_pairs: false        # --accNoLP
+    forbid_gu_at_ends: false          # --accNoGUend
 
-  # Output filtering (both variants)
   output:
     max_delta_energy: null            # --outDeltaE
     overlap: B                        # --outOverlap N|T|Q|B
@@ -99,8 +63,18 @@ intarna:
     forbid_gu_at_ends: false          # --outNoGUend
     columns: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
 
-  # Escape hatch: appended verbatim (e.g. helix-block flags, --accFile, --qRegion)
-  extra_args: []
+  extra_args: []                      # Escape hatch: appended verbatim (e.g. helix-block flags, --accFile, --qRegion)
+
+#----- Parameters for plots (optional; omit or set type: null to skip) -----#
+plots:
+  type: all                           # pvalue_distribution | position_pvalue | position_energy | volcano | pvalue_ecdf | calibration_delta | per_mirna | position_density | seed_class | all
+                                      # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
+  basesize: 12
+  pvalue_threshold: 0.01
+  per_mirna_top_n: 12
+  locus:
+  gene:
+  protein:
 
 #----- Where outputs should be generated -----#
 results_dir: Data/Results/

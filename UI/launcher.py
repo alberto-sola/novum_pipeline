@@ -226,7 +226,9 @@ def main() -> None:
     # Force the Qt backend on Linux: the GTK backend needs system PyGObject
     # (`python3-gi`), which conda envs don't see. PyQt5 + QtWebEngineWidgets
     # ship via pip into the env and Just Work.
-    webview.start(gui="qt")
+    # debug=True exposes right-click → Inspect Element so the JS console is
+    # reachable when the React app misbehaves.
+    webview.start(gui="qt", debug=True)
 
 
 if __name__ == "__main__":

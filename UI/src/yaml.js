@@ -12,23 +12,27 @@ function pushMappingSection(lines, key, items, fallbackKey) {
   });
 }
 
-// One nullable RNAhybrid field → one IR line. Empty inputs and the
-// distribution-forced-null case all collapse to `<key>: null`.
-function nullableLine(key, field, forced) {
+// One nullable form-state field → one IR line. Generalised over indent so it works
+// for top-level shared params (indent=2), rnahybrid params (indent=2), and the
+// IntaRNA seed/accessibility/output sub-blocks (indent=4). Pair-shaped fields
+// (with `a`/`b`) are detected and emitted as "a,b" strings; scalar fields use
+// typeof to pick str vs num highlighting.
+function nullableLineAt(indent, key, field, forced) {
   if (forced || !field.set) {
-    return { t: "nested", indent: 2, k: key, v: null, kind: "null" };
+    return { t: "nested", indent, k: key, v: null, kind: "null" };
   }
-  if (key === "seed" || key === "distribution") {
+  if ("a" in field && "b" in field) {
     const { a, b } = field;
     if (a === "" || b === "" || a == null || b == null) {
-      return { t: "nested", indent: 2, k: key, v: null, kind: "null" };
+      return { t: "nested", indent, k: key, v: null, kind: "null" };
     }
-    return { t: "nested", indent: 2, k: key, v: `${a},${b}`, kind: "str" };
+    return { t: "nested", indent, k: key, v: `${a},${b}`, kind: "str" };
   }
   if (field.value === "" || field.value === null || field.value === undefined) {
-    return { t: "nested", indent: 2, k: key, v: null, kind: "null" };
+    return { t: "nested", indent, k: key, v: null, kind: "null" };
   }
-  return { t: "nested", indent: 2, k: key, v: field.value, kind: "num" };
+  const kind = typeof field.value === "string" ? "str" : "num";
+  return { t: "nested", indent, k: key, v: field.value, kind };
 }
 
 window.buildYAML = function buildYAML(cfg) {
@@ -40,39 +44,98 @@ window.buildYAML = function buildYAML(cfg) {
   pushMappingSection(lines, "targets", cfg.targets, "unnamed_target");
   lines.push({ t: "blank" });
 
-  lines.push({ t: "k", k: "rnacalibrate" });
-  lines.push({ t: "nested", indent: 2, k: "mode",              v: cfg.rnacalibrate.mode,              kind: "str"  });
-  lines.push({ t: "nested", indent: 2, k: "k",                 v: cfg.rnacalibrate.k,                 kind: "num"  });
-  lines.push({ t: "nested", indent: 2, k: "max_target_length", v: cfg.rnacalibrate.max_target_length, kind: "num"  });
-  lines.push({ t: "nested", indent: 2, k: "randomize_targets", v: cfg.rnacalibrate.randomize_targets, kind: "bool" });
-  lines.push({ t: "blank" });
-
-  lines.push({ t: "k", k: "rnahybrid" });
-  lines.push({ t: "nested", indent: 2, k: "threads", v: cfg.rnahybrid.threads, kind: "num" });
-  lines.push({ t: "nested", indent: 2, k: "species", v: cfg.rnahybrid.species, kind: "str" });
-  const distForced = window.isDistributionForced(cfg);
-  window.RNAHYBRID_NULLABLE_KEYS.forEach((key) => {
-    lines.push(nullableLine(key, cfg.rnahybrid[key], key === "distribution" && distForced));
+  // shared-by-both-arms block
+  lines.push({ t: "kv", k: "threads", v: cfg.threads, kind: "num" });
+  window.SHARED_NULLABLE_KEYS.forEach((key) => {
+    const line = nullableLineAt(0, key, cfg[key], false);
+    // nullableLineAt emits `t: "nested"` (indented); for top-level we want `t: "kv"` shape.
+    lines.push({ t: "kv", k: key, v: line.v, kind: line.kind });
   });
   lines.push({ t: "blank" });
 
-  lines.push({ t: "k", k: "build_plots" });
-  const bp = cfg.build_plots;
-  if (bp.types.length === 0) {
+  lines.push({ t: "k", k: "rnacalibrate" });
+  lines.push({ t: "nested", indent: 2, k: "calibration_variant", v: cfg.rnacalibrate.calibration_variant, kind: "str"  });
+  lines.push({ t: "nested", indent: 2, k: "k",                   v: cfg.rnacalibrate.k,                   kind: "num"  });
+  lines.push({ t: "nested", indent: 2, k: "max_target_length",   v: cfg.rnacalibrate.max_target_length,   kind: "num"  });
+  lines.push({ t: "nested", indent: 2, k: "randomize_targets",   v: cfg.rnacalibrate.randomize_targets,   kind: "bool" });
+  lines.push({ t: "blank" });
+
+  lines.push({ t: "k", k: "rnahybrid" });
+  lines.push({ t: "nested", indent: 2, k: "species", v: cfg.rnahybrid.species, kind: "str" });
+  const distForced = window.isDistributionForced(cfg);
+  window.RNAHYBRID_NULLABLE_KEYS.forEach((key) => {
+    lines.push(nullableLineAt(2, key, cfg.rnahybrid[key], key === "distribution" && distForced));
+  });
+  lines.push({ t: "blank" });
+
+  // intarna block
+  const it = cfg.intarna;
+  const seedDerived = window.isIntarnaSeedDerived(cfg);
+  lines.push({ t: "k", k: "intarna" });
+  lines.push({ t: "nested", indent: 2, k: "accessibility_variant",  v: it.accessibility_variant,  kind: "str" });
+  lines.push({ t: "nested", indent: 2, k: "prediction_mode",        v: it.prediction_mode,        kind: "str" });
+  lines.push({ t: "nested", indent: 2, k: "model",                  v: it.model,                  kind: "str" });
+  lines.push({ t: "nested", indent: 2, k: "max_interaction_length", v: it.max_interaction_length, kind: "num" });
+  lines.push({ t: "nested", indent: 2, k: "max_loop_size",          v: it.max_loop_size,          kind: "num" });
+  lines.push({ t: "blank" });
+
+  // seed sub-block. The three "derived" fields (length/query_range/max_unpaired_bases)
+  // hard-lock to null whenever the shared seed is set; matches what the form shows.
+  lines.push({ t: "nested", indent: 2, k: "seed", v: "", kind: "bare" });
+  lines.push({ t: "nested", indent: 4, k: "enabled", v: it.seed.enabled, kind: "bool" });
+  lines.push(nullableLineAt(4, "length",                   it.seed.length,                   seedDerived));
+  lines.push(nullableLineAt(4, "max_energy",               it.seed.max_energy,               false));
+  lines.push(nullableLineAt(4, "max_hybrid_energy",        it.seed.max_hybrid_energy,        false));
+  lines.push(nullableLineAt(4, "min_unpaired_probability", it.seed.min_unpaired_probability, false));
+  lines.push({ t: "nested", indent: 4, k: "forbid_gu",         v: it.seed.forbid_gu,         kind: "bool" });
+  lines.push({ t: "nested", indent: 4, k: "forbid_gu_at_ends", v: it.seed.forbid_gu_at_ends, kind: "bool" });
+  lines.push(nullableLineAt(4, "query_range",        it.seed.query_range,        seedDerived));
+  lines.push(nullableLineAt(4, "target_range",       it.seed.target_range,       false));
+  lines.push(nullableLineAt(4, "max_unpaired_bases", it.seed.max_unpaired_bases, seedDerived));
+  lines.push({ t: "nested", indent: 4, k: "report_best_only",  v: it.seed.report_best_only,  kind: "bool" });
+  lines.push({ t: "blank" });
+
+  // accessibility sub-block
+  lines.push({ t: "nested", indent: 2, k: "accessibility", v: "", kind: "bare" });
+  lines.push(nullableLineAt(4, "window",      it.accessibility.window,      false));
+  lines.push(nullableLineAt(4, "max_bp_span", it.accessibility.max_bp_span, false));
+  lines.push({ t: "nested", indent: 4, k: "forbid_lonely_pairs", v: it.accessibility.forbid_lonely_pairs, kind: "bool" });
+  lines.push({ t: "nested", indent: 4, k: "forbid_gu_at_ends",   v: it.accessibility.forbid_gu_at_ends,   kind: "bool" });
+  lines.push({ t: "blank" });
+
+  // output sub-block (columns is a constant emitted from INTARNA_OUTPUT_COLUMNS_DEFAULT)
+  lines.push({ t: "nested", indent: 2, k: "output", v: "", kind: "bare" });
+  lines.push(nullableLineAt(4, "max_delta_energy",         it.output.max_delta_energy,         false));
+  lines.push({ t: "nested", indent: 4, k: "overlap", v: it.output.overlap, kind: "str" });
+  lines.push(nullableLineAt(4, "min_unpaired_probability", it.output.min_unpaired_probability, false));
+  lines.push({ t: "nested", indent: 4, k: "forbid_lonely_pairs", v: it.output.forbid_lonely_pairs, kind: "bool" });
+  lines.push({ t: "nested", indent: 4, k: "forbid_gu_at_ends",   v: it.output.forbid_gu_at_ends,   kind: "bool" });
+  lines.push({ t: "nested", indent: 4, k: "columns", v: window.INTARNA_OUTPUT_COLUMNS_DEFAULT, kind: "str" });
+  lines.push({ t: "blank" });
+
+  // extra_args is a UI escape hatch; always emitted as an empty list.
+  lines.push({ t: "nested", indent: 2, k: "extra_args", v: "", kind: "bare" });
+  lines.push({ t: "empty_list", indent: 4 });
+  lines.push({ t: "blank" });
+
+  // plots block (was build_plots; pvalue → pvalue_threshold)
+  lines.push({ t: "k", k: "plots" });
+  const pl = cfg.plots;
+  if (pl.types.length === 0) {
     // Skip-plotting state: emit only `type: null`. Surrounding fields are
     // intentionally omitted so disabled runs produce a minimal config block.
     lines.push({ t: "nested", indent: 2, k: "type", v: null, kind: "null" });
   } else {
     const allTypes = window.PLOT_TYPES.map((p) => p.value);
-    const isAll = allTypes.every((t) => bp.types.includes(t));
-    const typeVal = isAll ? "all" : bp.types.join(",");
+    const isAll = allTypes.every((t) => pl.types.includes(t));
+    const typeVal = isAll ? "all" : pl.types.join(",");
     lines.push({ t: "nested", indent: 2, k: "type",             v: typeVal,            kind: "str" });
-    lines.push({ t: "nested", indent: 2, k: "basesize",         v: bp.basesize,        kind: "num" });
-    lines.push({ t: "nested", indent: 2, k: "pvalue",           v: bp.pvalue,          kind: "num" });
-    lines.push({ t: "nested", indent: 2, k: "per_mirna_top_n",  v: bp.per_mirna_top_n, kind: "num" });
+    lines.push({ t: "nested", indent: 2, k: "basesize",         v: pl.basesize,        kind: "num" });
+    lines.push({ t: "nested", indent: 2, k: "pvalue_threshold", v: pl.pvalue_threshold, kind: "num" });
+    lines.push({ t: "nested", indent: 2, k: "per_mirna_top_n",  v: pl.per_mirna_top_n, kind: "num" });
 
     lines.push({ t: "nested", indent: 2, k: "locus", v: "", kind: "bare" });
-    const validLoci = bp.locus
+    const validLoci = pl.locus
       .map((l) => ({ v: (l.value || "").trim(), m: (l.mirna || "").trim() }))
       .filter((l) => l.v);
     if (validLoci.length === 0) {
@@ -82,7 +145,7 @@ window.buildYAML = function buildYAML(cfg) {
     }
 
     lines.push({ t: "nested", indent: 2, k: "gene", v: "", kind: "bare" });
-    const validGenes = bp.gene
+    const validGenes = pl.gene
       .map((g) => ({ v: (g.value || "").trim(), m: (g.mirna || "").trim() }))
       .filter((g) => g.v);
     if (validGenes.length === 0) {
@@ -92,7 +155,7 @@ window.buildYAML = function buildYAML(cfg) {
     }
 
     lines.push({ t: "nested", indent: 2, k: "protein", v: "", kind: "bare" });
-    const validProteins = bp.protein
+    const validProteins = pl.protein
       .map((p) => ({ v: (p.value || "").trim(), m: (p.mirna || "").trim() }))
       .filter((p) => p.v);
     if (validProteins.length === 0) {

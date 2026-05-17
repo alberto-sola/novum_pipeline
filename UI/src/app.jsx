@@ -128,13 +128,17 @@ function App() {
         <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0, position: "relative" }}>
           <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto" }}>
             <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 18, margin: "0 auto", width: "100%" }}>
-              <Hero cfg={cfg} />
-              <QueriesSection cfg={cfg} setCfg={setCfg} />
-              <TargetsSection cfg={cfg} setCfg={setCfg} />
-              <RNACalibrateSection cfg={cfg} setCfg={setCfg} />
-              <RNAHybridSection cfg={cfg} setCfg={setCfg} />
-              <BuildPlotsSection cfg={cfg} setCfg={setCfg} />
-              <OutputSection cfg={cfg} setCfg={setCfg} />
+              <ErrorBoundary>
+                <Hero cfg={cfg} />
+                <QueriesSection cfg={cfg} setCfg={setCfg} />
+                <TargetsSection cfg={cfg} setCfg={setCfg} />
+                <SharedParamsSection cfg={cfg} setCfg={setCfg} />
+                <RNACalibrateSection cfg={cfg} setCfg={setCfg} />
+                <RNAHybridSection cfg={cfg} setCfg={setCfg} />
+                <IntaRNASection cfg={cfg} setCfg={setCfg} />
+                <PlotsSection cfg={cfg} setCfg={setCfg} />
+                <OutputSection cfg={cfg} setCfg={setCfg} />
+              </ErrorBoundary>
             </div>
           </div>
           <ActionsBar
@@ -152,7 +156,7 @@ function App() {
           <RunOverlay
             open={overlayOpen}
             status={pipelineStatus}
-            threads={cfg.rnahybrid.threads}
+            threads={cfg.threads}
             queries={cfg.queries.length}
             targets={cfg.targets.length}
             onCancel={cancel}
