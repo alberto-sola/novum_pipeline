@@ -27,8 +27,7 @@ Notes
   ``pipeline_status`` and call ``cancel_pipeline``. Snakemake's own
   ``.snakemake/locks/`` directory still prevents overlapping runs.
 - Snakemake's stdout/stderr are tee'd to ``Data/Results/.pipeline.log``
-  and to the launcher's terminal, so the UI can surface the tail and the
-  user can still watch the live output.
+  and to the launcher's terminal, so the user can watch the live output.
 """
 from __future__ import annotations
 
@@ -200,17 +199,6 @@ class API:
             self._returncode = None
             self._cancelled = False
             return {"ok": True}
-
-    def read_log_tail(self, n_lines: int = 40) -> dict:
-        # Read-whole-file tail: a single snakemake run's log is bounded to
-        # kilobytes–low-MB, so seek-from-end isn't worth the complexity.
-        try:
-            data = LOG_PATH.read_bytes().decode("utf-8", errors="replace")
-        except FileNotFoundError:
-            return {"ok": True, "lines": []}
-        except OSError as exc:
-            return {"ok": False, "error": str(exc)}
-        return {"ok": True, "lines": data.splitlines()[-n_lines:]}
 
 
 def main() -> None:

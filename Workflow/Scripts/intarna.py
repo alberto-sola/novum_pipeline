@@ -15,7 +15,7 @@ def _derive_seed_from_string(seed_str):
         if len(parts) != 2:
             raise ValueError
         x, y = int(parts[0].strip()), int(parts[1].strip())
-    except (ValueError, IndexError):
+    except ValueError:
         raise ValueError(f"top-level seed must be 'x,y' integers, got: {seed_str!r}")
     bp = y - x + 1
     if not (2 <= bp <= 20):

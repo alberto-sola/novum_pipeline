@@ -13,21 +13,26 @@ repository-code: "https://github.com/alberto-sola/novum_pipeline"
 license: MIT
 abstract: >-
   Snakemake workflow for predicting miRNA targets in
-  bacterial coding sequences with RNAhybrid. Optionally
-  calibrates RNAhybrid's extreme-value statistics per
-  miRNA via RNAcalibrate, so each query is scored against
-  its own null distribution rather than a single species
-  default. RNAhybrid is parallelised across (miRNA × target
-  chunk) pairs with GNU Parallel; the raw output is tidied,
-  annotated with FASTA-derived gene/locus/protein metadata,
-  rendered as human-readable alignment summaries, and
-  optionally plotted with ggplot2. A bundled PyWebView GUI
-  provides a no-CLI interface for editing the config and
-  launching runs.
+  bacterial coding sequences with RNAhybrid and IntaRNA
+  running as parallel arms. Optionally calibrates
+  RNAhybrid's extreme-value statistics per miRNA via
+  RNAcalibrate, so each query is scored against its own
+  null distribution rather than a single species default;
+  IntaRNA can be run with or without RNA accessibility
+  correction in the same invocation. RNAhybrid is
+  parallelised across (miRNA × target chunk) pairs with
+  GNU Parallel, IntaRNA uses its native multithreading.
+  Each arm's raw output is tidied, annotated with
+  FASTA-derived gene/locus/protein metadata, and rendered
+  as a human-readable alignment summary; the RNAhybrid
+  arm is optionally plotted with ggplot2. A bundled
+  PyWebView GUI provides a no-CLI interface for editing
+  the config and launching runs.
 keywords:
   - snakemake
   - pipeline
   - RNAhybrid
+  - IntaRNA
   - miRNAs
   - genomes
   - bacteria
@@ -49,6 +54,23 @@ references:
     end: W454
     year: 2006
     doi: 10.1093/nar/gkl243
+
+  - type: article
+    title: "IntaRNA 2.0: enhanced and customizable prediction of RNA-RNA interactions"
+    authors:
+      - family-names: Mann
+        given-names: Martin
+      - family-names: Wright
+        given-names: Patrick R.
+      - family-names: Backofen
+        given-names: Rolf
+    journal: Nucleic Acids Research
+    volume: 45
+    issue: "W1"
+    start: W435
+    end: W439
+    year: 2017
+    doi: 10.1093/nar/gkx279
 
   - type: software
     title: GNU Parallel

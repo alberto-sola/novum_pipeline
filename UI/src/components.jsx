@@ -43,7 +43,7 @@ function PillGroup({ label, hint, children }) {
 }
 
 // Pill-style boolean toggle — same visual language as the Plots "Plot types"
-// selector. Used in place of Check for IntaRNA constraints.
+// selector. Used for IntaRNA constraint groups (seed / accessibility / output).
 function PillToggle({ on, onChange, label }) {
   return (
     <button

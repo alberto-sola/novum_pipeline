@@ -121,7 +121,7 @@ rule all:
             variant=intarna_variants,
         ),
         *(expand(
-            f"{SAMPLE_DIR}/plots_" + plots_slug + ".pdf",
+            f"{SAMPLE_DIR}/plots_{plots_slug}.pdf",
             sample=targets.keys(),
         ) if plots_enabled else [])
 
@@ -285,7 +285,7 @@ rule build_plots:
             variant=variants,
         )
     output:
-        pdf=f"{SAMPLE_DIR}/plots_" + plots_slug + ".pdf"
+        pdf=f"{SAMPLE_DIR}/plots_{plots_slug}.pdf"
     conda:
         "Workflow/Envs/plots.yaml"
     params:

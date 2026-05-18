@@ -241,9 +241,10 @@ To re-render plots after editing `plots` without re-running the upstream pipelin
 snakemake --use-conda --cores N --forcerun build_plots
 ```
 
-- **`type`** — which panels to render: `pvalue_distribution`, `position_pvalue`, `position_energy`, `all`, or any comma-separated subset (e.g. `"pvalue_distribution,position_pvalue"`). Panels appear in the order listed.
+- **`type`** — which panels to render. `all` selects every panel in registered order; otherwise pass any comma-separated subset (e.g. `"pvalue_distribution,position_pvalue"`). Available panels: `pvalue_distribution`, `position_pvalue`, `position_energy`, `volcano`, `pvalue_ecdf`, `calibration_delta`, `per_mirna`, `position_density`, `seed_class`. Panels appear in the order listed. `calibration_delta` is auto-skipped when only one calibration variant ran.
 - **`basesize`** — ggplot2 base font size.
-- **`pvalue_threshold`** — cutoff applied to the scatter points in `position_pvalue` and `position_energy` (the density plot ignores it).
+- **`pvalue_threshold`** — cutoff applied to the scatter points in `position_pvalue`, `position_energy`, and `volcano`; switches `position_density` to a two-tier (significant / non-significant) stack. The other panels ignore it.
+- **`per_mirna_top_n`** — number of miRNAs to keep in the `per_mirna` panel (top-N by hit count). Defaults to 12.
 - **`locus`**, **`gene`**, **`protein`** — lists of validated hits to highlight. Each entry is either:
     - **bare** — `<target>` matches any miRNA hitting that target;
     - **paired** — `<target>,<miRNA>` matches only when the row's miRNA equals the named one.
