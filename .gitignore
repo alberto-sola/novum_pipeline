@@ -11,10 +11,13 @@ CLAUDE.md
 .idea/
 .vscode/
 
+# Plugins, skills, data
 Data/*
 graphify-out
 .graphifyignore
+.impeccable
 data-prep/*
 !data-prep/fetch_genomes.py
 
+# Files
 IntaRNA_instructions*

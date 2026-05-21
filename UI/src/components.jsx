@@ -4,12 +4,13 @@ const { useState, useRef, useEffect, useMemo } = React;
 
 // --- primitives ---------------------------------------------------
 
-function Toggle({ on, onChange, ariaLabel }) {
+function Toggle({ on, onChange, ariaLabel, disabled = false }) {
   return (
     <button
       type="button"
       className={`toggle ${on ? "on" : ""}`}
-      onClick={() => onChange(!on)}
+      onClick={() => !disabled && onChange(!on)}
+      disabled={disabled}
       aria-label={ariaLabel}
       aria-pressed={on}
     />
@@ -60,6 +61,91 @@ function PillToggle({ on, onChange, label }) {
       {on ? "✓ " : ""}{label}
     </button>
   );
+}
+
+// Single-select segmented control. A radiogroup (not a tablist: there are no
+// tabpanels) with roving tabindex and arrow-key navigation, so it's one tab
+// stop and screen readers announce the selected option correctly.
+function SegmentedControl({ options, value, onChange, ariaLabel }) {
+  const ref = useRef(null);
+  const idx = Math.max(0, options.findIndex((o) => o.value === value));
+  const onKeyDown = (e) => {
+    const dir = (e.key === "ArrowRight" || e.key === "ArrowDown") ? 1
+              : (e.key === "ArrowLeft" || e.key === "ArrowUp") ? -1 : 0;
+    if (!dir) return;
+    e.preventDefault();
+    const next = (idx + dir + options.length) % options.length;
+    onChange(options[next].value);
+    ref.current?.querySelectorAll('[role="radio"]')[next]?.focus({ preventScroll: true });
+  };
+  return (
+    <div className="variation-switch" role="radiogroup" aria-label={ariaLabel} ref={ref} onKeyDown={onKeyDown}>
+      {options.map((o) => {
+        const active = o.value === value;
+        return (
+          <button
+            key={o.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            tabIndex={active ? 0 : -1}
+            className={active ? "active" : ""}
+            onClick={() => onChange(o.value)}
+            style={{ padding: "6px 14px" }}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Focus management for the run overlay and YAML drawer. On open: remember the
+// previously focused element, move focus inside, trap Tab, and (when onEscape
+// is supplied) close on Escape. On close: restore focus to where it was. Esc
+// behaviour is read through a ref so callers can gate it (e.g. no dismiss while
+// the pipeline is still running) without re-running the trap.
+function useDialog(ref, open, { onEscape } = {}) {
+  const prevFocus = useRef(null);
+  const escRef = useRef(onEscape);
+  escRef.current = onEscape;
+
+  useEffect(() => {
+    if (!open) return;
+    const node = ref.current;
+    if (!node) return;
+    prevFocus.current = document.activeElement;
+    const SEL = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
+    const focusables = () => Array.from(node.querySelectorAll(SEL));
+    // preventScroll: the drawer/overlay is absolutely positioned and animates
+    // in via transform; a plain focus() would scroll the (overflow:hidden but
+    // still scrollable) content area to "reach" it, jolting the background.
+    (focusables()[0] || node).focus({ preventScroll: true });
+
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        if (escRef.current) { e.stopPropagation(); escRef.current(); }
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const items = focusables();
+      if (items.length === 0) { e.preventDefault(); return; }
+      const first = items[0], last = items[items.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault(); last.focus({ preventScroll: true });
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault(); first.focus({ preventScroll: true });
+      }
+    };
+    node.addEventListener("keydown", onKeyDown);
+    return () => {
+      node.removeEventListener("keydown", onKeyDown);
+      const prev = prevFocus.current;
+      prevFocus.current = null;
+      if (prev && prev.focus && document.contains(prev)) prev.focus({ preventScroll: true });
+    };
+  }, [open]);
 }
 
 // Catches render errors anywhere in its subtree. Without this, a thrown
@@ -333,7 +419,8 @@ function NullableField({
           </span>
           <Toggle
             on={on}
-            onChange={(v) => !forcedNull && onChange({ ...value, set: v })}
+            onChange={(v) => onChange({ ...value, set: v })}
+            disabled={forcedNull}
             ariaLabel={`Enable ${name}`}
           />
         </div>
@@ -423,6 +510,14 @@ function Toast({ tone = "neutral", children }) {
   return <div className={cls}>{children}</div>;
 }
 
+// Run scope, phrased one way everywhere: "3 queries × 2 targets · 16 threads".
+// Used by the actions-bar ready state and the run overlay subhead.
+function formatScope(queries, targets, threads) {
+  const q = `${queries} quer${queries === 1 ? "y" : "ies"}`;
+  const t = `${targets} target${targets === 1 ? "" : "s"}`;
+  return `${q} × ${t} · ${threads} threads`;
+}
+
 // Mono mm:ss (or h:mm:ss for >1h runs) formatter — defensive against
 // undefined while polling.
 function formatElapsed(seconds) {
@@ -451,12 +546,25 @@ function RunOverlay({ open, status, onCancel, onClose, threads, queries, targets
   const state = status?.state || "running";
   const elapsed = status?.elapsed || 0;
   const code = status?.returncode;
+  const running = state === "running";
+  const logTail = (state === "failed" || state === "cancelled") ? status?.log_tail : null;
+
+  const cardRef = useRef(null);
+  const logRef = useRef(null);
+  // Esc dismisses only on a terminal state; while running, the only exit is Cancel.
+  useDialog(cardRef, open, { onEscape: running ? null : onClose });
+
+  // Snakemake prints the failing rule and traceback at the very end, so jump
+  // the log panel to its tail the moment it appears.
+  useEffect(() => {
+    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
+  }, [logTail]);
 
   const VIEWS = {
     running: {
       glyph: "running",
       headline: "Hybridization in progress",
-      sub: `Running snakemake · ${queries} quer${queries === 1 ? "y" : "ies"} × ${targets} target${targets === 1 ? "" : "s"} · ${threads} threads`,
+      sub: `Running snakemake · ${formatScope(queries, targets, threads)}`,
     },
     succeeded: {
       glyph: "success",
@@ -466,7 +574,7 @@ function RunOverlay({ open, status, onCancel, onClose, threads, queries, targets
     failed: {
       glyph: "failure",
       headline: "Pipeline failed",
-      sub: `Snakemake exited with code ${code}. Check the launcher terminal for the trace.`,
+      sub: `Snakemake exited with code ${code}. The end of the run log is below.`,
     },
     cancelled: {
       glyph: "failure",
@@ -478,29 +586,35 @@ function RunOverlay({ open, status, onCancel, onClose, threads, queries, targets
 
   return (
     <div className={`run-overlay ${open ? "open" : ""}`} aria-hidden={!open}>
-      <div className="run-card" role="dialog" aria-modal="true" aria-label={view.headline}>
+      <div className="run-card" role="dialog" aria-modal="true" aria-label={view.headline} tabIndex={-1} ref={cardRef}>
         <div className="glyph-wrap">
-          <Spinner state={view.glyph} size={state === "running" ? "lg" : "md"} />
+          <Spinner state={view.glyph} size={running ? "lg" : "md"} />
         </div>
         <div className="ttl">{view.headline}</div>
         <div className="sub">{view.sub}</div>
         <div className="meta">
           <span>elapsed <span className="v">{formatElapsed(elapsed)}</span></span>
           {status?.pid && <span>pid <span className="v">{status.pid}</span></span>}
-          {state !== "running" && code != null && (
+          {!running && code != null && (
             <span>exit <span className="v">{code}</span></span>
           )}
         </div>
+        {logTail && (
+          <div className="run-log-wrap">
+            <pre className="run-log" ref={logRef} tabIndex={0} aria-label="Pipeline log, last lines">{logTail}</pre>
+            {status?.log_path && <div className="run-log-path">Full log: {status.log_path}</div>}
+          </div>
+        )}
         <div className="ctas">
-          {state === "running" ? (
-            <button className="btn sm" onClick={onCancel} aria-label="Cancel run">
-              <StopIcon /> Cancel run
-            </button>
-          ) : (
-            <button className="btn primary sm" onClick={onClose} aria-label="Dismiss">
-              <CheckIcon size={12} /> Dismiss
-            </button>
-          )}
+          <button
+            className={running ? "btn sm" : "btn primary sm"}
+            onClick={running ? onCancel : onClose}
+            aria-label={running ? "Cancel run" : "Dismiss"}
+          >
+            {running
+              ? <React.Fragment><StopIcon /> Cancel run</React.Fragment>
+              : <React.Fragment><CheckIcon size={12} /> Dismiss</React.Fragment>}
+          </button>
         </div>
       </div>
     </div>
@@ -509,32 +623,17 @@ function RunOverlay({ open, status, onCancel, onClose, threads, queries, targets
 
 // --- layout ------------------------------------------------------
 
-function Stat({ label, value }) {
-  return (
-    <div className="stat">
-      <div className="v">{value}</div>
-      <div className="l">{label}</div>
-    </div>
-  );
-}
-
 function Hero({ cfg }) {
-  const shared = window.SHARED_NULLABLE_KEYS.filter((k) => cfg[k]?.set).length;
-  const rh     = window.RNAHYBRID_NULLABLE_KEYS.filter((k) => cfg.rnahybrid[k]?.set).length;
-  const setCount = shared + rh;
-  const total = window.SHARED_NULLABLE_KEYS.length + window.RNAHYBRID_NULLABLE_KEYS.length;
+  const { set, total } = window.countOptionalParams(cfg);
   return (
     <div className="hero">
       <div className="hero-body">
-        <div className="eyebrow-h">Configure run</div>
-        <div className="ttl">RNA → bacterial target hybridization</div>
-        <div className="sub">Build your pipeline config, then hit run.</div>
+        <h1 className="ttl">RNA → bacterial target hybridization</h1>
+        <p className="sub">Build your pipeline config, then hit run.</p>
       </div>
-      <div className="stats">
-        <Stat label="Queries" value={cfg.queries.length} />
-        <Stat label="Targets" value={cfg.targets.length} />
-        <Stat label="Threads" value={cfg.threads} />
-        <Stat label="Set params" value={`${setCount}/${total}`} />
+      <div className="hero-meter" title="Optional parameters you've set; the rest stay automatic">
+        <span className="v">{set}<span className="sep">/</span>{total}</span>
+        <span className="l">optional params set</span>
       </div>
     </div>
   );
@@ -564,9 +663,7 @@ function ActionsBar({
     status = (
       <div className="status">
         <span className="status-dot" />
-        <span>
-          Ready · {cfg.queries.length} × query · {cfg.targets.length} × target · {cfg.threads} threads
-        </span>
+        <span>Ready · {formatScope(cfg.queries.length, cfg.targets.length, cfg.threads)}</span>
       </div>
     );
   } else {
@@ -622,10 +719,21 @@ function YAMLDrawer({ open, onClose, cfg, onSave }) {
   // drawer doesn't pay for it on every keystroke that mutates `cfg`.
   const copy = () => navigator.clipboard?.writeText(window.renderYAMLPlain(lines));
 
+  const drawerRef = useRef(null);
+  useDialog(drawerRef, open, { onEscape: onClose });
+
   return (
     <React.Fragment>
       <div className={`yaml-backdrop ${open ? "open" : ""}`} onClick={onClose} />
-      <aside className={`yaml-drawer ${open ? "open" : ""}`} aria-hidden={!open}>
+      <aside
+        className={`yaml-drawer ${open ? "open" : ""}`}
+        aria-hidden={!open}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Generated config"
+        tabIndex={-1}
+        ref={drawerRef}
+      >
         <div className="head">
           <div>
             <div className="ttl">Generated config</div>
@@ -647,12 +755,12 @@ function YAMLDrawer({ open, onClose, cfg, onSave }) {
 
 // export to window for other scripts
 Object.assign(window, {
-  Toggle, Subcard, PillGroup, PillToggle, ErrorBoundary,
+  Toggle, Subcard, PillGroup, PillToggle, SegmentedControl, ErrorBoundary,
   PathInput, KeyedFileRow,
   FolderIcon, PlusIcon, TrashIcon, CodeIcon, PlayIcon, SaveIcon, SunIcon, MoonIcon, CopyIcon,
   CheckIcon, XIcon, StopIcon,
   NullableField, useApiList, useListEditor, promptBrowse,
   Spinner, Toast, ActivityRail, RunOverlay,
-  Hero, Stat, ActionsBar, YAMLDrawer,
-  formatElapsed,
+  Hero, ActionsBar, YAMLDrawer,
+  formatElapsed, formatScope,
 });

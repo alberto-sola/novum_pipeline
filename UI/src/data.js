@@ -69,6 +69,40 @@ window.isDistributionForced = (cfg) => cfg.rnacalibrate.calibration_variant !== 
 // (intarna.py:_add_seed_flags), so the UI hard-locks them whenever the shared seed is set.
 window.isIntarnaSeedDerived = (cfg) => cfg.seed.set;
 
+// Count optional (nullable) parameters the user has explicitly set, against the
+// number currently in play. Inert groups (seed enforcement off, accessibility
+// variant Off) and locked/derived fields (distribution under calibration, the
+// three seed sub-fields derived from the shared seed) are excluded from both
+// sides, so the ratio only reflects params that can actually affect this run.
+window.countOptionalParams = (cfg) => {
+  let set = 0, total = 0;
+  const tally = (obj, keys, { active = true, locked = () => false } = {}) => {
+    if (!active) return;
+    for (const k of keys) {
+      if (locked(k)) continue;
+      total += 1;
+      if (obj[k]?.set) set += 1;
+    }
+  };
+
+  tally(cfg, window.SHARED_NULLABLE_KEYS);
+  tally(cfg.rnahybrid, window.RNAHYBRID_NULLABLE_KEYS, {
+    locked: (k) => k === "distribution" && window.isDistributionForced(cfg),
+  });
+
+  const seedDerived = new Set(["length", "query_range", "max_unpaired_bases"]);
+  tally(cfg.intarna.seed, window.INTARNA_SEED_NULLABLE_KEYS, {
+    active: cfg.intarna.seed.enabled,
+    locked: (k) => window.isIntarnaSeedDerived(cfg) && seedDerived.has(k),
+  });
+  tally(cfg.intarna.accessibility, window.INTARNA_ACC_NULLABLE_KEYS, {
+    active: cfg.intarna.accessibility_variant !== "off",
+  });
+  tally(cfg.intarna.output, window.INTARNA_OUTPUT_NULLABLE_KEYS);
+
+  return { set, total };
+};
+
 // Default IntaRNA --outCsvCols string from Config/config.yaml. The form does not
 // expose `intarna.output.columns`; the YAML writer emits this constant.
 window.INTARNA_OUTPUT_COLUMNS_DEFAULT =

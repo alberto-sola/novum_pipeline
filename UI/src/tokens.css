@@ -27,6 +27,10 @@
   --warn: rgb(208, 153, 69);
   --danger: rgb(210, 76, 73);
 
+  /* dark code/log panels (yaml drawer, run log) */
+  --panel-bg: rgb(14, 18, 22);
+  --panel-fg: rgb(230, 228, 224);
+
   /* shape */
   --r-xs: 6px;
   --r-sm: 8px;
@@ -70,6 +74,8 @@
   --accent-ink: rgb(158, 233, 212);
   --accent-soft: rgb(4, 49, 39);
   --accent-line: rgb(0, 85, 69);
+
+  --panel-bg: rgb(0, 0, 0);
 
   --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-2: 0 1px 0 rgba(0, 0, 0, 0.4), 0 6px 20px rgba(0, 0, 0, 0.35);
@@ -370,17 +376,14 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* YAML panel */
 .yaml-panel {
-  background: rgb(14, 18, 22);
-  color: rgb(230, 228, 224);
+  background: var(--panel-bg);
+  color: var(--panel-fg);
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 1.55;
   padding: 18px 20px;
   overflow: auto;
   tab-size: 2;
-}
-[data-theme="dark"] .yaml-panel {
-  background: rgb(0, 0, 0);
 }
 .yaml-panel .y-comment { color: rgb(111, 126, 122); font-style: italic; }
 .yaml-panel .y-key { color: rgb(120, 218, 192); }
@@ -543,68 +546,57 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   color: var(--fg);
   box-shadow: var(--shadow-1);
 }
+.variation-switch button:not(.active):hover { color: var(--fg-2); }
 
 /* section anchor scroll offset */
 section[data-anchor] { scroll-margin-top: 20px; }
 
-/* ───────────────────────── hero & stat ─────────────────────────
-   Header banner above the form. The teal-soft gradient is the
-   strongest accent moment in the static UI; it sets the biological
-   tone the rest of the surface defers to. */
+/* ───────────────────────── hero ─────────────────────────
+   Page masthead above the form. Deliberately borderless and
+   chrome-free so it reads as the page heading, not another
+   section card. One quiet metric (optional params set) sits
+   opposite the title; the redundant query/target/thread counts
+   live in the form and the actions bar instead. */
 .hero {
   display: flex;
-  align-items: center;
+  align-items: flex-end;
+  justify-content: space-between;
   gap: 24px;
-  padding: 18px 22px;
-  background:
-    linear-gradient(135deg, var(--accent-soft), transparent 70%),
-    var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-1);
+  padding: 2px 4px 0;
 }
-.hero .hero-body { flex: 1; min-width: 0; }
-.hero .eyebrow-h {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--accent-ink);
-}
+.hero .hero-body { min-width: 0; }
 .hero .ttl {
-  font-size: 20px;
+  margin: 0;
+  font-size: 22px;
   font-weight: 600;
-  letter-spacing: -0.01em;
-  margin-top: 4px;
+  letter-spacing: -0.015em;
 }
 .hero .sub {
+  margin: 4px 0 0;
   font-size: 13px;
   color: var(--fg-3);
-  margin-top: 4px;
 }
-.hero .stats { display: flex; gap: 10px; flex-shrink: 0; }
-
-.stat {
-  padding: 10px 14px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: var(--r-md);
-  min-width: 76px;
-  text-align: center;
+.hero-meter {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  white-space: nowrap;
 }
-.stat .v {
+.hero-meter .v {
   font-family: var(--font-mono);
-  font-size: 18px;
+  font-size: 15px;
   font-weight: 600;
-  color: var(--fg);
+  color: var(--fg-2);
   font-variant-numeric: tabular-nums;
 }
-.stat .l {
+.hero-meter .v .sep { color: var(--fg-4); margin: 0 2px; }
+.hero-meter .l {
   font-size: 10.5px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--fg-4);
-  margin-top: 2px;
 }
 
 /* ───────────────────────── toast ─────────────────────────
@@ -885,4 +877,63 @@ section[data-anchor] { scroll-margin-top: 20px; }
 @keyframes btn-shimmer {
   0%   { transform: translateX(-100%); }
   100% { transform: translateX(100%); }
+}
+
+/* ───────────────────────── inert groups ─────────────────────────
+   Parameter groups that don't apply to the current variant (calibration
+   off, seed enforcement off, accessibility Off, plots disabled) are wrapped
+   in <fieldset disabled>, which removes every nested control from the tab
+   order and the a11y tree natively. The fieldset only carries the dim; it
+   resets the browser's default chrome so it lays out like a plain block. */
+.group-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.group-fieldset[disabled] {
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+.toggle:disabled { cursor: not-allowed; }
+
+/* ───────────────────────── run log ─────────────────────────
+   Tail of the snakemake log, shown inside the run overlay when a run fails
+   or is cancelled, so the trace is readable in-app instead of only in the
+   launcher terminal. Mirrors the YAML panel's dark mono treatment. */
+.run-log-wrap { margin-top: 16px; text-align: left; }
+.run-log {
+  margin: 0;
+  max-height: 168px;
+  overflow: auto;
+  padding: 12px 14px;
+  background: var(--panel-bg);
+  color: var(--panel-fg);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+}
+.run-log:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.run-log-path {
+  margin-top: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--fg-4);
+  word-break: break-all;
+}
+
+/* Respect users who've asked for less motion: freeze the orbit spinner,
+   ripple, shimmer, and slide transitions rather than loop them forever. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }

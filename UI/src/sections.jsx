@@ -199,18 +199,12 @@ function RNACalibrateSection({ cfg, setCfg }) {
     >
       <div className="stack lg">
         <Subcard label="Calibration variant">
-          <div className="variation-switch" role="tablist">
-            {window.CALIBRATE_MODES.map((m) => (
-              <button
-                key={m.value}
-                className={r.calibration_variant === m.value ? "active" : ""}
-                onClick={() => set({ calibration_variant: m.value })}
-                style={{ padding: "6px 14px" }}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            options={window.CALIBRATE_MODES}
+            value={r.calibration_variant}
+            onChange={(v) => set({ calibration_variant: v })}
+            ariaLabel="Calibration variant"
+          />
         </Subcard>
         {inert && (
           <div style={{
@@ -233,16 +227,8 @@ function RNACalibrateSection({ cfg, setCfg }) {
             </div>
           </div>
         )}
-        <div
-          className="stack lg"
-          style={{
-            opacity: inert ? 0.42 : 1,
-            filter: inert ? "saturate(0.2)" : "none",
-            transition: "opacity 0.15s, filter 0.15s",
-            pointerEvents: inert ? "none" : "auto"
-          }}
-          aria-disabled={inert}
-        >
+        <fieldset className="group-fieldset" disabled={inert}>
+         <div className="stack lg">
           <div className="grid-2">
             <Subcard label="k (sample size)">
               <input
@@ -251,7 +237,6 @@ function RNACalibrateSection({ cfg, setCfg }) {
                 step="1"
                 min={0}
                 value={r.k}
-                disabled={inert}
                 onChange={(e) => set({ k: Number(e.target.value) })}
               />
             </Subcard>
@@ -262,7 +247,6 @@ function RNACalibrateSection({ cfg, setCfg }) {
                 step="1"
                 min={0}
                 value={r.max_target_length}
-                disabled={inert}
                 onChange={(e) => set({ max_target_length: Number(e.target.value) })}
               />
             </Subcard>
@@ -273,12 +257,13 @@ function RNACalibrateSection({ cfg, setCfg }) {
             right={
               <Toggle
                 on={r.randomize_targets}
-                onChange={(v) => !inert && set({ randomize_targets: v })}
+                onChange={(v) => set({ randomize_targets: v })}
                 ariaLabel="Randomize targets"
               />
             }
           />
-        </div>
+         </div>
+        </fieldset>
       </div>
     </SectionCard>
   );
@@ -368,18 +353,12 @@ function IntaRNASection({ cfg, setCfg }) {
     >
       <div className="stack lg">
         <Subcard label="Accessibility variant">
-          <div className="variation-switch" role="tablist">
-            {window.INTARNA_ACC_MODES.map((m) => (
-              <button
-                key={m.value}
-                className={it.accessibility_variant === m.value ? "active" : ""}
-                onClick={() => set({ accessibility_variant: m.value })}
-                style={{ padding: "6px 14px" }}
-              >
-                {m.label}
-              </button>
-            ))}
-          </div>
+          <SegmentedControl
+            options={window.INTARNA_ACC_MODES}
+            value={it.accessibility_variant}
+            onChange={(v) => set({ accessibility_variant: v })}
+            ariaLabel="Accessibility variant"
+          />
         </Subcard>
 
         <div className="grid-2">
@@ -436,15 +415,8 @@ function IntaRNASection({ cfg, setCfg }) {
             </span>
             <Toggle on={it.seed.enabled} onChange={(v) => setSeed({ enabled: v })} ariaLabel="Enable seed enforcement" />
           </div>
-          <div
-            className="stack sm"
-            style={{
-              opacity: seedDisabled ? 0.5 : 1,
-              pointerEvents: seedDisabled ? "none" : "auto",
-              transition: "opacity 0.15s",
-            }}
-            aria-disabled={seedDisabled}
-          >
+          <fieldset className="group-fieldset" disabled={seedDisabled}>
+           <div className="stack sm">
             <div className="grid-2">
               <NullableField name="Length" doc="[2..20]" kind="integer"
                 min={2} max={20}
@@ -477,7 +449,8 @@ function IntaRNASection({ cfg, setCfg }) {
               <PillToggle on={it.seed.forbid_gu_at_ends} onChange={(v) => setSeed({ forbid_gu_at_ends: v })} label="Forbid G:U at ends" />
               <PillToggle on={it.seed.report_best_only}  onChange={(v) => setSeed({ report_best_only: v })}  label="Report best only" />
             </PillGroup>
-          </div>
+           </div>
+          </fieldset>
         </div>
 
         <div>
@@ -489,15 +462,8 @@ function IntaRNASection({ cfg, setCfg }) {
               </span>
             )}
           </div>
-          <div
-            className="stack sm"
-            style={{
-              opacity: accInert ? 0.5 : 1,
-              pointerEvents: accInert ? "none" : "auto",
-              transition: "opacity 0.15s",
-            }}
-            aria-disabled={accInert}
-          >
+          <fieldset className="group-fieldset" disabled={accInert}>
+           <div className="stack sm">
             <div className="grid-2">
               <NullableField name="Window" doc="0 = global, null = default" kind="integer"
                 min={0}
@@ -510,7 +476,8 @@ function IntaRNASection({ cfg, setCfg }) {
               <PillToggle on={it.accessibility.forbid_lonely_pairs} onChange={(v) => setAcc({ forbid_lonely_pairs: v })} label="Forbid lonely pairs" />
               <PillToggle on={it.accessibility.forbid_gu_at_ends}   onChange={(v) => setAcc({ forbid_gu_at_ends: v })}   label="Forbid G:U at ends" />
             </PillGroup>
-          </div>
+           </div>
+          </fieldset>
         </div>
 
         <div>
@@ -584,7 +551,8 @@ function PlotsSection({ cfg, setCfg }) {
         </div>
       }
     >
-      <div className="stack lg" style={{ opacity: enabled ? 1 : 0.5, pointerEvents: enabled ? "auto" : "none", transition: "opacity 0.15s" }}>
+      <fieldset className="group-fieldset" disabled={!enabled}>
+       <div className="stack lg">
         <Subcard label="Plot types" hint={`${pl.types.length}/${window.PLOT_TYPES.length} on`}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {window.PLOT_TYPES.map((p) => {
@@ -753,7 +721,8 @@ function PlotsSection({ cfg, setCfg }) {
             )}
           </div>
         </div>
-      </div>
+       </div>
+      </fieldset>
     </SectionCard>
   );
 }

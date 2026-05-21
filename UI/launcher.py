@@ -75,7 +75,7 @@ class API:
         self._returncode: int | None = None
         self._cancelled = False
 
-    # -- file pickers used by the React form --------------------------------
+    # ----- file pickers used by the React form -----#
 
     def list_queries(self) -> list[dict]:
         return _list_dir(QUERIES_DIR, "Data/Raw/RNAs")
@@ -83,7 +83,7 @@ class API:
     def list_targets(self) -> list[dict]:
         return _list_dir(TARGETS_DIR, "Data/Raw/genomes")
 
-    # -- config save --------------------------------------------------------
+    # ----- config save -----#
 
     def save_config(self, yaml_text: str) -> dict:
         try:
@@ -93,7 +93,7 @@ class API:
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
 
-    # -- pipeline lifecycle -------------------------------------------------
+    # ----- pipeline lifecycle -----#
 
     def _is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
@@ -105,6 +105,22 @@ class API:
                 self._log_fh.close()
             finally:
                 self._log_fh = None
+
+    @staticmethod
+    def _read_log_tail(max_lines: int = 80, max_bytes: int = 65536) -> str:
+        """Last ``max_lines`` lines of the run log, so a failure can be read
+        in-app instead of sending the user back to the launcher terminal.
+
+        Reads only the final ``max_bytes`` so a long run's log is never slurped
+        whole; the leading partial line is dropped by the line slice."""
+        try:
+            with LOG_PATH.open("rb") as fh:
+                fh.seek(0, os.SEEK_END)
+                fh.seek(max(0, fh.tell() - max_bytes))
+                tail = fh.read().decode("utf-8", "replace")
+        except OSError:
+            return ""
+        return "\n".join(tail.splitlines()[-max_lines:])
 
     def run_pipeline(self, yaml_text: str) -> dict:
         with self._lock:
@@ -164,13 +180,17 @@ class API:
                 state = "failed"
 
             duration = (self._finished_at or 0) - (self._started_at or 0)
-            return {
+            result = {
                 "state": state,
                 "pid": self._proc.pid,
                 "returncode": self._returncode,
                 "elapsed": duration,
                 "log_path": str(LOG_PATH),
             }
+            # Surface the trace in-app for non-clean exits; success stays terse.
+            if state in ("failed", "cancelled"):
+                result["log_tail"] = self._read_log_tail()
+            return result
 
     def cancel_pipeline(self) -> dict:
         with self._lock:
@@ -209,7 +229,6 @@ def main() -> None:
         width=1280,
         height=820,
         min_size=(960, 640),
-        maximized=True,
     )
     # Force the Qt backend on Linux: the GTK backend needs system PyGObject
     # (`python3-gi`), which conda envs don't see. PyQt5 + QtWebEngineWidgets
