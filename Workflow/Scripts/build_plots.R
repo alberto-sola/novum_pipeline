@@ -76,13 +76,30 @@ validated_best <- validated |>
   distinct(miRNA, locus_tag, .keep_all = TRUE) |>
   ungroup()
 
+# Empty validated set → drop the per-hit highlight layer (red points / dashed
+# vlines) but still render everything else. Guards `scales::hue_pal()(0)` below,
+# which would otherwise abort the whole job. Warn only when a hit was actually
+# requested — an empty locus/gene/protein config means none was wanted.
+has_validated <- nrow(validated_best) > 0L
+requested <- c(
+  if (length(locus_tags))    paste0("locus=",   toString(locus_tags)),
+  if (length(gene_names))    paste0("gene=",    toString(gene_names)),
+  if (length(protein_names)) paste0("protein=", toString(protein_names))
+)
+if (!has_validated && length(requested) > 0L) {
+  warning(sprintf(
+    "build_plots: validated-hits filter matched 0 rows (%s) — rendering plots without the highlight layer.",
+    paste(requested, collapse = "; ")
+  ), call. = FALSE)
+}
+
 #----- Auto color + label maps for the validated hits, keyed by locus_tag -----#
 # Label cascade for readability: gene_name > protein_name > locus_tag.
 if (!"protein_name" %in% names(validated_best)) {
   validated_best$protein_name <- NA_character_
 }
 hit_levels <- unique(validated_best$locus_tag)
-hit_colors <- setNames(scales::hue_pal()(length(hit_levels)), hit_levels)
+hit_colors <- if (has_validated) setNames(scales::hue_pal()(length(hit_levels)), hit_levels) else character(0)
 hit_label_table <- validated_best |>
   distinct(locus_tag, miRNA, gene_name, protein_name) |>
   mutate(
@@ -93,6 +110,27 @@ hit_label_table <- validated_best |>
   )
 hit_labels <- setNames(hit_label_table$label, hit_label_table$locus_tag)
 hit_shapes <- setNames(seq_along(hit_levels) + 14L, hit_levels)
+
+#----- Per-hit highlight layers: the geom + its manual scale, or NULL when there
+# are no validated hits (so `plot + highlight_*()` is a no-op). -----#
+highlight_vlines <- function() {
+  if (!has_validated) return(NULL)
+  list(
+    geom_vline(
+      data = validated_best,
+      aes(xintercept = P_value, color = locus_tag),
+      linetype = "dashed"
+    ),
+    scale_color_manual(name = "Validated hits", values = hit_colors, labels = hit_labels)
+  )
+}
+highlight_points <- function(data, ...) {
+  if (!has_validated) return(NULL)
+  list(
+    geom_point(data = data, mapping = aes(shape = locus_tag), color = "red", ...),
+    scale_shape_manual(name = "Validated hits", values = hit_shapes, labels = hit_labels)
+  )
+}
 
 
 #----- Shared Calibration aesthetics -----#
@@ -115,12 +153,7 @@ plot_pvalue_distribution <- function() {
 
   ggplot(merged, aes(x = P_value)) +
     geom_density(color = "black", fill = "#d1d1d1") +
-    geom_vline(
-      data = validated_best,
-      aes(xintercept = P_value, color = locus_tag),
-      linetype = "dashed"
-    ) +
-    scale_color_manual(name = "Validated hits", values = hit_colors, labels = hit_labels) +
+    highlight_vlines() +
     coord_cartesian(ylim = c(0, ycut)) +
     facet_wrap(~Calibration, labeller = facet_labels) +
     labs(
@@ -136,12 +169,7 @@ plot_position_pvalue <- function() {
       data = apply_pvalue_cut(merged),
       color = "black", size = 0.7
     ) +
-    geom_point(
-      data = validated,
-      aes(shape = locus_tag),
-      color = "red"
-    ) +
-    scale_shape_manual(name = "Validated hits", values = hit_shapes, labels = hit_labels) +
+    highlight_points(validated) +
     geom_smooth(method = "lm", linewidth = 0.5) +
     stat_cor(method = "spearman") +
     labs(
@@ -163,12 +191,7 @@ plot_position_energy <- function() {
       data = apply_pvalue_cut(base_data),
       color = "black", size = 0.7
     ) +
-    geom_point(
-      data = validated |> filter(Calibration == pick),
-      aes(shape = locus_tag),
-      color = "red"
-    ) +
-    scale_shape_manual(name = "Validated hits", values = hit_shapes, labels = hit_labels) +
+    highlight_points(validated |> filter(Calibration == pick)) +
     geom_smooth(method = "lm", linewidth = 0.5) +
     stat_cor(method = "spearman") +
     labs(
@@ -185,8 +208,7 @@ plot_volcano <- function() {
       data = apply_pvalue_cut(merged),
       color = "black", size = 0.6, alpha = 0.4
     ) +
-    geom_point(data = validated, aes(shape = locus_tag), color = "red", size = 2) +
-    scale_shape_manual(name = "Validated hits", values = hit_shapes, labels = hit_labels) +
+    highlight_points(validated, size = 2) +
     facet_wrap(~Calibration, labeller = facet_labels) +
     labs(
       x = "Energy (KCal/Mol)", y = "-log10(p-value)",
@@ -234,8 +256,7 @@ plot_calibration_delta <- function() {
   ggplot(paired, aes(x = uncal_log, y = cal_log)) +
     geom_point(color = "black", size = 0.4, alpha = 0.25) +
     geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "blue") +
-    geom_point(data = validated_paired, aes(shape = locus_tag), color = "red", size = 2.5) +
-    scale_shape_manual(name = "Validated hits", values = hit_shapes, labels = hit_labels) +
+    highlight_points(validated_paired, size = 2.5) +
     labs(
       x = "-log10(p-value), uncalibrated",
       y = "-log10(p-value), calibrated",
