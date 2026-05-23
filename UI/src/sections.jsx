@@ -275,6 +275,7 @@ function RNAHybridSection({ cfg, setCfg }) {
   const set = (patch) => setCfg({ ...cfg, rnahybrid: { ...r, ...patch } });
   const setF = (key, next) => set({ [key]: next });
   const distLocked = window.isDistributionForced(cfg);
+  const nullHint = "null · let RNAhybrid decide";
 
   return (
     <SectionCard
@@ -310,16 +311,16 @@ function RNAHybridSection({ cfg, setCfg }) {
 
         <div className="grid-2">
           <NullableField name="Max internal loop" kind="integer"
-            min={0}
+            min={0} nullHint={nullHint}
             value={r.max_internal_loop} onChange={(v) => setF("max_internal_loop", v)} />
           <NullableField name="Max bulge loop" kind="integer"
-            min={0}
+            min={0} nullHint={nullHint}
             value={r.max_bulge_loop} onChange={(v) => setF("max_bulge_loop", v)} />
           <NullableField name="p-value threshold"
-            min={0}
+            min={0} nullHint={nullHint}
             value={r.pvalue_threshold} onChange={(v) => setF("pvalue_threshold", v)} />
           <NullableField name="Distribution" doc="<mean>,<std>" kind="pair"
-            min={0}
+            min={0} nullHint={nullHint}
             pairLabels={["mean", "std"]}
             value={r.distribution}
             onChange={(v) => setF("distribution", v)}
@@ -343,6 +344,7 @@ function IntaRNASection({ cfg, setCfg }) {
   const accInert     = it.accessibility_variant === "off";
   const seedDisabled = !it.seed.enabled;
   const seedDerived  = window.isIntarnaSeedDerived(cfg);
+  const nullHint     = "null · let IntaRNA decide";
 
   return (
     <SectionCard
@@ -419,29 +421,31 @@ function IntaRNASection({ cfg, setCfg }) {
            <div className="stack sm">
             <div className="grid-2">
               <NullableField name="Length" doc="[2..20]" kind="integer"
-                min={2} max={20}
+                min={2} max={20} nullHint={nullHint}
                 value={it.seed.length} onChange={(v) => setSeed({ length: v })}
                 forcedNull={seedDerived}
                 forcedNullHint="null · derived from shared seed" />
               <NullableField name="Query range" doc="'from-to,...'"
+                nullHint={nullHint}
                 value={it.seed.query_range} onChange={(v) => setSeed({ query_range: v })}
                 forcedNull={seedDerived}
                 forcedNullHint="null · derived from shared seed" />
               <NullableField name="Max unpaired bases" kind="integer"
-                min={0}
+                min={0} nullHint={nullHint}
                 value={it.seed.max_unpaired_bases} onChange={(v) => setSeed({ max_unpaired_bases: v })}
                 forcedNull={seedDerived}
                 forcedNullHint="null · derived from shared seed (set to 0)" />
               <NullableField name="Target range" doc="'from-to,...'"
+                nullHint={nullHint}
                 value={it.seed.target_range} onChange={(v) => setSeed({ target_range: v })} />
               <NullableField name="Max energy"
-                max={999}
+                max={999} nullHint={nullHint}
                 value={it.seed.max_energy} onChange={(v) => setSeed({ max_energy: v })} />
               <NullableField name="Max hybrid energy"
-                max={999}
+                max={999} nullHint={nullHint}
                 value={it.seed.max_hybrid_energy} onChange={(v) => setSeed({ max_hybrid_energy: v })} />
               <NullableField name="Min unpaired probability" doc="[0..1]"
-                min={0} max={1}
+                min={0} max={1} nullHint={nullHint}
                 value={it.seed.min_unpaired_probability} onChange={(v) => setSeed({ min_unpaired_probability: v })} />
             </div>
             <PillGroup label="Constraints">
@@ -466,10 +470,10 @@ function IntaRNASection({ cfg, setCfg }) {
            <div className="stack sm">
             <div className="grid-2">
               <NullableField name="Window" doc="0 = global, null = default" kind="integer"
-                min={0}
+                min={0} nullHint={nullHint}
                 value={it.accessibility.window} onChange={(v) => setAcc({ window: v })} />
               <NullableField name="Max bp span" doc="0 = global, null = default" kind="integer"
-                min={0}
+                min={0} nullHint={nullHint}
                 value={it.accessibility.max_bp_span} onChange={(v) => setAcc({ max_bp_span: v })} />
             </div>
             <PillGroup label="Constraints">
@@ -484,6 +488,7 @@ function IntaRNASection({ cfg, setCfg }) {
           <div className="eyebrow strong" style={{ marginBottom: 10 }}>Output</div>
           <div className="grid-2">
             <NullableField name="Max ΔE" doc="cap vs MFE"
+              min={0} nullHint={nullHint}
               value={it.output.max_delta_energy} onChange={(v) => setOut({ max_delta_energy: v })} />
             <Subcard label="Overlap">
               <select
@@ -497,7 +502,7 @@ function IntaRNASection({ cfg, setCfg }) {
               </select>
             </Subcard>
             <NullableField name="Min unpaired probability" doc="[0..1]"
-              min={0} max={1}
+              min={0} max={1} nullHint={nullHint}
               value={it.output.min_unpaired_probability} onChange={(v) => setOut({ min_unpaired_probability: v })} />
             <PillGroup label="Constraints">
               <PillToggle on={it.output.forbid_lonely_pairs} onChange={(v) => setOut({ forbid_lonely_pairs: v })} label="Forbid lonely pairs" />

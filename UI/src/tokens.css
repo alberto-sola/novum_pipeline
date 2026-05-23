@@ -686,9 +686,9 @@ section[data-anchor] { scroll-margin-top: 20px; }
 /* Done states: spinner morphs into a tick or a cross when the run
    ends. We keep the outer ring for shape continuity, but freeze
    the animation and overlay an SVG glyph. */
-.spinner.done::before,
-.spinner.done::after { animation: none; opacity: 0.35; }
-.spinner.done .seed { animation: none; }
+.spinner.done::before { animation: none; opacity: 0.35; }
+.spinner.done::after { display: none; }
+.spinner.done .seed { display: none; }
 .spinner.success::before { border-color: var(--accent); }
 .spinner.failure::before { border-color: var(--danger); }
 .spinner .glyph-overlay {

@@ -65,6 +65,17 @@ function App() {
       showToast("Preview mode · cannot launch");
       return;
     }
+    // Clear any stale terminal state so the polling effect can't snap the
+    // overlay back to a prior 'succeeded'/'failed' as the new run starts.
+    // If the backend refuses (a previous run is still draining), surface
+    // that instead of plowing into run_pipeline which would also reject.
+    if (api.acknowledge_pipeline) {
+      const ack = await api.acknowledge_pipeline();
+      if (ack && ack.ok === false) {
+        showToast("Previous run still finishing — try again", "danger");
+        return;
+      }
+    }
     setOverlayOpen(true);
     setPipelineStatus({ state: "running", elapsed: 0 });
     const res = await api.run_pipeline(serializeYAML());
@@ -113,13 +124,6 @@ function App() {
     poll();
     const id = setInterval(poll, 1000);
     return () => { cancelled = true; clearInterval(id); };
-  }, [pipelineState]);
-
-  // Failures stay sticky — they need attention. Successes auto-dismiss.
-  useEffect(() => {
-    if (pipelineState !== "succeeded") return;
-    const id = setTimeout(dismissOverlay, 4500);
-    return () => clearTimeout(id);
   }, [pipelineState]);
 
   return (

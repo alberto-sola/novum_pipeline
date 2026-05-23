@@ -398,14 +398,19 @@ function NullableField({
   pairLabels,             // ["start nt", "end nt"] etc.
   forcedNull = false,
   forcedNullHint,
+  nullHint,
   min,
   max
 }) {
   const on = !forcedNull && value.set;
+  // `<input type=number>` doesn't clamp typed input — bounce negatives only,
+  // don't bump partial digits up to `min` mid-stroke.
+  const clamp = (n) =>
+    typeof n === "number" && min != null && min >= 0 && n < 0 ? min : n;
   const toInt = (s) => {
     if (s === "" || s === "-") return s;
     const n = parseInt(s, 10);
-    return Number.isFinite(n) ? n : "";
+    return Number.isFinite(n) ? clamp(n) : "";
   };
   return (
     <div className={`nullable ${on ? "on" : ""} ${forcedNull ? "locked" : ""}`}>
@@ -467,13 +472,17 @@ function NullableField({
             onChange={(e) => {
               const raw = e.target.value;
               if (raw === "") return onChange({ ...value, value: "" });
-              const v = kind === "integer" ? toInt(raw) : Number(raw);
-              onChange({ ...value, value: v });
+              if (kind === "integer") return onChange({ ...value, value: toInt(raw) });
+              const n = Number(raw);
+              // Ignore partial input like "1e" or ".": NaN would otherwise
+              // serialize as the literal `NaN` in YAML.
+              if (!Number.isFinite(n)) return;
+              onChange({ ...value, value: clamp(n) });
             }}
           />
         )
       ) : (
-        <div className="ghost-input">null · let RNAhybrid decide</div>
+        <div className="ghost-input">{nullHint || "null · auto"}</div>
       )}
     </div>
   );

@@ -36,13 +36,16 @@ import signal
 import subprocess
 import time
 from pathlib import Path
-from threading import Lock
+from threading import Lock, Timer
 
 # Qt high-DPI: must be set before pywebview imports PyQt5/QtWebEngine.
 # QtWebEngine on WSLg ignores --force-device-scale-factor, so page scaling is
 # handled in CSS (`html { zoom: ... }` in UI/src/tokens.css) instead.
 os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
 os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
+# WSLg has no GPU passthrough; skip Chromium's GPU init to silence the
+# transient `GpuChannelMsg_CreateCommandBuffer` error before fallback.
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --log-level=3")
 
 import webview
 
@@ -222,20 +225,80 @@ class API:
 
 
 def main() -> None:
-    webview.create_window(
+    # Width has a floor (cards break below ~960); height is left unconstrained
+    # so the user can collapse the window vertically as far as they want.
+    min_w = 960
+    window = webview.create_window(
         "Novum Pipeline",
         str(HTML_PATH),
         js_api=API(),
         width=1280,
         height=820,
-        min_size=(960, 640),
+        min_size=(min_w, 1),
     )
+
+    # `setMinimumSize` is just a hint on Qt/WSLg — the compositor lets the user
+    # drag past it. We bounce sub-floor widths back via pywebview's own
+    # `resized` event, which dispatches `window.resize(...)` through the GUI
+    # thread safely (a Qt event filter can't be installed from this worker).
+    def _set_min_width_hint(*_args) -> None:
+        widget = getattr(window, "native", None)
+        if widget is None:
+            print("[launcher] min-width: window.native is None; constraint not applied")
+            return
+        top = widget.window() if hasattr(widget, "window") and callable(widget.window) else widget
+        if hasattr(top, "setMinimumWidth"):
+            top.setMinimumWidth(min_w)
+            print(f"[launcher] min-width {min_w} hint set on {type(top).__name__}")
+        else:
+            print(f"[launcher] min-width: {type(top).__name__} has no setMinimumWidth")
+
+    # Debounce the snap-back: firing on every resize event during a drag makes
+    # the window drift in the direction the user is pulling, because each
+    # resize() re-anchors to the (just-moved) top-left. Waiting until the drag
+    # settles produces a single clean correction.
+    snap_state = {"timer": None}
+
+    def _snap_back(width, _height, *_args) -> None:
+        # Cancel any pending snap unconditionally — if the drag crossed back
+        # above the floor before the timer fired, the previous closure would
+        # otherwise still shrink the window.
+        if snap_state["timer"] is not None:
+            snap_state["timer"].cancel()
+            snap_state["timer"] = None
+        if width >= min_w:
+            return
+
+        def _fire() -> None:
+            # Read the live size at fire time so we restore the user's
+            # current height rather than the height captured when the timer
+            # was armed (which could be stale if they kept dragging).
+            try:
+                w = window.width
+                h = window.height
+            except Exception as exc:
+                print(f"[launcher] min-width snap-back: live size read failed: {exc}")
+                return
+            if w >= min_w:
+                return
+            try:
+                window.resize(min_w, h)
+            except Exception as exc:
+                print(f"[launcher] min-width snap-back failed: {exc}")
+
+        snap_state["timer"] = Timer(0.12, _fire)
+        snap_state["timer"].daemon = True
+        snap_state["timer"].start()
+
+    window.events.shown += _set_min_width_hint
+    window.events.resized += _snap_back
+
     # Force the Qt backend on Linux: the GTK backend needs system PyGObject
     # (`python3-gi`), which conda envs don't see. PyQt5 + QtWebEngineWidgets
     # ship via pip into the env and Just Work.
-    # debug=True exposes right-click → Inspect Element so the JS console is
-    # reachable when the React app misbehaves.
-    webview.start(gui="qt", debug=True)
+    # Flip ``debug=True`` for the rare React debugging session — it both opens
+    # DevTools at startup and adds the right-click → Inspect Element entry.
+    webview.start(gui="qt", debug=False)
 
 
 if __name__ == "__main__":
