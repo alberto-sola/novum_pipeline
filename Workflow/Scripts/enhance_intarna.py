@@ -15,12 +15,12 @@ MARK_5PRIME  = "   5'"
 SEPARATOR_WIDTH = 39
 
 
-#----- Renders NaN as "NA"; otherwise just str(value). Used to keep missing-column output consistent across records -----#
+#----- Renders NaN as "NA", everything else via str() — keeps missing cells from printing "nan" -----#
 def _fmt(value):
     return "NA" if pd.isna(value) else str(value)
 
 
-#----- Splits IntaRNA's "target&query" combined sequence/dot-paren string on the '&' delimiter; returns (text, "") when '&' is absent -----#
+#----- Splits IntaRNA's "target&query" field on '&'; returns (text, "") when there's no '&' -----#
 def _split_target_query(field):
     text = str(field)
     if "&" not in text:
@@ -29,7 +29,7 @@ def _split_target_query(field):
     return left, right
 
 
-#----- Builds the 3-line ASCII duplex block from subseqDP/hybridDP: target 5'→3', a "|" pairing indicator, and miRNA 3'→5' (display-reversed) -----#
+#----- Builds the 3-line ASCII duplex (target 5'→3', "|" pairing row, miRNA 3'→5' reversed) from subseqDP/hybridDP -----#
 def _render_duplex(subseq_dp, hybrid_dp):
     # target reads 5'→3' left-to-right; miRNA reads 3'→5' (displayed reversed).
     # Base-paired positions are target_dp[i] == '('.
@@ -60,15 +60,14 @@ def enhance_results(annotated_csv_path, output_path):
         raise ValueError("annotated CSV must contain 'subseqDP' and 'hybridDP' columns")
 
     cols = list(annotated.columns)
-    metadata_cols = [c for c in cols if c not in SKIP_AS_METADATA]
-    energy_cols   = [c for c in ENERGY_COLUMNS if c in cols]
-    seed_cols     = [c for c in SEED_COLUMNS   if c in cols]
-    subseq_idx    = cols.index("subseqDP")
-    hybrid_idx    = cols.index("hybridDP")
+    subseq_idx = cols.index("subseqDP")
+    hybrid_idx = cols.index("hybridDP")
 
-    meta_indices   = [cols.index(c) for c in metadata_cols]
-    energy_indices = [cols.index(c) for c in energy_cols]
-    seed_indices   = [cols.index(c) for c in seed_cols]
+    # Pair each emitted column with its positional index once, so the per-row
+    # loop reads itertuples fields by position without re-resolving names.
+    metadata_pairs = [(c, cols.index(c)) for c in cols if c not in SKIP_AS_METADATA]
+    energy_pairs   = [(c, cols.index(c)) for c in ENERGY_COLUMNS if c in cols]
+    seed_pairs     = [(c, cols.index(c)) for c in SEED_COLUMNS   if c in cols]
 
     separator = "-" * SEPARATOR_WIDTH
 
@@ -76,17 +75,17 @@ def enhance_results(annotated_csv_path, output_path):
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8") as fh:
         for row in annotated.itertuples(index=False, name=None):
-            for col, idx in zip(metadata_cols, meta_indices):
+            for col, idx in metadata_pairs:
                 fh.write(f"{col}: {_fmt(row[idx])}\n")
 
-            if energy_cols:
+            if energy_pairs:
                 fh.write("\n")
-                for col, idx in zip(energy_cols, energy_indices):
+                for col, idx in energy_pairs:
                     fh.write(f"{col}: {_fmt(row[idx])}\n")
 
-            if seed_cols:
+            if seed_pairs:
                 fh.write("\n")
-                for col, idx in zip(seed_cols, seed_indices):
+                for col, idx in seed_pairs:
                     fh.write(f"{col}: {_fmt(row[idx])}\n")
 
             fh.write("\n")
@@ -94,6 +93,7 @@ def enhance_results(annotated_csv_path, output_path):
             fh.write(f"\n\n{separator}\n\n")
 
 
+#----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#
 def run_from_snakemake(snakemake):
     enhance_results(
         annotated_csv_path=snakemake.input.annotated,

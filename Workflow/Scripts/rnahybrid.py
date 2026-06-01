@@ -317,6 +317,7 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
+#----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#
 def run_from_snakemake(snakemake):
     # `input.calibration` is the calibration JSON path for the calibrated variant
     # and an empty list for the uncalibrated variant — coerce the empty case to None.

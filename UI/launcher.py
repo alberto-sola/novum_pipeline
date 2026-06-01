@@ -1,33 +1,17 @@
 """PyWebView launcher for the Novum Pipeline config editor.
 
-Loads ``UI/Novum Pipeline.html`` in a native window and bridges it to the
-local filesystem via a small ``js_api`` exposed as ``window.pywebview.api``
-on the JavaScript side.
+Loads ``UI/Novum Pipeline.html`` in a native window and bridges it to the local
+filesystem via an ``API`` instance exposed as ``window.pywebview.api`` on the JS
+side (file pickers, config save, and the pipeline run/poll/cancel lifecycle).
 
-Setup
------
-- Activate the snakemake conda env first so ``snakemake`` is on PATH::
+We force the Qt backend (``webview.start(gui="qt")``) so no system GTK/WebKit2 is
+needed — PyQt5 + PyQtWebEngine pull a self-contained Chromium into the conda env.
+See the README for env setup; run with ``python UI/launcher.py``.
 
-      source ~/miniconda3/bin/activate snakemake-modern
-      pip install pywebview pyqt5 pyqtwebengine
-
-- We force the Qt backend (``webview.start(gui="qt")``) so no system-level
-  GTK / WebKit2 packages are required — PyQt5 + PyQtWebEngine pull a
-  self-contained Chromium into the conda env.
-
-- Then::
-
-      python UI/launcher.py
-
-Notes
------
-- The launcher resolves the repo root as ``Path(__file__).parent.parent``,
-  so it works from any working directory.
-- ``run_pipeline`` records the live ``Popen`` so the UI can poll
-  ``pipeline_status`` and call ``cancel_pipeline``. Snakemake's own
-  ``.snakemake/locks/`` directory still prevents overlapping runs.
-- Snakemake's stdout/stderr are tee'd to ``Data/Results/.pipeline.log``
-  and to the launcher's terminal, so the user can watch the live output.
+``run_pipeline`` records the live ``Popen`` so the UI can poll ``pipeline_status``
+and call ``cancel_pipeline``; Snakemake's ``.snakemake/locks/`` still guards against
+overlapping runs. Subprocess output is written to ``Data/Results/.pipeline.log``,
+which ``pipeline_status`` tails back into the UI on a non-clean exit.
 """
 from __future__ import annotations
 
@@ -58,6 +42,7 @@ HTML_PATH = ROOT / "UI" / "Novum Pipeline.html"
 LOG_PATH = ROOT / "Data" / "Results" / ".pipeline.log"
 
 
+#----- Lists files in `directory` as {name, path} dicts the React file pickers consume -----#
 def _list_dir(directory: Path, prefix: str) -> list[dict]:
     if not directory.is_dir():
         return []
@@ -78,7 +63,7 @@ class API:
         self._returncode: int | None = None
         self._cancelled = False
 
-    # ----- file pickers used by the React form -----#
+    #----- file pickers used by the React form -----#
 
     def list_queries(self) -> list[dict]:
         return _list_dir(QUERIES_DIR, "Data/Raw/RNAs")
@@ -86,7 +71,7 @@ class API:
     def list_targets(self) -> list[dict]:
         return _list_dir(TARGETS_DIR, "Data/Raw/genomes")
 
-    # ----- config save -----#
+    #----- config save -----#
 
     def save_config(self, yaml_text: str) -> dict:
         try:
@@ -96,7 +81,7 @@ class API:
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
 
-    # ----- pipeline lifecycle -----#
+    #----- pipeline lifecycle -----#
 
     def _is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
@@ -224,6 +209,7 @@ class API:
             return {"ok": True}
 
 
+#----- Builds the PyWebView window, wires the min-width snap-back, and starts the Qt loop -----#
 def main() -> None:
     # Width has a floor (cards break below ~960); height is left unconstrained
     # so the user can collapse the window vertically as far as they want.
@@ -237,10 +223,9 @@ def main() -> None:
         min_size=(min_w, 1),
     )
 
-    # `setMinimumSize` is just a hint on Qt/WSLg — the compositor lets the user
-    # drag past it. We bounce sub-floor widths back via pywebview's own
-    # `resized` event, which dispatches `window.resize(...)` through the GUI
-    # thread safely (a Qt event filter can't be installed from this worker).
+    #----- Applies Qt's advisory min-width hint once the native widget exists -----#
+    # The hint alone doesn't hold on WSLg (the compositor lets the user drag past it),
+    # so the `resized` snap-back below does the real enforcement.
     def _set_min_width_hint(*_args) -> None:
         widget = getattr(window, "native", None)
         if widget is None:
@@ -253,17 +238,15 @@ def main() -> None:
         else:
             print(f"[launcher] min-width: {type(top).__name__} has no setMinimumWidth")
 
-    # Debounce the snap-back: firing on every resize event during a drag makes
-    # the window drift in the direction the user is pulling, because each
-    # resize() re-anchors to the (just-moved) top-left. Waiting until the drag
-    # settles produces a single clean correction.
+    #----- Snaps sub-floor widths back to min_w, debounced so the correction fires once -----#
+    # Firing on every resize during a drag makes the window drift in the pull direction,
+    # since each resize() re-anchors to the just-moved top-left; waiting for the drag to
+    # settle gives one clean correction.
     timer: Timer | None = None
 
     def _snap_back(width, _height, *_args) -> None:
         nonlocal timer
-        # Cancel any pending snap unconditionally — if the drag crossed back
-        # above the floor before the timer fired, the previous closure would
-        # otherwise still shrink the window.
+        # Cancel any pending snap: the drag may have crossed back above the floor.
         if timer is not None:
             timer.cancel()
             timer = None
@@ -271,9 +254,8 @@ def main() -> None:
             return
 
         def _fire() -> None:
-            # Read the live size at fire time so we restore the user's
-            # current height rather than the height captured when the timer
-            # was armed (which could be stale if they kept dragging).
+            # Read the live size at fire time so we restore the user's current
+            # height, not the (possibly stale) height when the timer was armed.
             try:
                 w = window.width
                 h = window.height

@@ -143,6 +143,7 @@ def run_intarna(query, target, out_path, variant, cfg, threads, max_suboptimal_h
     subprocess.run(cmd, check=True)
 
 
+#----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#
 def run_from_snakemake(snakemake):
     derived_seed = _derive_seed_from_string(snakemake.params.seed)
     run_intarna(

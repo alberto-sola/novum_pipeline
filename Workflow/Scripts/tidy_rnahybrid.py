@@ -42,6 +42,7 @@ def tidy_rnahybrid(input_path, output_path):
     df.to_csv(output_path, index=False)
 
 
+#----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#
 def run_from_snakemake(snakemake):
     tidy_rnahybrid(
         input_path=snakemake.input.compact,

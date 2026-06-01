@@ -37,8 +37,8 @@ def enhance_results(annotated_csv_path, output_path):
         raise ValueError(f"Missing required alignment column(s): {', '.join(missing_columns)}")
 
     columns = list(annotated.columns)
-    metadata_columns = [c for c in columns if c not in ALIGNMENT_COLUMNS]
-    metadata_idx = [columns.index(c) for c in metadata_columns]
+    # Pair each metadata column with its positional index once, ahead of the loop.
+    metadata_pairs = [(c, columns.index(c)) for c in columns if c not in ALIGNMENT_COLUMNS]
     target_loops_idx, target_paired_idx, mirna_paired_idx, mirna_loops_idx = (
         columns.index(c) for c in ALIGNMENT_COLUMNS
     )
@@ -50,7 +50,7 @@ def enhance_results(annotated_csv_path, output_path):
     # potentially huge annotated frame (one row per RNAhybrid hit).
     with output_path.open("w", encoding="utf-8") as fh:
         for row in annotated.itertuples(index=False, name=None):
-            for col, idx in zip(metadata_columns, metadata_idx):
+            for col, idx in metadata_pairs:
                 fh.write(f"{col}: {format_value(row[idx])}\n")
             fh.write("\n")
             # RNAhybrid's ASCII duplex: target on top reads 5'→3' left-to-right,
@@ -66,6 +66,7 @@ def enhance_results(annotated_csv_path, output_path):
             fh.write(f"\n{separator}\n\n")
 
 
+#----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#
 def run_from_snakemake(snakemake):
     enhance_results(
         annotated_csv_path=snakemake.input.annotated,

@@ -67,6 +67,7 @@ def annotate_results(tidy_csv_path, fasta_path, output_path, insert_after):
     annotated.to_csv(output_path, index=False)
 
 
+#----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#
 def run_from_snakemake(snakemake):
     annotate_results(
         tidy_csv_path=snakemake.input.tidy,

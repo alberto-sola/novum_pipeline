@@ -159,6 +159,7 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
     )
 
 
+#----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#
 def run_from_snakemake(snakemake):
     run_rnacalibrate(
         query=snakemake.input.query,
