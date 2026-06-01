@@ -257,15 +257,16 @@ def main() -> None:
     # the window drift in the direction the user is pulling, because each
     # resize() re-anchors to the (just-moved) top-left. Waiting until the drag
     # settles produces a single clean correction.
-    snap_state = {"timer": None}
+    timer: Timer | None = None
 
     def _snap_back(width, _height, *_args) -> None:
+        nonlocal timer
         # Cancel any pending snap unconditionally — if the drag crossed back
         # above the floor before the timer fired, the previous closure would
         # otherwise still shrink the window.
-        if snap_state["timer"] is not None:
-            snap_state["timer"].cancel()
-            snap_state["timer"] = None
+        if timer is not None:
+            timer.cancel()
+            timer = None
         if width >= min_w:
             return
 
@@ -286,9 +287,9 @@ def main() -> None:
             except Exception as exc:
                 print(f"[launcher] min-width snap-back failed: {exc}")
 
-        snap_state["timer"] = Timer(0.12, _fire)
-        snap_state["timer"].daemon = True
-        snap_state["timer"].start()
+        timer = Timer(0.12, _fire)
+        timer.daemon = True
+        timer.start()
 
     window.events.shown += _set_min_width_hint
     window.events.resized += _snap_back

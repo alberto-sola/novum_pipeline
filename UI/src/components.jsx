@@ -101,6 +101,19 @@ function SegmentedControl({ options, value, onChange, ariaLabel }) {
   );
 }
 
+// Wraps a parameter group that goes inert for the current variant (calibration
+// off, seed enforcement off, accessibility Off, plots disabled). The native
+// <fieldset disabled> removes every nested control from the tab order and the
+// a11y tree for free; `.group-fieldset` strips the browser chrome and carries
+// the dim. `className` is the inner layout class the group used standalone.
+function DisableGroup({ disabled, className = "", children }) {
+  return (
+    <fieldset className="group-fieldset" disabled={disabled}>
+      <div className={className}>{children}</div>
+    </fieldset>
+  );
+}
+
 // Focus management for the run overlay and YAML drawer. On open: remember the
 // previously focused element, move focus inside, trap Tab, and (when onEscape
 // is supplied) close on Escape. On close: restore focus to where it was. Esc
@@ -764,7 +777,7 @@ function YAMLDrawer({ open, onClose, cfg, onSave }) {
 
 // export to window for other scripts
 Object.assign(window, {
-  Toggle, Subcard, PillGroup, PillToggle, SegmentedControl, ErrorBoundary,
+  Toggle, Subcard, PillGroup, PillToggle, SegmentedControl, DisableGroup, ErrorBoundary,
   PathInput, KeyedFileRow,
   FolderIcon, PlusIcon, TrashIcon, CodeIcon, PlayIcon, SaveIcon, SunIcon, MoonIcon, CopyIcon,
   CheckIcon, XIcon, StopIcon,

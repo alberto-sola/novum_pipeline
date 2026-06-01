@@ -69,6 +69,10 @@ window.isDistributionForced = (cfg) => cfg.rnacalibrate.calibration_variant !== 
 // (intarna.py:_add_seed_flags), so the UI hard-locks them whenever the shared seed is set.
 window.isIntarnaSeedDerived = (cfg) => cfg.seed.set;
 
+// Seed sub-fields that derive from the shared seed (see isIntarnaSeedDerived).
+// Module-level so countOptionalParams doesn't re-allocate the Set every render.
+const SEED_DERIVED_KEYS = new Set(["length", "query_range", "max_unpaired_bases"]);
+
 // Count optional (nullable) parameters the user has explicitly set, against the
 // number currently in play. Inert groups (seed enforcement off, accessibility
 // variant Off) and locked/derived fields (distribution under calibration, the
@@ -90,10 +94,9 @@ window.countOptionalParams = (cfg) => {
     locked: (k) => k === "distribution" && window.isDistributionForced(cfg),
   });
 
-  const seedDerived = new Set(["length", "query_range", "max_unpaired_bases"]);
   tally(cfg.intarna.seed, window.INTARNA_SEED_NULLABLE_KEYS, {
     active: cfg.intarna.seed.enabled,
-    locked: (k) => window.isIntarnaSeedDerived(cfg) && seedDerived.has(k),
+    locked: (k) => window.isIntarnaSeedDerived(cfg) && SEED_DERIVED_KEYS.has(k),
   });
   tally(cfg.intarna.accessibility, window.INTARNA_ACC_NULLABLE_KEYS, {
     active: cfg.intarna.accessibility_variant !== "off",

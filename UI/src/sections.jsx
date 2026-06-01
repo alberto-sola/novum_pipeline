@@ -227,8 +227,7 @@ function RNACalibrateSection({ cfg, setCfg }) {
             </div>
           </div>
         )}
-        <fieldset className="group-fieldset" disabled={inert}>
-         <div className="stack lg">
+        <DisableGroup disabled={inert} className="stack lg">
           <div className="grid-2">
             <Subcard label="k (sample size)">
               <input
@@ -262,8 +261,7 @@ function RNACalibrateSection({ cfg, setCfg }) {
               />
             }
           />
-         </div>
-        </fieldset>
+        </DisableGroup>
       </div>
     </SectionCard>
   );
@@ -417,8 +415,7 @@ function IntaRNASection({ cfg, setCfg }) {
             </span>
             <Toggle on={it.seed.enabled} onChange={(v) => setSeed({ enabled: v })} ariaLabel="Enable seed enforcement" />
           </div>
-          <fieldset className="group-fieldset" disabled={seedDisabled}>
-           <div className="stack sm">
+          <DisableGroup disabled={seedDisabled} className="stack sm">
             <div className="grid-2">
               <NullableField name="Length" doc="[2..20]" kind="integer"
                 min={2} max={20} nullHint={nullHint}
@@ -453,8 +450,7 @@ function IntaRNASection({ cfg, setCfg }) {
               <PillToggle on={it.seed.forbid_gu_at_ends} onChange={(v) => setSeed({ forbid_gu_at_ends: v })} label="Forbid G:U at ends" />
               <PillToggle on={it.seed.report_best_only}  onChange={(v) => setSeed({ report_best_only: v })}  label="Report best only" />
             </PillGroup>
-           </div>
-          </fieldset>
+          </DisableGroup>
         </div>
 
         <div>
@@ -466,8 +462,7 @@ function IntaRNASection({ cfg, setCfg }) {
               </span>
             )}
           </div>
-          <fieldset className="group-fieldset" disabled={accInert}>
-           <div className="stack sm">
+          <DisableGroup disabled={accInert} className="stack sm">
             <div className="grid-2">
               <NullableField name="Window" doc="0 = global, null = default" kind="integer"
                 min={0} nullHint={nullHint}
@@ -480,8 +475,7 @@ function IntaRNASection({ cfg, setCfg }) {
               <PillToggle on={it.accessibility.forbid_lonely_pairs} onChange={(v) => setAcc({ forbid_lonely_pairs: v })} label="Forbid lonely pairs" />
               <PillToggle on={it.accessibility.forbid_gu_at_ends}   onChange={(v) => setAcc({ forbid_gu_at_ends: v })}   label="Forbid G:U at ends" />
             </PillGroup>
-           </div>
-          </fieldset>
+          </DisableGroup>
         </div>
 
         <div>
@@ -556,8 +550,7 @@ function PlotsSection({ cfg, setCfg }) {
         </div>
       }
     >
-      <fieldset className="group-fieldset" disabled={!enabled}>
-       <div className="stack lg">
+      <DisableGroup disabled={!enabled} className="stack lg">
         <Subcard label="Plot types" hint={`${pl.types.length}/${window.PLOT_TYPES.length} on`}>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
             {window.PLOT_TYPES.map((p) => {
@@ -726,8 +719,7 @@ function PlotsSection({ cfg, setCfg }) {
             )}
           </div>
         </div>
-       </div>
-      </fieldset>
+      </DisableGroup>
     </SectionCard>
   );
 }
