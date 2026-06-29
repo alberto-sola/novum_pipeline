@@ -1,5 +1,5 @@
 """
-download_cds.py — resolve taxon names to NCBI RefSeq reference assemblies and
+fetch_genomes.py — resolve taxon names to NCBI RefSeq reference assemblies and
 download a chosen file (CDS FASTA by default) from each genome data package.
 
 Workflow:
@@ -14,7 +14,7 @@ Environment:
   NCBI_API_EMAIL   Optional. Appended to the User-Agent header (NCBI etiquette).
 
 Usage:
-  python download_cds.py [--names bacterial_names.txt] [--out-dir cds]
+  python fetch_genomes.py [--names bacterial_names.txt] [--out-dir cds]
                          [--report download_report.tsv]
                          [--include CDS_FASTA [CDS_FASTA ...]]
                          [--zip-filename cds_from_genomic.fna]
@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import tempfile
 import time
 import zipfile
@@ -149,7 +150,7 @@ def extract_flat(zip_paths: list[Path], acc_to_name: dict[str, str], out_dir: Pa
                         safe_name = name.replace(" ", "_")
                         dest = out_dir / f"{safe_name}__{acc}{out_suffix}"
                         with zf.open(member) as src, dest.open("wb") as dst:
-                            dst.write(src.read())
+                            shutil.copyfileobj(src, dst)
                         result[acc] = str(dest)
                         print(f"    {dest.name}")
         finally:

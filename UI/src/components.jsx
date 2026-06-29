@@ -735,11 +735,14 @@ function ActionsBar({
 
 // Slide-up YAML drawer with syntax highlighting and copy/save actions.
 function YAMLDrawer({ open, onClose, cfg, onSave }) {
-  const lines = useMemo(() => window.buildYAML(cfg), [cfg]);
-  const html = useMemo(() => window.renderYAML(lines), [lines]);
+  // The drawer stays mounted (CSS-toggled), so gate the serialize/highlight work
+  // on `open` — otherwise every keystroke that mutates `cfg` rebuilds the YAML
+  // for a hidden panel.
+  const lines = useMemo(() => (open ? window.buildYAML(cfg) : null), [cfg, open]);
+  const html = useMemo(() => (lines ? window.renderYAML(lines) : ""), [lines]);
   // `plain` is only needed when the user clicks Copy — compute lazily so the
   // drawer doesn't pay for it on every keystroke that mutates `cfg`.
-  const copy = () => navigator.clipboard?.writeText(window.renderYAMLPlain(lines));
+  const copy = () => { if (lines) navigator.clipboard?.writeText(window.renderYAMLPlain(lines)); };
 
   const drawerRef = useRef(null);
   useDialog(drawerRef, open, { onEscape: onClose });

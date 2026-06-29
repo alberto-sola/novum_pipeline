@@ -1,44 +1,13 @@
 import json
 import math
-import shutil
 import subprocess
-from pathlib import Path
 
-
-#----- Resolves a required executable from PATH, trying each candidate name in order -----#
-def which_required(*candidates, label=None):
-    for name in candidates:
-        path = shutil.which(name)
-        if path is not None:
-            return path
-    raise RuntimeError(f"Required executable not found in PATH: {label or candidates[0]}")
-
-
-#----- Yields the nucleotide length of every FASTA record in the file -----#
-def iter_fasta_lengths(path):
-    current_length = 0
-
-    with open(path) as handle:
-        for raw_line in handle:
-            line = raw_line.strip()
-            if not line:
-                continue
-
-            if line.startswith(">"):
-                if current_length:
-                    yield current_length
-                current_length = 0
-                continue
-
-            current_length += len(line)
-
-    if current_length:
-        yield current_length
+from _common import which_required, iter_fasta_records, ensure_parent
 
 
 #----- Mean and population stdev of the target FASTA's record lengths (the input to RNAcalibrate's `-l`) -----#
 def compute_target_length_stats(target_file):
-    lengths = list(iter_fasta_lengths(target_file))
+    lengths = [len(seq) for _header, seq in iter_fasta_records(target_file) if seq]
     if not lengths:
         raise RuntimeError(f"No FASTA records found in target file: {target_file}")
 
@@ -147,9 +116,7 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
     completed = subprocess.run(command, check=True, capture_output=True, text=True)
     parsed_output = parse_rnacalibrate_output(completed.stdout)
 
-    output_path = Path(output_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(json.dumps(
+    ensure_parent(output_file).write_text(json.dumps(
         {
             "command": command,
             "target_length_stats": stats,

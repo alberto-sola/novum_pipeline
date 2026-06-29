@@ -1,5 +1,6 @@
-from pathlib import Path
 import pandas as pd
+
+from _common import iter_fasta_records, parse_header_id, ensure_parent
 
 
 OUTPUT_COLUMNS = [
@@ -13,25 +14,9 @@ OUTPUT_COLUMNS = [
 REQUIRED_COLS = {"id1", "id2", "start1", "end1", "start2", "end2", "E"}
 
 
-#----- Streams the target FASTA once and returns a {Gene → cumulative sequence length} map for downstream position normalization -----#
+#----- Streams the target FASTA once and returns a {Gene → sequence length} map for downstream position normalization -----#
 def _parse_gene_lengths(fasta_path):
-    lengths = {}
-    current_id = None
-    current_len = 0
-    with open(fasta_path) as fh:
-        for line in fh:
-            line = line.rstrip()
-            if line.startswith(">"):
-                if current_id is not None:
-                    lengths[current_id] = current_len
-                header = line[1:].strip()
-                current_id = header.split(" [", 1)[0]
-                current_len = 0
-            else:
-                current_len += len(line)
-    if current_id is not None:
-        lengths[current_id] = current_len
-    return lengths
+    return {parse_header_id(header): len(seq) for header, seq in iter_fasta_records(fasta_path)}
 
 
 #----- Renames IntaRNA's columns to the pipeline's canonical names, joins gene lengths, computes a 0–1 Position fraction, and emits an energy-sorted CSV -----#
@@ -68,9 +53,7 @@ def tidy_intarna(input_path, target_fasta_path, output_path):
     present_cols = [c for c in OUTPUT_COLUMNS if c in df.columns]
     df = df.sort_values("E", kind="stable")[present_cols]
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(output_path, index=False)
+    df.to_csv(ensure_parent(output_path), index=False)
 
 
 #----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#

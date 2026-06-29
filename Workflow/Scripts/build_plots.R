@@ -142,6 +142,11 @@ apply_pvalue_cut <- function(df) {
   if (has_pvalue_cut) df |> filter(P_value <= pvalue_cutoff) else df
 }
 
+#----- Title helper: use the p-value-cut variant of a plot title when a cutoff is active -----#
+cut_title <- function(plain, cut_fmt) {
+  if (has_pvalue_cut) sprintf(cut_fmt, pvalue_cutoff) else plain
+}
+
 
 #----- Plot builders -----#
 plot_pvalue_distribution <- function() {
@@ -174,7 +179,7 @@ plot_position_pvalue <- function() {
     stat_cor(method = "spearman") +
     labs(
       x = "Relative Position", y = "-log10(p-value)",
-      title = if (has_pvalue_cut) sprintf("Position vs p-values (≤ %g)", pvalue_cutoff) else "Position vs p-values"
+      title = cut_title("Position vs p-values", "Position vs p-values (≤ %g)")
     ) +
     theme_bw(base_size = basesize) +
     facet_wrap(~Calibration, labeller = facet_labels)
@@ -196,7 +201,7 @@ plot_position_energy <- function() {
     stat_cor(method = "spearman") +
     labs(
       x = "Relative Position", y = "Energy (KCal/Mol)",
-      title = if (has_pvalue_cut) sprintf("Position vs Energy (p-value ≤ %g)", pvalue_cutoff) else "Position vs Energy"
+      title = cut_title("Position vs Energy", "Position vs Energy (p-value ≤ %g)")
     ) +
     facet_wrap(~facet_label) +
     theme_bw(base_size = basesize)
@@ -212,7 +217,7 @@ plot_volcano <- function() {
     facet_wrap(~Calibration, labeller = facet_labels) +
     labs(
       x = "Energy (KCal/Mol)", y = "-log10(p-value)",
-      title = if (has_pvalue_cut) sprintf("Volcano (p ≤ %g)", pvalue_cutoff) else "Volcano: Energy vs p-value"
+      title = cut_title("Volcano: Energy vs p-value", "Volcano (p ≤ %g)")
     ) +
     theme_bw(base_size = basesize)
 }

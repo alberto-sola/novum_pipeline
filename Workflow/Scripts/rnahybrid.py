@@ -5,14 +5,7 @@ import subprocess
 import sys
 import tempfile
 
-
-#----- Resolves a required executable from PATH, trying each candidate name in order -----#
-def which_required(*candidates, label=None):
-    for name in candidates:
-        path = shutil.which(name)
-        if path is not None:
-            return path
-    raise RuntimeError(f"Required executable not found in PATH: {label or candidates[0]}")
+from _common import which_required, ensure_parent
 
 
 #----- Splits the target FASTA into chunk files of bounded line count, never breaking a record across chunks -----#
@@ -115,22 +108,21 @@ def ensure_dependencies():
 
 #----- Translates the optional RNAhybrid params into CLI flags, omitting any that are None -----#
 def build_optional_args(max_suboptimal_hits=None, max_internal_loop=None, max_bulge_loop=None, max_total_energy=None, pvalue_threshold=None, seed=None, distribution=None):
-    optional_args = []
+    # (flag, value) in emission order; each pair is appended only when set.
+    flag_values = [
+        ("-b", max_suboptimal_hits),
+        ("-u", max_internal_loop),
+        ("-v", max_bulge_loop),
+        ("-e", max_total_energy),
+        ("-p", pvalue_threshold),
+        ("-f", seed),
+        ("-d", distribution),
+    ]
 
-    if max_suboptimal_hits is not None:
-        optional_args.extend(["-b", str(max_suboptimal_hits)])
-    if max_internal_loop is not None:
-        optional_args.extend(["-u", str(max_internal_loop)])
-    if max_bulge_loop is not None:
-        optional_args.extend(["-v", str(max_bulge_loop)])
-    if max_total_energy is not None:
-        optional_args.extend(["-e", str(max_total_energy)])
-    if pvalue_threshold is not None:
-        optional_args.extend(["-p", str(pvalue_threshold)])
-    if seed is not None:
-        optional_args.extend(["-f", str(seed)])
-    if distribution is not None:
-        optional_args.extend(["-d", str(distribution)])
+    optional_args = []
+    for flag, value in flag_values:
+        if value is not None:
+            optional_args.extend([flag, str(value)])
 
     return optional_args
 
@@ -181,8 +173,7 @@ def build_job_spec_tsv(query_paths_by_name, dist_map, chunk_paths, tsv_path):
                 f"{Path(query_path).as_posix()}\t{distribution}\t{Path(chunk_path).as_posix()}"
             )
 
-    tsv_path = Path(tsv_path)
-    tsv_path.parent.mkdir(parents=True, exist_ok=True)
+    tsv_path = ensure_parent(tsv_path)
     tsv_path.write_text("\n".join(lines) + "\n")
     return tsv_path
 
@@ -254,8 +245,7 @@ def merge_output_files(output_dir, output_pattern, merged_output_path):
 
 #----- Top-level driver: chunk the target, dispatch RNAhybrid via GNU Parallel, merge per-chunk outputs back together -----#
 def run_rnahybrid(query, target, species, output_file, max_target_length, threads=1, max_suboptimal_hits=None, max_internal_loop=None, max_bulge_loop=None, max_total_energy=None, pvalue_threshold=None, seed=None, distribution=None, distribution_file=None):
-    output_path = Path(output_file)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path = ensure_parent(output_file)
 
     executables = ensure_dependencies()
 

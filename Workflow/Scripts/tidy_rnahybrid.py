@@ -1,5 +1,6 @@
-from pathlib import Path
 import pandas as pd
+
+from _common import ensure_parent
 
 
 COLUMNS = [
@@ -37,9 +38,7 @@ def tidy_rnahybrid(input_path, output_path):
 
     df = df.sort_values("Energy", kind="stable")[OUTPUT_COLUMNS]
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    df.to_csv(output_path, index=False)
+    df.to_csv(ensure_parent(output_path), index=False)
 
 
 #----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#

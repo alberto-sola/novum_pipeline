@@ -1,9 +1,6 @@
 import subprocess
-from pathlib import Path
 
-
-# Sentinel matching the {variant} wildcard literal in the Snakefile.
-WO_ACCESSIBILITY = "wo_accessibility"
+from _common import which_required, ensure_parent
 
 
 #----- Parses the shared top-level seed "x,y" into IntaRNA's seedBP+seedQRange shape; raises if the width is outside [2,20] -----#
@@ -99,22 +96,17 @@ def _add_output_flags(cmd, out, max_suboptimal_hits=None, max_total_energy=None)
         cmd.append(f"--outCsvCols={out['columns']}")
 
 
-#----- Assembles the IntaRNA command line for one (query, target, variant); --acc=N vs --acc=C is the only variant-specific flag -----#
-def build_command(cfg, variant, query, target, out_path, threads, max_suboptimal_hits, max_total_energy, derived_seed):
+#----- Assembles the IntaRNA command line for one (query, target); `acc` is the resolved --acc mode (N=none, C=constrained) from the Snakefile -----#
+def build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hits, max_total_energy, derived_seed):
     cmd = [
-        "IntaRNA",
+        which_required("IntaRNA"),
         "-q", query,
         "-t", target,
         "--outMode=C",
         "--out", out_path,
         f"--threads={threads}",
+        f"--acc={acc}",
     ]
-
-    # Accessibility
-    if variant == WO_ACCESSIBILITY:
-        cmd.append("--acc=N")
-    else:
-        cmd.append("--acc=C")
 
     # Interaction model (applies to both variants)
     cmd += [
@@ -137,9 +129,9 @@ def build_command(cfg, variant, query, target, out_path, threads, max_suboptimal
 
 
 #----- Top-level driver: builds the command and runs IntaRNA once per (sample × accessibility variant) -----#
-def run_intarna(query, target, out_path, variant, cfg, threads, max_suboptimal_hits, max_total_energy, derived_seed):
-    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-    cmd = build_command(cfg, variant, query, target, out_path, threads, max_suboptimal_hits, max_total_energy, derived_seed)
+def run_intarna(query, target, out_path, acc, cfg, threads, max_suboptimal_hits, max_total_energy, derived_seed):
+    ensure_parent(out_path)
+    cmd = build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hits, max_total_energy, derived_seed)
     subprocess.run(cmd, check=True)
 
 
@@ -150,7 +142,7 @@ def run_from_snakemake(snakemake):
         query=snakemake.input.query,
         target=snakemake.input.target,
         out_path=snakemake.output.csv,
-        variant=snakemake.wildcards.variant,
+        acc=snakemake.params.acc,
         cfg=dict(snakemake.params.intarna),
         threads=snakemake.threads,
         max_suboptimal_hits=snakemake.params.max_suboptimal_hits,

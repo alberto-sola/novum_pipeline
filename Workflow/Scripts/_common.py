@@ -1,0 +1,54 @@
+"""Dependency-light helpers shared across the Workflow/Scripts arms.
+
+Kept deliberately free of third-party imports (no pandas): the RNAhybrid and
+IntaRNA conda envs don't ship pandas, yet they still need `which_required` and
+`ensure_parent`, so importing this module must never pull a heavy dependency.
+Snakemake puts each script's own directory on sys.path, so the sibling
+`from _common import ...` resolves when scripts run under the `script:` directive.
+"""
+
+import shutil
+from pathlib import Path
+
+
+#----- Resolves a required executable from PATH, trying each candidate name in order -----#
+def which_required(*candidates, label=None):
+    for name in candidates:
+        path = shutil.which(name)
+        if path is not None:
+            return path
+    raise RuntimeError(f"Required executable not found in PATH: {label or candidates[0]}")
+
+
+#----- Yields (header, sequence) per FASTA record: header is the text after '>', sequence is the residues with whitespace stripped -----#
+def iter_fasta_records(path):
+    header = None
+    seq_parts = []
+
+    with open(path) as handle:
+        for raw_line in handle:
+            line = raw_line.strip()
+            if not line:
+                continue
+            if line.startswith(">"):
+                if header is not None:
+                    yield header, "".join(seq_parts)
+                header = line[1:].strip()
+                seq_parts = []
+            else:
+                seq_parts.append(line)
+
+    if header is not None:
+        yield header, "".join(seq_parts)
+
+
+#----- The FASTA join key: the identifier before the first " [" attribute block -----#
+def parse_header_id(header):
+    return header.split(" [", 1)[0]
+
+
+#----- Ensures the parent directory of `path` exists; returns `path` as a Path for chaining -----#
+def ensure_parent(path):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path

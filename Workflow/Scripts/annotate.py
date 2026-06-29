@@ -1,7 +1,8 @@
-from pathlib import Path
 import re
 import sys
 import pandas as pd
+
+from _common import iter_fasta_records, parse_header_id, ensure_parent
 
 
 # Extracts key/value pairs from FASTA headers like:
@@ -13,23 +14,17 @@ FIELD_RE = re.compile(r"\[([^=\]]+)=([^\]]*)\]")
 def parse_fasta_annotations(fasta_path):
     records = []
 
-    with open(fasta_path) as handle:
-        for line in handle:
-            if not line.startswith(">"):
-                continue
+    for header, _sequence in iter_fasta_records(fasta_path):
+        gene_id = parse_header_id(header)
+        fields = dict(FIELD_RE.findall(header))
 
-            header = line[1:].strip()
-            # The leading FASTA identifier is the join key.
-            gene_id = header.split(" [", 1)[0]
-            fields = dict(FIELD_RE.findall(header))
-
-            records.append({
-                "Gene": gene_id,
-                "gene_name": fields.get("gene"),
-                "locus_tag": fields.get("locus_tag"),
-                "protein_name": fields.get("protein") or fields.get("product"),
-                "protein_id": fields.get("protein_id"),
-            })
+        records.append({
+            "Gene": gene_id,
+            "gene_name": fields.get("gene"),
+            "locus_tag": fields.get("locus_tag"),
+            "protein_name": fields.get("protein") or fields.get("product"),
+            "protein_id": fields.get("protein_id"),
+        })
 
     annotations = pd.DataFrame(records)
     duplicates = annotations.duplicated(subset=["Gene"]).sum()
@@ -62,9 +57,7 @@ def annotate_results(tidy_csv_path, fasta_path, output_path, insert_after):
 
     annotated = annotated[ordered_columns]
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    annotated.to_csv(output_path, index=False)
+    annotated.to_csv(ensure_parent(output_path), index=False)
 
 
 #----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#

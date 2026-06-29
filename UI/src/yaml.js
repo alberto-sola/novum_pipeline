@@ -12,27 +12,46 @@ function pushMappingSection(lines, key, items, fallbackKey) {
   });
 }
 
-// One nullable form-state field → one IR line. Generalised over indent so it works
-// for top-level shared params (indent=2), rnahybrid params (indent=2), and the
-// IntaRNA seed/accessibility/output sub-blocks (indent=4). Pair-shaped fields
-// (with `a`/`b`) are detected and emitted as "a,b" strings; scalar fields use
-// typeof to pick str vs num highlighting.
-function nullableLineAt(indent, key, field, forced) {
+// Resolve a nullable form-state field to its serialized {v, kind}. Pair-shaped
+// fields (with `a`/`b`) emit "a,b" strings; scalar fields use typeof to pick str
+// vs num; unset/forced/empty fields collapse to a null value.
+function resolveNullable(field, forced) {
   if (forced || !field.set) {
-    return { t: "nested", indent, k: key, v: null, kind: "null" };
+    return { v: null, kind: "null" };
   }
   if ("a" in field && "b" in field) {
     const { a, b } = field;
     if (a === "" || b === "" || a == null || b == null) {
-      return { t: "nested", indent, k: key, v: null, kind: "null" };
+      return { v: null, kind: "null" };
     }
-    return { t: "nested", indent, k: key, v: `${a},${b}`, kind: "str" };
+    return { v: `${a},${b}`, kind: "str" };
   }
   if (field.value === "" || field.value === null || field.value === undefined) {
-    return { t: "nested", indent, k: key, v: null, kind: "null" };
+    return { v: null, kind: "null" };
   }
   const kind = typeof field.value === "string" ? "str" : "num";
-  return { t: "nested", indent, k: key, v: field.value, kind };
+  return { v: field.value, kind };
+}
+
+// One nullable field → one IR line. Generalised over indent so it works for
+// top-level shared params, rnahybrid params, and the IntaRNA sub-blocks.
+function nullableLineAt(indent, key, field, forced) {
+  const { v, kind } = resolveNullable(field, forced);
+  return { t: "nested", indent, k: key, v, kind };
+}
+
+// One plots pair-list (value + optional miRNA) → a `key:` header then either an
+// empty list or one `value` / `value,mirna` item per non-blank entry.
+function pushPairList(lines, key, items) {
+  lines.push({ t: "nested", indent: 2, k: key, v: "", kind: "bare" });
+  const valid = items
+    .map((it) => ({ v: (it.value || "").trim(), m: (it.mirna || "").trim() }))
+    .filter((it) => it.v);
+  if (valid.length === 0) {
+    lines.push({ t: "empty_list", indent: 4 });
+  } else {
+    valid.forEach((it) => lines.push({ t: "listitem", indent: 4, v: it.m ? `${it.v},${it.m}` : it.v, kind: "str" }));
+  }
 }
 
 window.buildYAML = function buildYAML(cfg) {
@@ -47,9 +66,8 @@ window.buildYAML = function buildYAML(cfg) {
   // shared-by-both-arms block
   lines.push({ t: "kv", k: "threads", v: cfg.threads, kind: "num" });
   window.SHARED_NULLABLE_KEYS.forEach((key) => {
-    const line = nullableLineAt(0, key, cfg[key], false);
-    // nullableLineAt emits `t: "nested"` (indented); for top-level we want `t: "kv"` shape.
-    lines.push({ t: "kv", k: key, v: line.v, kind: line.kind });
+    const { v, kind } = resolveNullable(cfg[key], false);
+    lines.push({ t: "kv", k: key, v, kind });
   });
   lines.push({ t: "blank" });
 
@@ -71,6 +89,9 @@ window.buildYAML = function buildYAML(cfg) {
   // intarna block
   const it = cfg.intarna;
   const seedDerived = window.isIntarnaSeedDerived(cfg);
+  // The serializer defers to SEED_DERIVED_KEYS (the single source of truth) for
+  // which seed sub-fields hard-lock to null when the shared seed is set.
+  const seedForced = (key) => seedDerived && window.SEED_DERIVED_KEYS.has(key);
   lines.push({ t: "k", k: "intarna" });
   lines.push({ t: "nested", indent: 2, k: "accessibility_variant",  v: it.accessibility_variant,  kind: "str" });
   lines.push({ t: "nested", indent: 2, k: "prediction_mode",        v: it.prediction_mode,        kind: "str" });
@@ -83,15 +104,15 @@ window.buildYAML = function buildYAML(cfg) {
   // hard-lock to null whenever the shared seed is set; matches what the form shows.
   lines.push({ t: "nested", indent: 2, k: "seed", v: "", kind: "bare" });
   lines.push({ t: "nested", indent: 4, k: "enabled", v: it.seed.enabled, kind: "bool" });
-  lines.push(nullableLineAt(4, "length",                   it.seed.length,                   seedDerived));
-  lines.push(nullableLineAt(4, "max_energy",               it.seed.max_energy,               false));
-  lines.push(nullableLineAt(4, "max_hybrid_energy",        it.seed.max_hybrid_energy,        false));
-  lines.push(nullableLineAt(4, "min_unpaired_probability", it.seed.min_unpaired_probability, false));
+  lines.push(nullableLineAt(4, "length",                   it.seed.length,                   seedForced("length")));
+  lines.push(nullableLineAt(4, "max_energy",               it.seed.max_energy,               seedForced("max_energy")));
+  lines.push(nullableLineAt(4, "max_hybrid_energy",        it.seed.max_hybrid_energy,        seedForced("max_hybrid_energy")));
+  lines.push(nullableLineAt(4, "min_unpaired_probability", it.seed.min_unpaired_probability, seedForced("min_unpaired_probability")));
   lines.push({ t: "nested", indent: 4, k: "forbid_gu",         v: it.seed.forbid_gu,         kind: "bool" });
   lines.push({ t: "nested", indent: 4, k: "forbid_gu_at_ends", v: it.seed.forbid_gu_at_ends, kind: "bool" });
-  lines.push(nullableLineAt(4, "query_range",        it.seed.query_range,        seedDerived));
-  lines.push(nullableLineAt(4, "target_range",       it.seed.target_range,       false));
-  lines.push(nullableLineAt(4, "max_unpaired_bases", it.seed.max_unpaired_bases, seedDerived));
+  lines.push(nullableLineAt(4, "query_range",        it.seed.query_range,        seedForced("query_range")));
+  lines.push(nullableLineAt(4, "target_range",       it.seed.target_range,       seedForced("target_range")));
+  lines.push(nullableLineAt(4, "max_unpaired_bases", it.seed.max_unpaired_bases, seedForced("max_unpaired_bases")));
   lines.push({ t: "nested", indent: 4, k: "report_best_only",  v: it.seed.report_best_only,  kind: "bool" });
   lines.push({ t: "blank" });
 
@@ -134,35 +155,9 @@ window.buildYAML = function buildYAML(cfg) {
     lines.push({ t: "nested", indent: 2, k: "pvalue_threshold", v: pl.pvalue_threshold, kind: "num" });
     lines.push({ t: "nested", indent: 2, k: "per_mirna_top_n",  v: pl.per_mirna_top_n, kind: "num" });
 
-    lines.push({ t: "nested", indent: 2, k: "locus", v: "", kind: "bare" });
-    const validLoci = pl.locus
-      .map((l) => ({ v: (l.value || "").trim(), m: (l.mirna || "").trim() }))
-      .filter((l) => l.v);
-    if (validLoci.length === 0) {
-      lines.push({ t: "empty_list", indent: 4 });
-    } else {
-      validLoci.forEach((l) => lines.push({ t: "listitem", indent: 4, v: l.m ? `${l.v},${l.m}` : l.v, kind: "str" }));
-    }
-
-    lines.push({ t: "nested", indent: 2, k: "gene", v: "", kind: "bare" });
-    const validGenes = pl.gene
-      .map((g) => ({ v: (g.value || "").trim(), m: (g.mirna || "").trim() }))
-      .filter((g) => g.v);
-    if (validGenes.length === 0) {
-      lines.push({ t: "empty_list", indent: 4 });
-    } else {
-      validGenes.forEach((g) => lines.push({ t: "listitem", indent: 4, v: g.m ? `${g.v},${g.m}` : g.v, kind: "str" }));
-    }
-
-    lines.push({ t: "nested", indent: 2, k: "protein", v: "", kind: "bare" });
-    const validProteins = pl.protein
-      .map((p) => ({ v: (p.value || "").trim(), m: (p.mirna || "").trim() }))
-      .filter((p) => p.v);
-    if (validProteins.length === 0) {
-      lines.push({ t: "empty_list", indent: 4 });
-    } else {
-      validProteins.forEach((p) => lines.push({ t: "listitem", indent: 4, v: p.m ? `${p.v},${p.m}` : p.v, kind: "str" }));
-    }
+    pushPairList(lines, "locus", pl.locus);
+    pushPairList(lines, "gene", pl.gene);
+    pushPairList(lines, "protein", pl.protein);
   }
   lines.push({ t: "blank" });
 
@@ -185,7 +180,6 @@ window.renderYAML = function renderYAML(lines) {
   };
   return lines.map((L) => {
     if (L.t === "blank") return "";
-    if (L.t === "raw") return `<span>${esc(L.s)}</span>`;
     if (L.t === "k") return `<span class="y-key">${esc(L.k)}</span>:`;
     if (L.t === "kv") return `<span class="y-key">${esc(L.k)}</span>: ${val(L.kind, L.v)}`;
     if (L.t === "empty_map")  return `${indent(L.indent)}{}`;
@@ -210,7 +204,6 @@ window.renderYAMLPlain = function renderYAMLPlain(lines) {
   };
   return lines.map((L) => {
     if (L.t === "blank") return "";
-    if (L.t === "raw") return L.s;
     if (L.t === "k") return `${L.k}:`;
     if (L.t === "kv") return `${L.k}: ${v(L.kind, L.v)}`;
     if (L.t === "empty_map")  return `${indent(L.indent)}{}`;

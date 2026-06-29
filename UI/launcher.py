@@ -56,8 +56,12 @@ def _list_dir(directory: Path, prefix: str) -> list[dict]:
 class API:
     def __init__(self) -> None:
         self._lock = Lock()
-        self._proc: subprocess.Popen | None = None
         self._log_fh = None
+        self._reset_run_state()
+
+    #----- Resets the run/latch fields to the idle state (shared by init and acknowledge) -----#
+    def _reset_run_state(self) -> None:
+        self._proc: subprocess.Popen | None = None
         self._started_at: float | None = None
         self._finished_at: float | None = None
         self._returncode: int | None = None
@@ -201,11 +205,7 @@ class API:
         with self._lock:
             if self._is_running():
                 return {"ok": False, "error": "Pipeline still running"}
-            self._proc = None
-            self._started_at = None
-            self._finished_at = None
-            self._returncode = None
-            self._cancelled = False
+            self._reset_run_state()
             return {"ok": True}
 
 

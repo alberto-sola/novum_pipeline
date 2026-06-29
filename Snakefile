@@ -42,53 +42,52 @@ plots_type    = plots_config.get("type")
 plots_enabled = plots_type is not None
 plots_slug    = (plots_type or "none").replace(",", "-").replace(" ", "")
 
-#----- Resolve which variants to produce -----#
-W_CALIBRATION  = "w_calibration"
-WO_CALIBRATION = "wo_calibration"
+#----- Variant axes: each arm maps a config "mode" to the output-tree literals it expands into -----#
+W_CALIBRATION    = "w_calibration"
+WO_CALIBRATION   = "wo_calibration"
+W_ACCESSIBILITY  = "w_accessibility"
+WO_ACCESSIBILITY = "wo_accessibility"
 VARIANT_LABELS = {W_CALIBRATION: "calibrated", WO_CALIBRATION: "uncalibrated"}
 
-_MODE_TO_VARIANTS = {
+_CALIBRATION_VARIANTS = {
     "calibrated":   [W_CALIBRATION],
     "uncalibrated": [WO_CALIBRATION],
     "both":         [W_CALIBRATION, WO_CALIBRATION],
 }
-
-def _resolve_mode(cfg):
-    mode = cfg.get("calibration_variant")
-    if mode is not None:
-        if mode not in _MODE_TO_VARIANTS:
-            raise ValueError(
-                f"rnacalibrate.calibration_variant must be one of {list(_MODE_TO_VARIANTS)}, got {mode!r}"
-            )
-        return mode
-    # Deprecated fallback: `enabled: true|false` maps to a single-variant run.
-    enabled = cfg.get("enabled", False)
-    return "calibrated" if enabled else "uncalibrated"
-
-variants = _MODE_TO_VARIANTS[_resolve_mode(rnacalibrate_config)]
-
-#----- Resolve which IntaRNA accessibility variants to produce -----#
-W_ACCESSIBILITY  = "w_accessibility"
-WO_ACCESSIBILITY = "wo_accessibility"
-
-_ACC_MODE_TO_VARIANTS = {
+_ACCESSIBILITY_VARIANTS = {
     "on":   [W_ACCESSIBILITY],
     "off":  [WO_ACCESSIBILITY],
     "both": [W_ACCESSIBILITY, WO_ACCESSIBILITY],
 }
 
-def _resolve_acc_mode(cfg):
-    mode = cfg.get("accessibility_variant", "both")
-    # YAML 1.1 parses bare `on`/`off` as Python True/False — coerce back to strings.
-    if isinstance(mode, bool):
-        mode = "on" if mode else "off"
-    if mode not in _ACC_MODE_TO_VARIANTS:
+#----- Shared validate+lookup: turn a resolved mode into its variant list, or fail listing the allowed set -----#
+def variants_for_mode(mode, mode_to_variants, label):
+    if mode not in mode_to_variants:
         raise ValueError(
-            f"intarna.accessibility_variant must be one of {list(_ACC_MODE_TO_VARIANTS)}, got {mode!r}"
+            f"{label} must be one of {list(mode_to_variants)}, got {mode!r}"
         )
+    return mode_to_variants[mode]
+
+#----- Calibration mode: `calibration_variant`, with the deprecated `enabled: true|false` single-variant fallback -----#
+def _calibration_mode(cfg):
+    mode = cfg.get("calibration_variant")
+    if mode is None:
+        mode = "calibrated" if cfg.get("enabled", False) else "uncalibrated"
     return mode
 
-intarna_variants = _ACC_MODE_TO_VARIANTS[_resolve_acc_mode(intarna_config)]
+#----- Accessibility mode: `accessibility_variant` (default both); YAML 1.1 parses bare on/off as bools, so coerce back -----#
+def _accessibility_mode(cfg):
+    mode = cfg.get("accessibility_variant", "both")
+    if isinstance(mode, bool):
+        mode = "on" if mode else "off"
+    return mode
+
+variants = variants_for_mode(
+    _calibration_mode(rnacalibrate_config), _CALIBRATION_VARIANTS, "rnacalibrate.calibration_variant"
+)
+intarna_variants = variants_for_mode(
+    _accessibility_mode(intarna_config), _ACCESSIBILITY_VARIANTS, "intarna.accessibility_variant"
+)
 
 RNAHYBRID_VARIANT_RE = f"{W_CALIBRATION}|{WO_CALIBRATION}"
 INTARNA_VARIANT_RE   = f"{W_ACCESSIBILITY}|{WO_ACCESSIBILITY}"
@@ -105,6 +104,13 @@ def calibration_input(wc):
     if wc.variant == W_CALIBRATION:
         return f"{results_dir}/{wc.sample}/{W_CALIBRATION}/rnacalibrate.json"
     return []
+
+
+#----- Per-variant accessibility routing: resolve the {variant} wildcard to IntaRNA's
+#      --acc mode (N=none, C=constrained) here, mirroring calibration_input, so the
+#      script consumes a resolved knob instead of re-declaring the variant literal -----#
+def intarna_acc_mode(wc):
+    return "N" if wc.variant == WO_ACCESSIBILITY else "C"
 
 
 #----- output finale ‒ pipeline conclusion -----#
@@ -228,6 +234,7 @@ rule intarna:
         shared_threads
     params:
         intarna             = intarna_config,
+        acc                 = intarna_acc_mode,
         max_suboptimal_hits = shared_max_suboptimal_hits,
         max_total_energy    = shared_max_total_energy,
         seed                = shared_seed

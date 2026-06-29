@@ -70,8 +70,9 @@ window.isDistributionForced = (cfg) => cfg.rnacalibrate.calibration_variant !== 
 window.isIntarnaSeedDerived = (cfg) => cfg.seed.set;
 
 // Seed sub-fields that derive from the shared seed (see isIntarnaSeedDerived).
-// Module-level so countOptionalParams doesn't re-allocate the Set every render.
-const SEED_DERIVED_KEYS = new Set(["length", "query_range", "max_unpaired_bases"]);
+// On window so it's the single source of truth shared with the YAML serializer
+// (yaml.js) — adding a derived key here updates both the form lock and the writer.
+window.SEED_DERIVED_KEYS = new Set(["length", "query_range", "max_unpaired_bases"]);
 
 // Count optional (nullable) parameters the user has explicitly set, against the
 // number currently in play. Inert groups (seed enforcement off, accessibility
@@ -96,7 +97,7 @@ window.countOptionalParams = (cfg) => {
 
   tally(cfg.intarna.seed, window.INTARNA_SEED_NULLABLE_KEYS, {
     active: cfg.intarna.seed.enabled,
-    locked: (k) => window.isIntarnaSeedDerived(cfg) && SEED_DERIVED_KEYS.has(k),
+    locked: (k) => window.isIntarnaSeedDerived(cfg) && window.SEED_DERIVED_KEYS.has(k),
   });
   tally(cfg.intarna.accessibility, window.INTARNA_ACC_NULLABLE_KEYS, {
     active: cfg.intarna.accessibility_variant !== "off",
