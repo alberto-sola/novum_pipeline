@@ -52,6 +52,117 @@ _RETRIABLE_STATUS = (429, 500, 502, 503, 504)
 _RATE_DELAY_NO_KEY = 0.35
 _RATE_DELAY_WITH_KEY = 0.12
 
+# Assembly-selection ranking: lower tuple sorts first.
+_CATEGORY_RANK = {"reference genome": 0, "representative genome": 1, "": 2}
+_LEVEL_RANK = {"Complete Genome": 0, "Chromosome": 1, "Scaffold": 2, "Contig": 3}
+
+
+#----- Picks the best assembly: category > completeness > newest release date -----#
+def select_best(candidates: list[dict]) -> tuple[str, str] | None:
+    if not candidates:
+        return None
+
+    def info(rep):
+        return rep.get("assembly_info", {}) or {}
+
+    # Stable sort: newest-first, then by (category, level). Equal category+level
+    # keeps the newest because the first sort already ordered by date desc.
+    ranked = sorted(candidates, key=lambda r: info(r).get("release_date", ""), reverse=True)
+    ranked = sorted(
+        ranked,
+        key=lambda r: (
+            _CATEGORY_RANK.get(info(r).get("refseq_category", "") or "", 3),
+            _LEVEL_RANK.get(info(r).get("assembly_level", "") or "", 4),
+        ),
+    )
+    best = ranked[0]
+    acc = best.get("accession") or best.get("current_accession")
+    if not acc:
+        return None
+    return acc, info(best).get("assembly_name", "")
+
+
+#----- Resolves one taxon: reference first, else best of a candidate page -----#
+def _resolve_one(name: str, session: requests.Session) -> tuple[str, str] | None:
+    base = f"{_API_BASE}/genome/taxon/{quote(name, safe='')}/dataset_report"
+    # Tier 1: a designated reference assembly (clean filter, one row).
+    r = session.get(base, params={
+        "filters.reference_only": "true",
+        "filters.assembly_source": "refseq",
+        "page_size": "1",
+    }, timeout=30)
+    if r.status_code == 200:
+        reports = r.json().get("reports", [])
+        if reports:
+            return select_best(reports)
+    # Tier 2: no reference — rank a page of RefSeq candidates client-side.
+    r = session.get(base, params={
+        "filters.assembly_source": "refseq",
+        "page_size": "50",
+    }, timeout=30)
+    if r.status_code == 200:
+        return select_best(r.json().get("reports", []))
+    return None
+
+
+#----- Resolves each taxon to (accession, assembly_name) with reference->latest fallback -----#
+def resolve_assemblies(names: list[str], session: requests.Session, delay: float) -> dict[str, tuple[str, str] | None]:
+    result: dict[str, tuple[str, str] | None] = {}
+    for i, name in enumerate(names, 1):
+        print(f"  [{i:>3}/{len(names)}] {name!r} ... ", end="", flush=True)
+        try:
+            hit = _resolve_one(name, session)
+        except requests.RequestException as exc:
+            print(f"error ({exc.__class__.__name__})")
+            hit = None
+        else:
+            print(f"{hit[0]} ({hit[1]})" if hit else "no_assembly")
+        result[name] = hit
+        time.sleep(delay)
+    return result
+
+
+#----- Downloads CDS for resolved hits -> <acc>_<asm>_cds_from_genomic.fna (skips existing) -----#
+def download_cds(hits: dict[str, tuple[str, str] | None], out_dir, session: requests.Session,
+                 force: bool = False, batch_size: int = 200) -> dict[str, str | None]:
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Dedup by accession: several taxa can resolve to the same assembly, so we
+    # download each accession once and map the file back to every taxon below.
+    dest_by_acc: dict[str, Path] = {}
+    for hit in hits.values():
+        if hit is None:
+            continue
+        acc, asm = hit
+        dest_by_acc.setdefault(acc, out_dir / f"{acc}_{asm}_cds_from_genomic.fna")
+
+    todo = [acc for acc, dest in dest_by_acc.items() if force or not dest.exists()]
+    if todo:
+        for zip_path in download_batch(todo, ["CDS_FASTA"], session, batch_size):
+            with zipfile.ZipFile(zip_path) as zf:
+                for member in zf.namelist():
+                    parts = member.split("/")
+                    if (len(parts) == 4 and parts[0] == "ncbi_dataset"
+                            and parts[1] == "data" and parts[3] == "cds_from_genomic.fna"):
+                        dest = dest_by_acc.get(parts[2])
+                        if dest is None:
+                            continue
+                        with zf.open(member) as src, dest.open("wb") as dst:
+                            shutil.copyfileobj(src, dst)
+                        print(f"    {dest.name}")
+            zip_path.unlink(missing_ok=True)
+
+    # Map every resolved taxon to its accession's file (None if it never landed),
+    # so taxa sharing one accession all receive the same path.
+    result: dict[str, str | None] = {}
+    for taxon, hit in hits.items():
+        if hit is None:
+            continue
+        dest = dest_by_acc[hit[0]]
+        result[taxon] = str(dest) if dest.exists() else None
+    return result
+
 
 #----- Builds a requests session with retry-on-429/5xx and NCBI-etiquette headers -----#
 def make_session(api_key: str | None = None, contact_email: str | None = None) -> requests.Session:

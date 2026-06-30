@@ -6,18 +6,23 @@ __pycache__
 .codex
 .claude
 CLAUDE.md
+.superpowers
+docs
+.impeccable
 
 # IDE
 .idea/
 .vscode/
 
-# Plugins, skills, data
-Data/*
-graphify-out
-.graphifyignore
-.impeccable
-data-prep/*
-!data-prep/fetch_genomes.py
+# Data
+Data/Raw/genomes/*
+Data/Raw/miRNAs/*
+Data/Raw/RNAs/*
+Data/Results/*
+
+data-prep/tests
+data-prep/config-for-server.yaml
+data-prep/*.txt
 
 # Files
 IntaRNA_instructions*
