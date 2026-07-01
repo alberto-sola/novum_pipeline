@@ -1,21 +1,25 @@
 #----- miRNAs (one query FASTA per target sample, joined by key) -----#
 queries:
-  escherichia: Data/Raw/RNAs/validated_escherichia.fa
+  escherichia_coli: Data/Raw/RNAs/escherichia_coli.fa
+  fusobacterium_nucleatum: Data/Raw/RNAs/fusobacterium_nucleatum.fa
+  akkermansia_muciniphila: Data/Raw/RNAs/akkermansia_muciniphila.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  escherichia: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic_escherichia_coli.fna
+  escherichia_coli: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic.fna
+  fusobacterium_nucleatum: Data/Raw/genomes/GCF_003019295.1_ASM301929v1_cds_from_genomic.fna
+  akkermansia_muciniphila: Data/Raw/genomes/GCF_009731575.1_ASM973157v1_cds_from_genomic.fna
 
 #----- Shared by both arms -----#
 threads: 16
 max_suboptimal_hits: null             # null → 1 per pair (tool default); set to N to get N hits per pair
-seed: null                            # IntaRNA derives --seedBP, --seedQRange, and --seedMaxUP=0 from it.
-max_total_energy: -18                 # This filters total E including accessibility penalties (ED1+ED2), so it is not directly comparable to RNAhybrid's energy,
+seed: 2,7                            # IntaRNA derives --seedBP, --seedQRange, and --seedMaxUP=0 from it.
+max_total_energy: -20                 # This filters total E including accessibility penalties (ED1+ED2), so it is not directly comparable to RNAhybrid's energy,
                                       # which filters pure hybridization energy. They match exactly only when intarna.accessibility_variant: off.
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
-  calibration_variant: both
+  calibration_variant: calibrated
   k: 10000
   max_target_length: 50000
   randomize_targets: true
@@ -23,8 +27,8 @@ rnacalibrate:
 #----- Parameters for RNAhybrid -----#
 rnahybrid:
   species: 3utr_human
-  max_internal_loop: null
-  max_bulge_loop: null
+  max_internal_loop: 3
+  max_bulge_loop: 3
   pvalue_threshold: null
   distribution: null
 
@@ -34,10 +38,10 @@ intarna:
   prediction_mode: H                  # H heuristic | M exact | S seed-only
   model: S                            # X seed-extension | S legacy | B helix-block | P ensemble
   max_interaction_length: 0           # 0 = auto (min of seq length, accW)
-  max_loop_size: 10
+  max_loop_size: 3
 
   seed:
-    enabled: false                    # when false, emit --noSeed and skip all other seed flags
+    enabled: true                    # when false, emit --noSeed and skip all other seed flags
     length: null                      # null → derived from top-level seed; set explicitly to override [2..20]; if both null, IntaRNA default (7) applies
     max_energy: null                  # --seedMaxE
     max_hybrid_energy: null           # --seedMaxEhybrid
@@ -67,7 +71,7 @@ intarna:
 
 #----- Parameters for plots (optional; omit or set type: null to skip) -----#
 plots:
-  type: all                           # pvalue_distribution | position_pvalue | position_energy | volcano | pvalue_ecdf | calibration_delta | per_mirna | position_density | seed_class | all
+  type: null                           # pvalue_distribution | position_pvalue | position_energy | volcano | pvalue_ecdf | calibration_delta | per_mirna | position_density | seed_class | all
                                       # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
   basesize: 12
   pvalue_threshold: 0.01

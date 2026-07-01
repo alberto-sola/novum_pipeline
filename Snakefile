@@ -113,6 +113,20 @@ def intarna_acc_mode(wc):
     return "N" if wc.variant == WO_ACCESSIBILITY else "C"
 
 
+#----- Consensus arm-variant selection: prefer the w_* variant of each arm,
+#      fall back to wo_* when only that ran; resolved once at DAG-build time -----#
+def _preferred_variant(available, preferred, fallback):
+    return preferred if preferred in available else fallback
+
+def _consensus_rnahybrid_annotated(wc):
+    variant = _preferred_variant(variants, W_CALIBRATION, WO_CALIBRATION)
+    return f"{results_dir}/{wc.sample}/{variant}/rnahybrid_annotated.csv"
+
+def _consensus_intarna_annotated(wc):
+    variant = _preferred_variant(intarna_variants, W_ACCESSIBILITY, WO_ACCESSIBILITY)
+    return f"{results_dir}/{wc.sample}/{variant}/intarna_annotated.csv"
+
+
 #----- output finale ‒ pipeline conclusion -----#
 rule all:
     input:
@@ -125,6 +139,10 @@ rule all:
             f"{SAMPLE_VARIANT_DIR}/intarna_enhanced.txt",
             sample=targets.keys(),
             variant=intarna_variants,
+        ),
+        expand(
+            f"{SAMPLE_DIR}/consensus/consensus_enhanced.txt",
+            sample=targets.keys(),
         ),
         *(expand(
             f"{SAMPLE_DIR}/plots_{plots_slug}.pdf",
@@ -283,6 +301,29 @@ rule enhance_intarna:
         "Workflow/Envs/postprocess.yaml"
     script:
         "Workflow/Scripts/enhance_intarna.py"
+
+#----- Intersect the two arms' annotated tables into the consensus (both-tools) set -----#
+rule intersect:
+    input:
+        rnahybrid=_consensus_rnahybrid_annotated,
+        intarna=_consensus_intarna_annotated
+    output:
+        annotated=f"{SAMPLE_DIR}/consensus/consensus_annotated.csv"
+    conda:
+        "Workflow/Envs/postprocess.yaml"
+    script:
+        "Workflow/Scripts/intersect.py"
+
+#----- Render the consensus set as a per-record report: merged metadata + both duplexes -----#
+rule enhance_consensus:
+    input:
+        annotated=f"{SAMPLE_DIR}/consensus/consensus_annotated.csv"
+    output:
+        enhanced=f"{SAMPLE_DIR}/consensus/consensus_enhanced.txt"
+    conda:
+        "Workflow/Envs/postprocess.yaml"
+    script:
+        "Workflow/Scripts/enhance_consensus.py"
 
 #----- Build configurable ggplot2 plots from the annotated tables -----#
 rule build_plots:
