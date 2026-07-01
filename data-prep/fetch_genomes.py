@@ -65,17 +65,16 @@ def select_best(candidates: list[dict]) -> tuple[str, str] | None:
     def info(rep):
         return rep.get("assembly_info", {}) or {}
 
-    # Stable sort: newest-first, then by (category, level). Equal category+level
-    # keeps the newest because the first sort already ordered by date desc.
+    # Newest-first pre-sort, then pick the best (category, level) with a stable
+    # min — ties keep the newest because the pre-sort already ordered by date desc.
     ranked = sorted(candidates, key=lambda r: info(r).get("release_date", ""), reverse=True)
-    ranked = sorted(
+    best = min(
         ranked,
         key=lambda r: (
             _CATEGORY_RANK.get(info(r).get("refseq_category", "") or "", 3),
             _LEVEL_RANK.get(info(r).get("assembly_level", "") or "", 4),
         ),
     )
-    best = ranked[0]
     acc = best.get("accession") or best.get("current_accession")
     if not acc:
         return None
@@ -85,24 +84,19 @@ def select_best(candidates: list[dict]) -> tuple[str, str] | None:
 #----- Resolves one taxon: reference first, else best of a candidate page -----#
 def _resolve_one(name: str, session: requests.Session) -> tuple[str, str] | None:
     base = f"{_API_BASE}/genome/taxon/{quote(name, safe='')}/dataset_report"
+
+    def reports_for(params):
+        r = session.get(base, params=params, timeout=30)
+        return r.json().get("reports", []) if r.status_code == 200 else None
+
     # Tier 1: a designated reference assembly (clean filter, one row).
-    r = session.get(base, params={
-        "filters.reference_only": "true",
-        "filters.assembly_source": "refseq",
-        "page_size": "1",
-    }, timeout=30)
-    if r.status_code == 200:
-        reports = r.json().get("reports", [])
-        if reports:
-            return select_best(reports)
+    rep = reports_for({"filters.reference_only": "true",
+                       "filters.assembly_source": "refseq", "page_size": "1"})
+    if rep:
+        return select_best(rep)
     # Tier 2: no reference — rank a page of RefSeq candidates client-side.
-    r = session.get(base, params={
-        "filters.assembly_source": "refseq",
-        "page_size": "50",
-    }, timeout=30)
-    if r.status_code == 200:
-        return select_best(r.json().get("reports", []))
-    return None
+    rep = reports_for({"filters.assembly_source": "refseq", "page_size": "50"})
+    return select_best(rep) if rep is not None else None
 
 
 #----- Resolves each taxon to (accession, assembly_name) with reference->latest fallback -----#
@@ -122,6 +116,11 @@ def resolve_assemblies(names: list[str], session: requests.Session, delay: float
     return result
 
 
+#----- The on-disk name for a downloaded CDS FASTA: <acc>_<asm>_cds_from_genomic.fna -----#
+def cds_dest(out_dir, acc: str, asm: str) -> Path:
+    return Path(out_dir) / f"{acc}_{asm}_cds_from_genomic.fna"
+
+
 #----- Downloads CDS for resolved hits -> <acc>_<asm>_cds_from_genomic.fna (skips existing) -----#
 def download_cds(hits: dict[str, tuple[str, str] | None], out_dir, session: requests.Session,
                  force: bool = False, batch_size: int = 200) -> dict[str, str | None]:
@@ -135,23 +134,25 @@ def download_cds(hits: dict[str, tuple[str, str] | None], out_dir, session: requ
         if hit is None:
             continue
         acc, asm = hit
-        dest_by_acc.setdefault(acc, out_dir / f"{acc}_{asm}_cds_from_genomic.fna")
+        dest_by_acc.setdefault(acc, cds_dest(out_dir, acc, asm))
 
     todo = [acc for acc, dest in dest_by_acc.items() if force or not dest.exists()]
     if todo:
         for zip_path in download_batch(todo, ["CDS_FASTA"], session, batch_size):
-            with zipfile.ZipFile(zip_path) as zf:
-                for member in zf.namelist():
-                    parts = member.split("/")
-                    if (len(parts) == 4 and parts[0] == "ncbi_dataset"
-                            and parts[1] == "data" and parts[3] == "cds_from_genomic.fna"):
-                        dest = dest_by_acc.get(parts[2])
-                        if dest is None:
-                            continue
-                        with zf.open(member) as src, dest.open("wb") as dst:
-                            shutil.copyfileobj(src, dst)
-                        print(f"    {dest.name}")
-            zip_path.unlink(missing_ok=True)
+            try:
+                with zipfile.ZipFile(zip_path) as zf:
+                    for member in zf.namelist():
+                        parts = member.split("/")
+                        if (len(parts) == 4 and parts[0] == "ncbi_dataset"
+                                and parts[1] == "data" and parts[3] == "cds_from_genomic.fna"):
+                            dest = dest_by_acc.get(parts[2])
+                            if dest is None:
+                                continue
+                            with zf.open(member) as src, dest.open("wb") as dst:
+                                shutil.copyfileobj(src, dst)
+                            print(f"    {dest.name}")
+            finally:
+                zip_path.unlink(missing_ok=True)
 
     # Map every resolved taxon to its accession's file (None if it never landed),
     # so taxa sharing one accession all receive the same path.

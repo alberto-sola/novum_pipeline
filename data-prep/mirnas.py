@@ -22,8 +22,8 @@ def index_mature(path) -> dict[str, tuple[str, str]]:
                 index[name.lower()] = (name, "".join(seq_parts))
             name = line[1:].split()[0]
             seq_parts = []
-        elif line.strip():
-            seq_parts.append(line.strip())
+        elif (s := line.strip()):
+            seq_parts.append(s)
     if name is not None:
         index[name.lower()] = (name, "".join(seq_parts))
     return index
@@ -43,8 +43,13 @@ def resolve_mirna(raw: str, index: dict[str, tuple[str, str]],
     return None
 
 
+#----- The query-FASTA path for a taxon: <rnas_dir>/<taxon>.fa (single owner) -----#
+def query_fasta_path(rnas_dir, taxon_key: str) -> Path:
+    return Path(rnas_dir) / f"{taxon_key}.fa"
+
+
 def write_query_fasta(taxon_key: str, resolved, rnas_dir) -> Path:
-    out = Path(rnas_dir) / f"{taxon_key}.fa"
+    out = query_fasta_path(rnas_dir, taxon_key)
     out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w") as fh:
         for canonical, seq in resolved:

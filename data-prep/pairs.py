@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 # Split a line on the first run of tab / colon / spaces. miRNA and taxon tokens
 # contain none of these, so the first run is always the field boundary.
@@ -34,7 +33,3 @@ def parse_pairs(text: str) -> tuple[dict[str, list[str]], list[tuple[int, str]]]
         if mirna not in bucket:
             bucket.append(mirna)
     return groups, malformed
-
-
-def load_pairs(path) -> tuple[dict[str, list[str]], list[tuple[int, str]]]:
-    return parse_pairs(Path(path).read_text())

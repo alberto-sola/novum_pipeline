@@ -8,8 +8,8 @@ import sys
 from pathlib import Path
 
 import pairs as pairs_mod
-from fetch_genomes import make_session, resolve_assemblies, download_cds, _RATE_DELAY_NO_KEY, _RATE_DELAY_WITH_KEY
-from mirnas import ensure_mature_fa, index_mature, resolve_mirna, write_query_fasta
+from fetch_genomes import make_session, resolve_assemblies, download_cds, cds_dest, _RATE_DELAY_NO_KEY, _RATE_DELAY_WITH_KEY
+from mirnas import ensure_mature_fa, index_mature, resolve_mirna, write_query_fasta, query_fasta_path
 from config_writer import update_path_blocks
 
 
@@ -27,7 +27,7 @@ def select_emitted(taxa_order, genome_paths, mirna_resolved, rnas_dir):
         if not mirnas:
             skipped[taxon] = "no_mirnas"
             continue
-        queries[taxon] = f"{rnas_dir}/{taxon}.fa"
+        queries[taxon] = str(query_fasta_path(rnas_dir, taxon))
         targets[taxon] = gpath
     return queries, targets, skipped
 
@@ -77,14 +77,12 @@ def run(pairs_path=None, inline=None, config="Config/config.yaml",
     hits_by_name = resolve_assemblies(list(name_to_key), session, delay)
     hits_by_taxon = {name_to_key[n]: h for n, h in hits_by_name.items()}
     if dry_run:
-        genome_paths = {k: (f"{genomes_dir}/{h[0]}_{h[1]}_cds_from_genomic.fna" if h else None)
+        genome_paths = {k: (str(cds_dest(genomes_dir, h[0], h[1])) if h else None)
                         for k, h in hits_by_taxon.items()}
     else:
         print("--- Downloading CDS ---")
         paths_by_name = download_cds(hits_by_name, genomes_dir, session, force=force)
         genome_paths = {name_to_key[n]: p for n, p in paths_by_name.items()}
-    for k in groups:
-        genome_paths.setdefault(k, None)
 
     # --- miRNAs ---
     print("--- Resolving miRNAs ---")

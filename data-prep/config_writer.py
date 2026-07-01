@@ -17,15 +17,12 @@ def replace_block(lines: list[str], key: str, mapping: dict[str, str]) -> list[s
     # Block body = the run of INDENTED non-blank lines after the key. Blank lines
     # are scanned through but not consumed; a column-0 non-blank line terminates.
     end = i + 1
-    j = i + 1
-    while j < len(lines):
+    for j in range(i + 1, len(lines)):
         ln = lines[j]
         if ln.strip() == "":
-            j += 1
             continue
         if ln[:1] in (" ", "\t"):
-            j += 1
-            end = j
+            end = j + 1
             continue
         break
 
