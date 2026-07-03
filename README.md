@@ -1,13 +1,16 @@
 # Novum Pipeline
 
-A Snakemake workflow that runs **RNAhybrid and IntaRNA in parallel** on miRNA queries against bacterial coding sequences, RNAhybrid optionally per-miRNA-calibrated via RNAcalibrate, IntaRNA optionally with accessibility correction, each arm producing its own tidied, annotated, and enhanced output tree. Cross-referencing the two tools' outputs per interaction pair is planned but not yet implemented.
+A Snakemake workflow that runs **RNAhybrid and IntaRNA in parallel** on miRNA queries against bacterial coding sequences, RNAhybrid optionally per-miRNA-calibrated via RNAcalibrate, IntaRNA optionally with accessibility correction, each arm producing its own tidied, annotated, and enhanced output tree. A **consensus arm** then intersects the two arms' annotated tables into the set of (miRNA, target) pairs predicted by both tools.
 
 ## Workflow
 
 ```text
-                          ┌── (RNAcalibrate) ─ RNAhybrid ─ tidy ─ annotate ─ enhance ─┬─ (plots)
-queries + targets ────────┤                                                           │
-                          └── IntaRNA ──────────────────── tidy ─ annotate ─ enhance ─┘  (no plots yet)
+                    ┌ (RNAcalibrate) ─ RNAhybrid ─ tidy ─ annotate ─ enhance
+                    │                                     ├──────────── (plots, optional)
+queries + targets ──┤                                     └──┐
+                    │                                        ├─ intersect ─ enhance   (consensus)
+                    │                                     ┌──┘
+                    └ IntaRNA ──────────────────── tidy ─ annotate ─ enhance
 ```
 
 ### RNAhybrid arm
@@ -17,7 +20,7 @@ queries + targets ────────┤                                   
 3. **tidy_rnahybrid** — filters and arranges the raw output into a tidy CSV.
 4. **annotate_rnahybrid** — parses FASTA headers from the target genome and merges metadata onto the tidy rows. Shares `Workflow/Scripts/annotate.py` with the IntaRNA arm (the `insert_after` column is parameterized per rule).
 5. **enhance_rnahybrid** — appends human-readable alignment visualizations.
-6. **build_plots** *(optional, RNAhybrid only)* — renders configurable ggplot2 PDFs. Skipped entirely when `plots.type` is unset. No IntaRNA / cross-arm plot stage exists yet.
+6. **build_plots** *(optional, RNAhybrid only)* — renders configurable ggplot2 PDFs. Skipped entirely when `plots.type` is unset. No IntaRNA or consensus plot stage exists yet.
 
 ### IntaRNA arm
 
@@ -26,20 +29,38 @@ queries + targets ────────┤                                   
 9. **annotate_intarna** — parses FASTA headers and merges metadata (shares `annotate.py`, inserting after the `E` column).
 10. **enhance_intarna** — per-record human-readable report with energy, accessibility, and seed metadata plus a duplex block rendered from `subseqDP`/`hybridDP`.
 
+### Consensus arm
+
+11. **intersect** — inner-joins the two arms' annotated tables on `(miRNA, target)`, keeping each arm's best hit per pair (lowest `P_value` for RNAhybrid, lowest `E` for IntaRNA). Emits `consensus/consensus_annotated.csv` — the pairs both tools predict. When an arm produced two variants, its `w_*` tree is used (calibrated / accessibility-on), falling back to `wo_*` when only that one ran.
+12. **enhance_consensus** — renders the consensus set as a per-record report: merged metadata plus both duplexes (RNAhybrid ASCII alignment and IntaRNA dot-bracket).
+
 ## Quick start
 
 If you already have conda and Snakemake set up (otherwise see [Dependencies](#dependencies)):
 
-1. Drop your input FASTAs into `Data/Raw/` and edit `Config/config.yaml` so each `queries:` and `targets:` key points at them. The two mappings must share keys.
+1. Provide inputs and point `Config/config.yaml` at them — each `queries:` and `targets:` key names one (query, target) sample, and the two mappings must share keys. Either drop query (miRNA) and target (CDS) FASTAs into `Data/Raw/` yourself (the repo groups them under `Data/Raw/RNAs/` and `Data/Raw/genomes/`), or let `data-prep/` fetch them from `(taxon, miRNA)` pairs and fill in the two blocks for you (see [Bootstrapping inputs](#bootstrapping-inputs)).
 2. Run:
 
    ```bash
    snakemake --use-conda --cores 8
    ```
 
-3. Results land under `Data/Results/<sample>/`. Both arms run: RNAhybrid outputs appear under `{w,wo}_calibration/` and IntaRNA outputs under `{w,wo}_accessibility/`. See [Outputs](#outputs) for the full layout.
+3. Results land under `Data/Results/<sample>/`. All three arms run: RNAhybrid outputs appear under `{w,wo}_calibration/`, IntaRNA outputs under `{w,wo}_accessibility/`, and the both-tools consensus under `consensus/`. See [Outputs](#outputs) for the full layout.
 
 Need a graphical config editor? Skip ahead to the [UI](#config-editor-ui--optional) once you've installed dependencies.
+
+## Bootstrapping inputs
+
+Rather than hand-collect FASTAs, `data-prep/` can assemble them from a list of `(taxon, miRNA)` pairs: it resolves and downloads bacterial CDS assemblies from NCBI and miRNA sequences from miRBase, then surgically rewrites just the `queries:`/`targets:` blocks of `Config/config.yaml` (every other key and comment is preserved). It does not run Snakemake — you keep manual control.
+
+```bash
+# one pair per line: "<taxon> <miRNA>", taxon first (tab, ':' or spaces separate)
+python data-prep/prepare_inputs.py --pairs pairs.txt
+python data-prep/prepare_inputs.py --pairs pairs.txt --dry-run          # preview only, no downloads/writes
+python data-prep/prepare_inputs.py Veillonella_parvula:hsa-miR-200b-3p  # inline pair(s)
+```
+
+A taxon reaches the config only if its genome resolved **and** at least one of its miRNAs resolved; unresolved entries are skipped and recorded in a report TSV rather than aborting the run. See [`data-prep/README.md`](data-prep/README.md) for the full option list and assembly-selection rules.
 
 ## Dependencies
 
@@ -229,11 +250,11 @@ intarna:
 
 This produces the apples-to-apples profile for comparison against RNAhybrid: no seed constraint, no accessibility correction, exact mode, energy threshold comparable to the shared `max_total_energy`.
 
-Cross-referencing the RNAhybrid and IntaRNA output tables (per-pair agreement, ranking deltas, etc.) is the next planned milestone on this branch and is not yet implemented.
+The RNAhybrid and IntaRNA arms are cross-referenced per interaction pair by the [consensus arm](#consensus-arm): it intersects their annotated tables into `consensus/consensus_annotated.csv`, the set of `(miRNA, target)` pairs both tools predict.
 
 ### Plots
 
-The `plots` block is opt-in: omit it (or remove `type:`) and no plot job is scheduled, no R env is materialized. Plots currently consume only the RNAhybrid `rnahybrid_annotated.csv` outputs; an IntaRNA / cross-referenced plot stage is future work.
+The `plots` block is opt-in: omit it (or remove `type:`) and no plot job is scheduled, no R env is materialized. Plots currently consume only the RNAhybrid `rnahybrid_annotated.csv` outputs; plotting the IntaRNA or consensus tables is future work.
 
 To re-render plots after editing `plots` without re-running the upstream pipeline:
 
@@ -282,10 +303,13 @@ One tree per `targets:` key, under `{results_dir}/{sample}/`:
 │   ├── intarna_tidy.csv
 │   ├── intarna_annotated.csv
 │   └── intarna_enhanced.txt
+├── consensus/                      # always produced: (miRNA, target) pairs predicted by both tools
+│   ├── consensus_annotated.csv
+│   └── consensus_enhanced.txt
 └── plots_<type>.pdf                # only when plots.type is set; RNAhybrid arm only
 ```
 
-Plots currently consume only `rnahybrid_annotated.csv`; an IntaRNA / cross-referenced plot stage is future work.
+Plots currently consume only `rnahybrid_annotated.csv`; plotting the IntaRNA or consensus tables is future work.
 
 ## Citation
 
