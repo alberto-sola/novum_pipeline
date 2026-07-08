@@ -12,7 +12,10 @@ targets:
 
 #----- Shared by both arms -----#
 threads: 16
-max_suboptimal_hits: null             # null → 1 per pair (tool default); set to N to get N hits per pair
+max_suboptimal_hits: null             # null → all hits below max_total_energy, per pair, on BOTH arms
+                                      # (RNAhybrid uncapped; IntaRNA capped at its max of 1000/pair).
+                                      # With no energy cutoff set, RNAhybrid reports best-only per pair.
+                                      # Set to N to cap both arms at N hits per pair.
 seed: 2,7                            # IntaRNA derives --seedBP, --seedQRange, and --seedMaxUP=0 from it.
 max_total_energy: -20                 # This filters total E including accessibility penalties (ED1+ED2), so it is not directly comparable to RNAhybrid's energy,
                                       # which filters pure hybridization energy. They match exactly only when intarna.accessibility_variant: off.

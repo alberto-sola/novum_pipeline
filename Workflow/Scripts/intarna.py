@@ -3,6 +3,8 @@ import subprocess
 from _common import which_required, ensure_parent
 
 
+INTARNA_MAX_OUTNUMBER = 1000
+
 #----- Parses the shared top-level seed "x,y" into IntaRNA's seedBP+seedQRange shape; raises if the width is outside [2,20] -----#
 def _derive_seed_from_string(seed_str):
     if seed_str is None:
@@ -83,8 +85,8 @@ def _add_output_flags(cmd, out, max_suboptimal_hits=None, max_total_energy=None)
         cmd.append(f"--outMaxE={max_total_energy}")
     if out.get("max_delta_energy") is not None:
         cmd.append(f"--outDeltaE={out['max_delta_energy']}")
-    if max_suboptimal_hits is not None:
-        cmd.append(f"--outNumber={max_suboptimal_hits}")
+    n_hits = max_suboptimal_hits if max_suboptimal_hits is not None else INTARNA_MAX_OUTNUMBER
+    cmd.append(f"--outNumber={n_hits}")
     cmd.append(f"--outOverlap={out.get('overlap', 'B')}")
     if out.get("min_unpaired_probability") is not None:
         cmd.append(f"--outMinPu={out['min_unpaired_probability']}")
