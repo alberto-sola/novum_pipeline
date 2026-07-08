@@ -4,9 +4,19 @@ from __future__ import annotations
 import gzip
 from pathlib import Path
 
+import requests
+
 # miRBase current mature set. gz is auto-detected by magic bytes, so either the
 # plain or the .gz URL works; adjust here if miRBase moves the path.
 MIRBASE_URL = "https://www.mirbase.org/download/mature.fa"
+
+
+class MatureUnavailable(RuntimeError):
+    """miRBase could not be reached and no cached mature.fa is present.
+
+    Raised instead of leaking a urllib3/requests traceback: miRBase is a single
+    un-mirrored server that goes down, so this is an external outage, not a bug.
+    """
 
 # A name is "bare" (no species prefix) when it starts with a miRNA stem.
 _STEMS = ("mir-", "let-", "lin-")
@@ -62,8 +72,18 @@ def ensure_mature_fa(mirnas_dir, session, force: bool = False, url: str = MIRBAS
     if out.exists() and not force:
         return out
     out.parent.mkdir(parents=True, exist_ok=True)
-    resp = session.get(url, timeout=120)
-    resp.raise_for_status()
+    try:
+        resp = session.get(url, timeout=(10, 120))
+        resp.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        raise MatureUnavailable(
+            f"could not download miRBase mature.fa from {url}\n"
+            f"  reason: {e}\n"
+            f"miRBase is a single un-mirrored server and is periodically down.\n"
+            f"Workaround: fetch mature.fa from any working network and place it at\n"
+            f"  {out}\n"
+            f"then re-run — the download is skipped whenever that file already exists."
+        ) from e
     data = resp.content
     if url.endswith(".gz") or data[:2] == b"\x1f\x8b":     # gzip magic
         data = gzip.decompress(data)

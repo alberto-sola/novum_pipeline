@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pairs as pairs_mod
 from fetch_genomes import make_session, resolve_assemblies, download_cds, cds_dest, _RATE_DELAY_NO_KEY, _RATE_DELAY_WITH_KEY
-from mirnas import ensure_mature_fa, index_mature, resolve_mirna, write_query_fasta, query_fasta_path
+from mirnas import (ensure_mature_fa, index_mature, resolve_mirna, write_query_fasta, query_fasta_path, MatureUnavailable)
 from config_writer import update_path_blocks
 
 
@@ -146,10 +146,15 @@ def main() -> None:
     args = ap.parse_args()
     if not args.pairs and not args.inline:
         ap.error("provide a --pairs FILE or inline pairs")
-    run(pairs_path=args.pairs, inline=args.inline, config=args.config,
-        rnas_dir=args.rnas_dir, genomes_dir=args.genomes_dir, mirnas_dir=args.mirnas_dir,
-        prefix_chain=tuple(args.prefix_chain.split(",")), report=args.report,
-        force=args.force, dry_run=args.dry_run)
+    try:
+        run(pairs_path=args.pairs, inline=args.inline, config=args.config,
+            rnas_dir=args.rnas_dir, genomes_dir=args.genomes_dir, mirnas_dir=args.mirnas_dir,
+            prefix_chain=tuple(args.prefix_chain.split(",")), report=args.report,
+            force=args.force, dry_run=args.dry_run)
+    except MatureUnavailable as e:
+        # External miRBase outage, not a bug — report cleanly, no traceback.
+        print(f"\nERROR: {e}", file=sys.stderr)
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":
