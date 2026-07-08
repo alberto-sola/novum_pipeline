@@ -12,11 +12,7 @@ MIRBASE_URL = "https://www.mirbase.org/download/mature.fa"
 
 
 class MatureUnavailable(RuntimeError):
-    """miRBase could not be reached and no cached mature.fa is present.
-
-    Raised instead of leaking a urllib3/requests traceback: miRBase is a single
-    un-mirrored server that goes down, so this is an external outage, not a bug.
-    """
+    """miRBase unreachable and no cached mature.fa present — an external outage, not a bug."""
 
 # A name is "bare" (no species prefix) when it starts with a miRNA stem.
 _STEMS = ("mir-", "let-", "lin-")
@@ -75,7 +71,7 @@ def ensure_mature_fa(mirnas_dir, session, force: bool = False, url: str = MIRBAS
     try:
         resp = session.get(url, timeout=(10, 120))
         resp.raise_for_status()
-    except requests.exceptions.RequestException as e:
+    except requests.RequestException as e:
         raise MatureUnavailable(
             f"could not download miRBase mature.fa from {url}\n"
             f"  reason: {e}\n"
