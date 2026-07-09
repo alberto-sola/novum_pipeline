@@ -108,30 +108,45 @@ It edits `Config/config.yaml` graphically and can start a run for you with a sin
 
 ## Outputs
 
-Each `(query, target)` sample gets its own results tree under `{results_dir}/{sample}/`. Which sub-trees appear depends on your [configuration](#configuration) — a default run produces a subset, while a run with every variant enabled produces the full layout below:
+Each `(query, target)` sample gets its own results tree under `{results_dir}/{sample}/`. With every variant enabled, the full layout is:
 
 ```text
 {sample}/
-├── w_calibration/          # RNAhybrid, per-miRNA calibrated
+├── w_calibration/
 │   ├── rnacalibrate.json
 │   ├── rnahybrid_output.tsv
 │   ├── tidy_output.csv
 │   ├── rnahybrid_annotated.csv
 │   └── rnahybrid_enhanced.txt
-├── wo_calibration/         # RNAhybrid, uncalibrated (same files, minus rnacalibrate.json)
-├── w_accessibility/        # IntaRNA, accessibility correction on
+├── wo_calibration/
+│   ├── rnahybrid_output.tsv
+│   ├── tidy_output.csv
+│   ├── rnahybrid_annotated.csv
+│   └── rnahybrid_enhanced.txt
+├── w_accessibility/
 │   ├── intarna_output.csv
 │   ├── intarna_tidy.csv
 │   ├── intarna_annotated.csv
 │   └── intarna_enhanced.txt
-├── wo_accessibility/       # IntaRNA, accessibility correction off (same files)
-├── consensus/              # (miRNA, target) pairs predicted by BOTH tools — always produced
+├── wo_accessibility/
+│   ├── intarna_output.csv
+│   ├── intarna_tidy.csv
+│   ├── intarna_annotated.csv
+│   └── intarna_enhanced.txt
+├── consensus/
 │   ├── consensus_annotated.csv
 │   └── consensus_enhanced.txt
-└── plots_<type>.pdf        # only when plots.type is set (RNAhybrid arm only)
+└── plots_<type>.pdf
 ```
 
-Within each arm's folder the files build on one another: the raw tool output → a tidied table → the same table with gene metadata merged in (`*_annotated.csv`) → a human-readable report with alignment/duplex visualizations (`*_enhanced.txt`). The `consensus/` folder is always present and holds the pairs both tools agree on. The `w_*` vs `wo_*` folders correspond to the calibration and accessibility variants explained in [Configuration](#configuration).
+A given run fills only the sub-folders for the variants it produces (see [Configuration](#configuration)):
+
+- **`w_calibration/`**, **`wo_calibration/`** — the RNAhybrid arm's calibrated and uncalibrated variants. `rnacalibrate.json` appears only in the calibrated tree.
+- **`w_accessibility/`**, **`wo_accessibility/`** — the IntaRNA arm's accessibility-on and accessibility-off variants.
+- **`consensus/`** — always produced; the `(miRNA, target)` pairs both tools predict.
+- **`plots_<type>.pdf`** — only when `plots.type` is set (RNAhybrid arm only).
+
+Within each arm's folder the files build on one another: the raw tool output → a tidied table → the same table with gene metadata merged in (`*_annotated.csv`) → a human-readable report with alignment/duplex visualizations (`*_enhanced.txt`).
 
 ## Configuration
 
@@ -233,15 +248,13 @@ The defaults are good for a first run. Reach for these when you want to tune the
 
 `rnacalibrate.calibration_variant` selects which variant(s) the pipeline produces in a single run:
 
-- **`calibrated`** — runs `rnacalibrate` first and feeds each miRNA's fitted `(xi, theta)` into RNAhybrid. Outputs land under `{sample}/w_calibration/`.
-- **`uncalibrated`** — skips calibration; RNAhybrid falls back to `rnahybrid.distribution`, or to its built-in `species` default if that is unset. Outputs land under `{sample}/wo_calibration/`.
+- **`on`** — runs `rnacalibrate` first and feeds each miRNA's fitted `(xi, theta)` into RNAhybrid. Outputs land under `{sample}/w_calibration/`.
+- **`off`** — skips calibration; RNAhybrid falls back to `rnahybrid.distribution`, or to its built-in `species` default if that is unset. Outputs land under `{sample}/wo_calibration/`.
 - **`both`** — produces both trees in one run for side-by-side comparison.
 
 When calibration runs, `{sample}/w_calibration/rnacalibrate.json` holds one `(xi, theta)` row per query miRNA, and RNAhybrid is invoked once per `(miRNA, target chunk)` pair with that miRNA's own parameters — so every p-value reflects its own null model rather than a population average. The static `rnahybrid.distribution` value is ignored whenever calibration runs.
 
 `rnacalibrate.randomize_targets` maps to RNAcalibrate's `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
-
-> **Deprecated:** `rnacalibrate.enabled: true|false` is still honoured when `calibration_variant` is absent (`true` → `calibrated`, `false` → `uncalibrated`), but new configs should use `calibration_variant`. Support will be removed in a future release.
 
 ### Accessibility (IntaRNA arm)
 
@@ -257,7 +270,7 @@ The top-level `threads` maps to IntaRNA's native `--threads`. Unlike the RNAhybr
 
 `intarna.output.columns` is the column whitelist passed to IntaRNA via `--outCsvCols`. The downstream `tidy_intarna` rule needs at least `id1, id2, start1, end1, start2, end2, E`; trimming below that breaks the arm. Keep `hybridDP` and `subseqDP` too if you want `enhance_intarna` to draw duplex visualizations.
 
-> **YAML 1.1 gotcha:** bare `on`/`off` are parsed by PyYAML as Python `True`/`False`. The Snakefile coerces them back to strings, so `accessibility_variant: on` still works — but the quoted `"on"`/`"off"` form is more portable if you feed the config to other tools.
+> **YAML 1.1 gotcha:** bare `on`/`off` parse as Python `True`/`False`. The Snakefile coerces them back for **both** `accessibility_variant` and `calibration_variant`, so `variant: on` works — but the quoted `"on"`/`"off"` form is more portable.
 
 ### Seed handling
 
@@ -266,21 +279,20 @@ Top-level `seed: "x,y"` (in query/miRNA coordinates) is the single declaration t
 - **RNAhybrid** receives it verbatim as `-f x,y`.
 - **IntaRNA** derives `--seedBP=y-x+1`, `--seedQRange="x-y"`, and `--seedMaxUP=0` from it. The derived `--seedBP` is validated to be in `[2, 20]`.
 
-For finer control, `intarna.seed.length`, `intarna.seed.query_range`, and `intarna.seed.max_unpaired_bases` act as explicit overrides that win over the derivation. When both the top-level `seed` and the override are null, IntaRNA's compiled defaults apply (`--seedBP=7`, no range restriction).
+`enabled`, `length`, and `query_range` are **inherited from the top-level `seed`** — there is no separate enable toggle and no seedBP/range keys in the config. Setting `seed: null` (the default) emits `--noSeed` on the IntaRNA side and drops `-f` on the RNAhybrid side, so neither arm enforces a seed.
 
-Set `intarna.seed.enabled: false` to emit `--noSeed` and skip every other `--seed*` flag. This toggle is **independent of `accessibility_variant`**, so "accessibility on + seed disabled" is a valid combination.
+The remaining `intarna.seed.*` keys are genuine, independent overrides that apply only when a seed is enforced: `max_unpaired_bases` (`--seedMaxUP`, defaults to `0` under a seed for RNAhybrid parity), `target_range` (`--seedTRange`, target coordinates), `max_energy`, `max_hybrid_energy`, `min_unpaired_probability`, `forbid_gu`, `forbid_gu_at_ends`, and `report_best_only`.
 
 #### Recipe: RNAhybrid-emulation profile
 
 To make IntaRNA behave like RNAhybrid (`--noSeed --acc=N --intLoopMax=30 --mode=M`) for an apples-to-apples comparison, set explicitly:
 
 ```yaml
+seed: null                      # top-level: no seed on either arm
 intarna:
   accessibility_variant: "off"
   prediction_mode: M
   max_loop_size: 30
-  seed:
-    enabled: false
 ```
 
 This yields no seed constraint, no accessibility correction, exact mode, and an energy threshold comparable to the shared `max_total_energy`.
