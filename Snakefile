@@ -49,16 +49,12 @@ W_ACCESSIBILITY  = "w_accessibility"
 WO_ACCESSIBILITY = "wo_accessibility"
 VARIANT_LABELS = {W_CALIBRATION: "calibrated", WO_CALIBRATION: "uncalibrated"}
 
-_CALIBRATION_VARIANTS = {
-    "calibrated":   [W_CALIBRATION],
-    "uncalibrated": [WO_CALIBRATION],
-    "both":         [W_CALIBRATION, WO_CALIBRATION],
-}
-_ACCESSIBILITY_VARIANTS = {
-    "on":   [W_ACCESSIBILITY],
-    "off":  [WO_ACCESSIBILITY],
-    "both": [W_ACCESSIBILITY, WO_ACCESSIBILITY],
-}
+#----- on→with-variant / off→without / both→both; one builder so the shape can't drift -----#
+def _variant_map(with_literal, without_literal):
+    return {"on": [with_literal], "off": [without_literal], "both": [with_literal, without_literal]}
+
+_CALIBRATION_VARIANTS   = _variant_map(W_CALIBRATION,   WO_CALIBRATION)
+_ACCESSIBILITY_VARIANTS = _variant_map(W_ACCESSIBILITY, WO_ACCESSIBILITY)
 
 #----- Shared validate+lookup: turn a resolved mode into its variant list, or fail listing the allowed set -----#
 def variants_for_mode(mode, mode_to_variants, label):
@@ -68,25 +64,20 @@ def variants_for_mode(mode, mode_to_variants, label):
         )
     return mode_to_variants[mode]
 
-#----- Calibration mode: `calibration_variant`, with the deprecated `enabled: true|false` single-variant fallback -----#
-def _calibration_mode(cfg):
-    mode = cfg.get("calibration_variant")
-    if mode is None:
-        mode = "calibrated" if cfg.get("enabled", False) else "uncalibrated"
-    return mode
-
-#----- Accessibility mode: `accessibility_variant` (default both); YAML 1.1 parses bare on/off as bools, so coerce back -----#
-def _accessibility_mode(cfg):
-    mode = cfg.get("accessibility_variant", "both")
+#----- Shared variant resolver: read `key` from cfg (default "both"); YAML 1.1 parses bare on/off as bools, so coerce back -----#
+def _variant_mode(cfg, key):
+    mode = cfg.get(key, "both")
     if isinstance(mode, bool):
         mode = "on" if mode else "off"
     return mode
 
 variants = variants_for_mode(
-    _calibration_mode(rnacalibrate_config), _CALIBRATION_VARIANTS, "rnacalibrate.calibration_variant"
+    _variant_mode(rnacalibrate_config, "calibration_variant"),
+    _CALIBRATION_VARIANTS, "rnacalibrate.calibration_variant",
 )
 intarna_variants = variants_for_mode(
-    _accessibility_mode(intarna_config), _ACCESSIBILITY_VARIANTS, "intarna.accessibility_variant"
+    _variant_mode(intarna_config, "accessibility_variant"),
+    _ACCESSIBILITY_VARIANTS, "intarna.accessibility_variant",
 )
 
 RNAHYBRID_VARIANT_RE = f"{W_CALIBRATION}|{WO_CALIBRATION}"

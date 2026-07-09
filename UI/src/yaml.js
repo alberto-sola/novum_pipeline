@@ -88,10 +88,6 @@ window.buildYAML = function buildYAML(cfg) {
 
   // intarna block
   const it = cfg.intarna;
-  const seedDerived = window.isIntarnaSeedDerived(cfg);
-  // The serializer defers to SEED_DERIVED_KEYS (the single source of truth) for
-  // which seed sub-fields hard-lock to null when the shared seed is set.
-  const seedForced = (key) => seedDerived && window.SEED_DERIVED_KEYS.has(key);
   lines.push({ t: "k", k: "intarna" });
   lines.push({ t: "nested", indent: 2, k: "accessibility_variant",  v: it.accessibility_variant,  kind: "str" });
   lines.push({ t: "nested", indent: 2, k: "prediction_mode",        v: it.prediction_mode,        kind: "str" });
@@ -100,19 +96,16 @@ window.buildYAML = function buildYAML(cfg) {
   lines.push({ t: "nested", indent: 2, k: "max_loop_size",          v: it.max_loop_size,          kind: "num" });
   lines.push({ t: "blank" });
 
-  // seed sub-block. The three "derived" fields (length/query_range/max_unpaired_bases)
-  // hard-lock to null whenever the shared seed is set; matches what the form shows.
+  // seed sub-block. enabled/length/query_range are inherited from the top-level
+  // `seed`, so they are not emitted here; the rest are independent overrides.
   lines.push({ t: "nested", indent: 2, k: "seed", v: "", kind: "bare" });
-  lines.push({ t: "nested", indent: 4, k: "enabled", v: it.seed.enabled, kind: "bool" });
-  lines.push(nullableLineAt(4, "length",                   it.seed.length,                   seedForced("length")));
-  lines.push(nullableLineAt(4, "max_energy",               it.seed.max_energy,               seedForced("max_energy")));
-  lines.push(nullableLineAt(4, "max_hybrid_energy",        it.seed.max_hybrid_energy,        seedForced("max_hybrid_energy")));
-  lines.push(nullableLineAt(4, "min_unpaired_probability", it.seed.min_unpaired_probability, seedForced("min_unpaired_probability")));
+  lines.push(nullableLineAt(4, "max_energy",               it.seed.max_energy,               false));
+  lines.push(nullableLineAt(4, "max_hybrid_energy",        it.seed.max_hybrid_energy,        false));
+  lines.push(nullableLineAt(4, "min_unpaired_probability", it.seed.min_unpaired_probability, false));
   lines.push({ t: "nested", indent: 4, k: "forbid_gu",         v: it.seed.forbid_gu,         kind: "bool" });
   lines.push({ t: "nested", indent: 4, k: "forbid_gu_at_ends", v: it.seed.forbid_gu_at_ends, kind: "bool" });
-  lines.push(nullableLineAt(4, "query_range",        it.seed.query_range,        seedForced("query_range")));
-  lines.push(nullableLineAt(4, "target_range",       it.seed.target_range,       seedForced("target_range")));
-  lines.push(nullableLineAt(4, "max_unpaired_bases", it.seed.max_unpaired_bases, seedForced("max_unpaired_bases")));
+  lines.push(nullableLineAt(4, "target_range",       it.seed.target_range,       false));
+  lines.push(nullableLineAt(4, "max_unpaired_bases", it.seed.max_unpaired_bases, false));
   lines.push({ t: "nested", indent: 4, k: "report_best_only",  v: it.seed.report_best_only,  kind: "bool" });
   lines.push({ t: "blank" });
 

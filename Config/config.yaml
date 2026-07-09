@@ -1,28 +1,23 @@
 #----- miRNAs (one query FASTA per target sample, joined by key) -----#
 queries:
-  escherichia_coli: Data/Raw/RNAs/escherichia_coli.fa
-  fusobacterium_nucleatum: Data/Raw/RNAs/fusobacterium_nucleatum.fa
-  akkermansia_muciniphila: Data/Raw/RNAs/akkermansia_muciniphila.fa
+  bacteroides_thetaiotaomicron: Data/Raw/RNAs/bacteroides_thetaiotaomicron.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  escherichia_coli: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic.fna
-  fusobacterium_nucleatum: Data/Raw/genomes/GCF_003019295.1_ASM301929v1_cds_from_genomic.fna
-  akkermansia_muciniphila: Data/Raw/genomes/GCF_009731575.1_ASM973157v1_cds_from_genomic.fna
+  bacteroides_thetaiotaomicron: Data/Raw/genomes/GCF_014131755.1_ASM1413175v1_cds_from_genomic.fna
 
 #----- Shared by both arms -----#
 threads: 16
-max_suboptimal_hits: null             # null → all hits below max_total_energy, per pair, on BOTH arms
-                                      # (RNAhybrid uncapped; IntaRNA capped at its max of 1000/pair).
-                                      # With no energy cutoff set, RNAhybrid reports best-only per pair.
-                                      # Set to N to cap both arms at N hits per pair.
-seed: 2,7                            # IntaRNA derives --seedBP, --seedQRange, and --seedMaxUP=0 from it.
-max_total_energy: -20                 # This filters total E including accessibility penalties (ED1+ED2), so it is not directly comparable to RNAhybrid's energy,
-                                      # which filters pure hybridization energy. They match exactly only when intarna.accessibility_variant: off.
+max_suboptimal_hits: null             # null → keep every hit below max_total_energy, per pair, on BOTH arms
+max_total_energy: -20                 # Energy cutoff. IntaRNA filters total E (incl. accessibility ED1+ED2);
+seed: null                            # RNAhybrid filters pure hybridization energy. Equal only when accessibility off.
+                                      # Forced seed as "x,y" query positions; drives BOTH arms.
+                                      # RNAhybrid → -f x,y ; IntaRNA → --seedBP/--seedQRange/--seedMaxUP=0.
+                                      # null → no seed on either arm (IntaRNA emits --noSeed).
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
-  calibration_variant: calibrated
+  calibration_variant: on             # "on" | "off" | "both"
   k: 10000
   max_target_length: 50000
   randomize_targets: true
@@ -30,30 +25,27 @@ rnacalibrate:
 #----- Parameters for RNAhybrid -----#
 rnahybrid:
   species: 3utr_human
-  max_internal_loop: 3
-  max_bulge_loop: 3
+  max_internal_loop: null
+  max_bulge_loop: null
   pvalue_threshold: null
   distribution: null
 
 #----- Parameters for IntaRNA -----#
 intarna:
-  accessibility_variant: "on"         # "on" | "off" | "both"
+  accessibility_variant: on           # "on" | "off" | "both"
   prediction_mode: H                  # H heuristic | M exact | S seed-only
-  model: S                            # X seed-extension | S legacy | B helix-block | P ensemble
+  model: X                            # X seed-extension | S legacy | B helix-block | P ensemble
   max_interaction_length: 0           # 0 = auto (min of seq length, accW)
-  max_loop_size: 3
+  max_loop_size: 10
 
-  seed:
-    enabled: true                    # when false, emit --noSeed and skip all other seed flags
-    length: null                      # null → derived from top-level seed; set explicitly to override [2..20]; if both null, IntaRNA default (7) applies
+  seed:                               # enabled / length / query_range are inherited from the top-level `seed`.
     max_energy: null                  # --seedMaxE
     max_hybrid_energy: null           # --seedMaxEhybrid
     min_unpaired_probability: null    # --seedMinPu
     forbid_gu: false                  # --seedNoGU
     forbid_gu_at_ends: false          # --seedNoGUend
-    query_range: null                 # --seedQRange  null → derived from top-level seed; set explicitly to override
-    target_range: null                # --seedTRange
-    max_unpaired_bases: null          # --seedMaxUP   null → set to 0 when top-level seed is set (RNAhybrid parity), else IntaRNA default
+    target_range: null                # --seedTRange   (target coords; no top-level source)
+    max_unpaired_bases: null          # --seedMaxUP    null → 0 under a seed (RNAhybrid parity)
     report_best_only: false           # --outBestSeedOnly
 
   accessibility:
@@ -75,7 +67,7 @@ intarna:
 #----- Parameters for plots (optional; omit or set type: null to skip) -----#
 plots:
   type: null                           # pvalue_distribution | position_pvalue | position_energy | volcano | pvalue_ecdf | calibration_delta | per_mirna | position_density | seed_class | all
-                                      # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
+                                       # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
   basesize: 12
   pvalue_threshold: 0.01
   per_mirna_top_n: 12

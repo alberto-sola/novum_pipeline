@@ -6,9 +6,9 @@ window.SPECIES_OPTIONS = [
 ];
 
 window.CALIBRATE_MODES = [
-  { value: "calibrated",   label: "Calibrated" },
-  { value: "uncalibrated", label: "Uncalibrated" },
-  { value: "both",         label: "Both" }
+  { value: "on",   label: "On"   },
+  { value: "off",  label: "Off"  },
+  { value: "both", label: "Both" }
 ];
 
 window.INTARNA_ACC_MODES = [
@@ -52,33 +52,28 @@ window.PLOT_TYPES = [
 // Nullable-field key lists per card. Used by section renderers (and the Hero
 // "set params" counter) so a single source of truth drives what's rendered
 // vs. what's just present in INITIAL_CONFIG.
-window.SHARED_NULLABLE_KEYS    = ["max_suboptimal_hits", "seed", "max_total_energy"];
+window.SHARED_NULLABLE_KEYS    = ["max_suboptimal_hits", "max_total_energy", "seed"];
 window.RNAHYBRID_NULLABLE_KEYS = ["max_internal_loop", "max_bulge_loop", "pvalue_threshold", "distribution"];
 window.INTARNA_SEED_NULLABLE_KEYS = [
-  "length", "query_range", "target_range", "max_unpaired_bases",
+  "target_range", "max_unpaired_bases",
   "max_energy", "max_hybrid_energy", "min_unpaired_probability"
 ];
 window.INTARNA_ACC_NULLABLE_KEYS    = ["window", "max_bp_span"];
 window.INTARNA_OUTPUT_NULLABLE_KEYS = ["max_delta_energy", "min_unpaired_probability"];
 
 // `distribution` is supplied by RNAcalibrate whenever calibration is part of the run,
-// so the RNAhybrid form forces it null in any variant other than uncalibrated.
-window.isDistributionForced = (cfg) => cfg.rnacalibrate.calibration_variant !== "uncalibrated";
+// so the RNAhybrid form forces it null in any variant other than "off".
+window.isDistributionForced = (cfg) => cfg.rnacalibrate.calibration_variant !== "off";
 
-// The three IntaRNA seed sub-fields below derive from the top-level `seed` at runtime
-// (intarna.py:_add_seed_flags), so the UI hard-locks them whenever the shared seed is set.
-window.isIntarnaSeedDerived = (cfg) => cfg.seed.set;
-
-// Seed sub-fields that derive from the shared seed (see isIntarnaSeedDerived).
-// On window so it's the single source of truth shared with the YAML serializer
-// (yaml.js) — adding a derived key here updates both the form lock and the writer.
-window.SEED_DERIVED_KEYS = new Set(["length", "query_range", "max_unpaired_bases"]);
+// Seed enforcement follows the shared top-level seed: the IntaRNA seed sub-fields
+// only affect a run when a shared seed is set (see intarna.py:_add_seed_flags).
+// On window as the single source of truth shared with the form (sections.jsx).
+window.isSeedEnforced = (cfg) => cfg.seed.set;
 
 // Count optional (nullable) parameters the user has explicitly set, against the
-// number currently in play. Inert groups (seed enforcement off, accessibility
-// variant Off) and locked/derived fields (distribution under calibration, the
-// three seed sub-fields derived from the shared seed) are excluded from both
-// sides, so the ratio only reflects params that can actually affect this run.
+// number currently in play. Inert groups (no shared seed, accessibility variant
+// Off) and the locked distribution field (under calibration) are excluded from
+// both sides, so the ratio only reflects params that can actually affect this run.
 window.countOptionalParams = (cfg) => {
   let set = 0, total = 0;
   const tally = (obj, keys, { active = true, locked = () => false } = {}) => {
@@ -96,8 +91,7 @@ window.countOptionalParams = (cfg) => {
   });
 
   tally(cfg.intarna.seed, window.INTARNA_SEED_NULLABLE_KEYS, {
-    active: cfg.intarna.seed.enabled,
-    locked: (k) => window.isIntarnaSeedDerived(cfg) && window.SEED_DERIVED_KEYS.has(k),
+    active: window.isSeedEnforced(cfg),
   });
   tally(cfg.intarna.accessibility, window.INTARNA_ACC_NULLABLE_KEYS, {
     active: cfg.intarna.accessibility_variant !== "off",
@@ -123,7 +117,7 @@ window.INITIAL_CONFIG = {
   seed:                { set: false, a: 2, b: 7 },
   max_total_energy:    { set: false, value: -18 },
   rnacalibrate: {
-    calibration_variant: "calibrated",
+    calibration_variant: "on",
     k: 10000,
     max_target_length: 50000,
     randomize_targets: true
@@ -142,14 +136,11 @@ window.INITIAL_CONFIG = {
     max_interaction_length: 0,
     max_loop_size: 10,
     seed: {
-      enabled: false,
-      length:                   { set: false, value: 7 },
       max_energy:               { set: false, value: 0 },
       max_hybrid_energy:        { set: false, value: 999 },
       min_unpaired_probability: { set: false, value: 0 },
       forbid_gu: false,
       forbid_gu_at_ends: false,
-      query_range:              { set: false, value: "" },
       target_range:             { set: false, value: "" },
       max_unpaired_bases:       { set: false, value: 0 },
       report_best_only: false

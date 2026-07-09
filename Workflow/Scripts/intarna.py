@@ -24,31 +24,21 @@ def _derive_seed_from_string(seed_str):
     return {"length": bp, "query_range": f"{x}-{y}"}
 
 
-#----- Appends IntaRNA --seed* flags: enabled=false short-circuits to --noSeed; explicit config keys win over the derived seed; everything else is omitted when null -----#
+#----- Seed enforcement is inherited from the top-level `seed`: absent → --noSeed. When present, --seedBP/--seedQRange are derived; the remaining sub-keys are independent overrides -----#
 def _add_seed_flags(cmd, seed, derived_seed=None):
-    if not seed.get("enabled", True):
+    if derived_seed is None:
         cmd.append("--noSeed")
         return
 
-    # --seedBP
-    if seed.get("length") is not None:
-        cmd.append(f"--seedBP={seed['length']}")
-    elif derived_seed is not None:
-        cmd.append(f"--seedBP={derived_seed['length']}")
+    cmd.append(f"--seedBP={derived_seed['length']}")
+    cmd.append(f"--seedQRange={derived_seed['query_range']}")
 
-    # --seedQRange
-    if seed.get("query_range") is not None:
-        cmd.append(f"--seedQRange={seed['query_range']}")
-    elif derived_seed is not None:
-        cmd.append(f"--seedQRange={derived_seed['query_range']}")
-
-    # --seedMaxUP
+    # --seedMaxUP: explicit override wins, else RNAhybrid-parity 0
     if seed.get("max_unpaired_bases") is not None:
         cmd.append(f"--seedMaxUP={seed['max_unpaired_bases']}")
-    elif derived_seed is not None:
+    else:
         cmd.append("--seedMaxUP=0")
 
-    # Remaining sub-keys
     if seed.get("max_energy") is not None:
         cmd.append(f"--seedMaxE={seed['max_energy']}")
     if seed.get("max_hybrid_energy") is not None:
@@ -118,7 +108,7 @@ def build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hit
         f"--intLoopMax={cfg.get('max_loop_size', 10)}",
     ]
 
-    # Seed (applies to both variants; enabled: false → --noSeed)
+    # Seed (inherited from the top-level seed; null → --noSeed)
     _add_seed_flags(cmd, cfg.get("seed") or {}, derived_seed=derived_seed)
 
     # Accessibility (only meaningful when --acc=C, but harmless to pass always)

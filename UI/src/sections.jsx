@@ -177,7 +177,7 @@ function SharedParamsSection({ cfg, setCfg }) {
 function RNACalibrateSection({ cfg, setCfg }) {
   const r = cfg.rnacalibrate;
   const set = (patch) => setCfg({ ...cfg, rnacalibrate: { ...r, ...patch } });
-  const inert = r.calibration_variant === "uncalibrated";
+  const inert = r.calibration_variant === "off";
   return (
     <SectionCard
       num="4"
@@ -340,8 +340,7 @@ function IntaRNASection({ cfg, setCfg }) {
   const setOut  = (patch) => set({ output:        { ...it.output,        ...patch } });
 
   const accInert     = it.accessibility_variant === "off";
-  const seedDisabled = !it.seed.enabled;
-  const seedDerived  = window.isIntarnaSeedDerived(cfg);
+  const seedEnforced = window.isSeedEnforced(cfg);   // enforcement follows the shared seed
   const nullHint     = "null · let IntaRNA decide";
 
   return (
@@ -410,28 +409,15 @@ function IntaRNASection({ cfg, setCfg }) {
           <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
             <div className="eyebrow strong">Seed</div>
             <div style={{ flex: 1 }} />
-            <span style={{ fontSize: 12, color: seedDisabled ? "var(--fg-4)" : "var(--accent-ink)", marginRight: 8 }}>
-              {seedDisabled ? "Disabled" : "Enabled"}
+            <span style={{ fontSize: 12, color: seedEnforced ? "var(--accent-ink)" : "var(--fg-4)" }}>
+              {seedEnforced ? "Enforced via shared seed" : "Disabled — set a shared seed"}
             </span>
-            <Toggle on={it.seed.enabled} onChange={(v) => setSeed({ enabled: v })} ariaLabel="Enable seed enforcement" />
           </div>
-          <DisableGroup disabled={seedDisabled} className="stack sm">
+          <DisableGroup disabled={!seedEnforced} className="stack sm">
             <div className="grid-2">
-              <NullableField name="Length" doc="[2..20]" kind="integer"
-                min={2} max={20} nullHint={nullHint}
-                value={it.seed.length} onChange={(v) => setSeed({ length: v })}
-                forcedNull={seedDerived}
-                forcedNullHint="null · derived from shared seed" />
-              <NullableField name="Query range" doc="'from-to,...'"
-                nullHint={nullHint}
-                value={it.seed.query_range} onChange={(v) => setSeed({ query_range: v })}
-                forcedNull={seedDerived}
-                forcedNullHint="null · derived from shared seed" />
               <NullableField name="Max unpaired bases" kind="integer"
                 min={0} nullHint={nullHint}
-                value={it.seed.max_unpaired_bases} onChange={(v) => setSeed({ max_unpaired_bases: v })}
-                forcedNull={seedDerived}
-                forcedNullHint="null · derived from shared seed (set to 0)" />
+                value={it.seed.max_unpaired_bases} onChange={(v) => setSeed({ max_unpaired_bases: v })} />
               <NullableField name="Target range" doc="'from-to,...'"
                 nullHint={nullHint}
                 value={it.seed.target_range} onChange={(v) => setSeed({ target_range: v })} />
