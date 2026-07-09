@@ -93,6 +93,41 @@ conda create -n snakemake-modern python=3.11 snakemake-minimal
 conda activate snakemake-modern
 ```
 
+### macOS (Apple Silicon)
+
+> The rest of this section assumes Linux; Apple-Silicon (M-series) Macs need one extra step.
+
+`rnahybrid` has no `osx-arm64` conda build, so on Apple Silicon the pipeline resolves its whole conda toolchain as **`osx-64` (Intel)** and runs it under **Rosetta 2**. IntaRNA and the post-processing steps have native ARM builds but are run as `osx-64` too, for one uniform environment.
+
+1. Install the **arm64** Miniconda instead of the Linux installer above, then set the same channels as in [Conda](#conda) and create the env as in [Snakemake](#snakemake):
+
+   ```bash
+   curl -O https://repo.anaconda.com/miniconda/Miniconda3-latest-MacOSX-arm64.sh
+   bash Miniconda3-latest-MacOSX-arm64.sh
+   source ~/miniconda3/bin/activate
+   ```
+
+2. With the env active, run the one-time setup script from the repo root:
+
+   ```bash
+   conda activate snakemake-modern
+   ./setup-macos.sh
+   ```
+
+   `setup-macos.sh` will **install Rosetta 2 for you if it is missing** (and skip it if already present), then pin this env's conda subdir to `osx-64`. It is a no-op on Linux and Intel Macs.
+
+3. Run the pipeline the normal way — the CLI and the UI both work:
+
+   ```bash
+   snakemake --use-conda --cores 8
+   ```
+
+**Notes**
+
+- This is a **one-time step per env** — the `osx-64` subdir persists in the env's `.condarc`. Re-run `setup-macos.sh` only if you recreate the env.
+- The **first** run downloads/builds Intel packages and is slower; later runs are normal. Expect roughly 10–25% slower than native ARM, and only on the IntaRNA arm.
+- Run `setup-macos.sh` **before** your first pipeline run. If you already attempted a run, delete `.snakemake/conda/` to force a clean `osx-64` rebuild of the per-rule envs.
+
 ### Config editor (UI) — optional
 
 A PyWebView desktop app at `UI/launcher.py` edits `Config/config.yaml` graphically and can kick off the pipeline directly. Install its extras into the same env that has `snakemake` on PATH, then launch:
