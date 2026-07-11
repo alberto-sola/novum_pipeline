@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import re
 
-# Split a line on the first run of tab / colon / spaces. miRNA and taxon tokens
-# contain none of these, so the first run is always the field boundary.
+# Split a line on the last run of tab / colon / spaces. miRNA and taxon tokens
+# contain none of these, so the last run is always the field boundary.
 _SEP = re.compile(r"[\t: ]+")
 
 
@@ -23,12 +23,16 @@ def parse_pairs(text: str) -> tuple[dict[str, list[str]], list[tuple[int, str]]]
         line = raw.strip()
         if not line or line.startswith("#"):
             continue
-        parts = _SEP.split(line, maxsplit=1)
-        if len(parts) != 2 or not parts[0].strip() or not parts[1].strip():
+        matches = list(_SEP.finditer(line))
+        if not matches:
             malformed.append((lineno, raw))
             continue
-        taxon = normalize_taxon(parts[0])
-        mirna = parts[1].strip()
+        last = matches[-1]
+        taxon_raw, mirna = line[: last.start()], line[last.end():].strip()
+        if not taxon_raw.strip() or not mirna:
+            malformed.append((lineno, raw))
+            continue
+        taxon = normalize_taxon(taxon_raw)
         bucket = groups.setdefault(taxon, [])
         if mirna not in bucket:
             bucket.append(mirna)

@@ -1,10 +1,11 @@
 """Dependency-light helpers shared across the Workflow/Scripts arms.
 
-Kept deliberately free of third-party imports (no pandas): the RNAhybrid and
-IntaRNA conda envs don't ship pandas, yet they still need `which_required` and
-`ensure_parent`, so importing this module must never pull a heavy dependency.
-Snakemake puts each script's own directory on sys.path, so the sibling
-`from _common import ...` resolves when scripts run under the `script:` directive.
+Kept deliberately free of third-party imports (no pandas): the RNAhybrid conda
+env (`Workflow/Envs/rnahybrid.yaml`) ships no pandas, yet its scripts still need
+`which_required` and `ensure_parent`, so importing this module must never pull a
+heavy dependency. (The IntaRNA and postprocess envs do ship pandas.) Snakemake
+puts each script's own directory on sys.path, so the sibling `from _common import
+...` resolves when scripts run under the `script:` directive.
 """
 
 import shutil

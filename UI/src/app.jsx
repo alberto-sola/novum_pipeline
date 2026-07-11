@@ -33,13 +33,24 @@ function App() {
 
   useEffect(() => () => clearTimeout(toastTimer.current), []);
 
+  useEffect(() => {
+    const load = async () => {
+      const api = window.pywebview?.api;
+      if (!api?.load_config) return;
+      const raw = await api.load_config();
+      if (raw && raw.__error__) { showToast(`Config parse error · using defaults`, "danger"); return; }
+      if (raw && Object.keys(raw).length) setCfg(window.hydrateConfig(raw));
+    };
+    if (window.pywebview?.api) load();
+    else window.addEventListener("pywebviewready", load, { once: true });
+    return () => window.removeEventListener("pywebviewready", load);
+  }, []);
+
   const showToast = (msg, tone = "neutral") => {
     clearTimeout(toastTimer.current);
     setToast({ msg, tone });
     toastTimer.current = setTimeout(() => setToast(null), 3200);
   };
-
-  const serializeYAML = () => window.renderYAMLPlain(window.buildYAML(cfg));
 
   const save = async () => {
     if (savingState === "saving") return;
@@ -50,7 +61,7 @@ function App() {
         showToast("Preview mode · nothing written");
         return;
       }
-      const res = await api.save_config(serializeYAML());
+      const res = await api.save_config(window.configToObject(cfg));
       if (res?.ok) showToast(`Saved to ${res.path}`, "success");
       else showToast(`Save failed · ${res?.error || "unknown error"}`, "danger");
     } finally {
@@ -78,7 +89,7 @@ function App() {
     }
     setOverlayOpen(true);
     setPipelineStatus({ state: "running", elapsed: 0 });
-    const res = await api.run_pipeline(serializeYAML());
+    const res = await api.run_pipeline(window.configToObject(cfg));
     if (!res?.ok) {
       setPipelineStatus({ state: "failed", returncode: -1, elapsed: 0 });
       showToast(`Run failed · ${res?.error || "unknown error"}`, "danger");

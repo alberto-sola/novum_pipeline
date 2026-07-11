@@ -45,7 +45,15 @@ def intersect_annotations(rnahybrid_csv, intarna_csv, output_csv):
     in_best = in_best.drop(columns=drop_from_intarna)
 
     merged = rh_best.merge(in_best, on=keys, how="inner")
-    merged = merged[CONSENSUS_COLUMNS]
+    absent = [c for c in CONSENSUS_COLUMNS if c not in merged.columns]
+    if absent:
+        print(
+            "intersect: consensus columns absent from inputs (filled NA): "
+            + ", ".join(absent)
+            + " — trim intarna.output.columns less if you need this metadata.",
+            file=sys.stderr,
+        )
+    merged = merged.reindex(columns=CONSENSUS_COLUMNS)
 
     merged.to_csv(ensure_parent(output_csv), index=False)
     print(
@@ -63,4 +71,5 @@ def run_from_snakemake(snakemake):
         output_csv=snakemake.output.annotated,
     )
 
-run_from_snakemake(snakemake)
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)

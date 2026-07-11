@@ -1,4 +1,5 @@
 import subprocess
+import sys
 
 from _common import which_required, ensure_parent
 
@@ -75,7 +76,17 @@ def _add_output_flags(cmd, out, max_suboptimal_hits=None, max_total_energy=None)
         cmd.append(f"--outMaxE={max_total_energy}")
     if out.get("max_delta_energy") is not None:
         cmd.append(f"--outDeltaE={out['max_delta_energy']}")
-    n_hits = max_suboptimal_hits if max_suboptimal_hits is not None else INTARNA_MAX_OUTNUMBER
+    if max_suboptimal_hits is None:
+        n_hits = INTARNA_MAX_OUTNUMBER
+    elif max_suboptimal_hits > INTARNA_MAX_OUTNUMBER:
+        print(
+            f"intarna: max_suboptimal_hits={max_suboptimal_hits} exceeds IntaRNA's "
+            f"--outNumber ceiling; clamping to {INTARNA_MAX_OUTNUMBER}.",
+            file=sys.stderr,
+        )
+        n_hits = INTARNA_MAX_OUTNUMBER
+    else:
+        n_hits = max_suboptimal_hits
     cmd.append(f"--outNumber={n_hits}")
     cmd.append(f"--outOverlap={out.get('overlap', 'B')}")
     if out.get("min_unpaired_probability") is not None:
@@ -142,4 +153,5 @@ def run_from_snakemake(snakemake):
         derived_seed=derived_seed,
     )
 
-run_from_snakemake(snakemake)
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)

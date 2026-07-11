@@ -32,6 +32,7 @@ function resolveNullable(field, forced) {
   const kind = typeof field.value === "string" ? "str" : "num";
   return { v: field.value, kind };
 }
+window.resolveNullable = resolveNullable;
 
 // One nullable field → one IR line. Generalised over indent so it works for
 // top-level shared params, rnahybrid params, and the IntaRNA sub-blocks.

@@ -33,6 +33,8 @@ os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu --log-level=3
 
 import webview
 
+from config_io import load_config as _load_config, save_config as _save_config
+
 
 ROOT = Path(__file__).resolve().parent.parent
 QUERIES_DIR = ROOT / "Data" / "Raw" / "RNAs"
@@ -77,11 +79,12 @@ class API:
 
     #----- config save -----#
 
-    def save_config(self, yaml_text: str) -> dict:
+    def load_config(self) -> dict:
+        return _load_config(CONFIG_PATH)
+
+    def save_config(self, config: dict) -> dict:
         try:
-            CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-            CONFIG_PATH.write_text(yaml_text)
-            return {"ok": True, "path": str(CONFIG_PATH)}
+            return _save_config(CONFIG_PATH, config)
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -114,7 +117,7 @@ class API:
             return ""
         return "\n".join(tail.splitlines()[-max_lines:])
 
-    def run_pipeline(self, yaml_text: str) -> dict:
+    def run_pipeline(self, config: dict) -> dict:
         with self._lock:
             if self._is_running():
                 return {
@@ -122,7 +125,7 @@ class API:
                     "error": "Pipeline already running",
                     "pid": self._proc.pid,
                 }
-            save_result = self.save_config(yaml_text)
+            save_result = self.save_config(config)
             if not save_result["ok"]:
                 return save_result
             try:

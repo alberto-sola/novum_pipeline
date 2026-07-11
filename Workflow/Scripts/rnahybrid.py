@@ -1,5 +1,7 @@
 from pathlib import Path
 import json
+import os
+import re
 import shutil
 import subprocess
 import sys
@@ -59,12 +61,25 @@ def write_fasta_chunks(target_file, chunk_dir, chunk_prefix="chunk_", max_lines=
     return chunk_paths
 
 
+_UNSAFE_STEM = re.compile(r"[^A-Za-z0-9._-]")
+
+#----- Maps a FASTA header token to a filesystem-safe, collision-free file stem -----#
+def _safe_file_stem(name, used):
+    stem = _UNSAFE_STEM.sub("_", name) or "query"
+    candidate, n = stem, 1
+    while candidate in used:
+        candidate, n = f"{stem}_{n}", n + 1
+    used.add(candidate)
+    return candidate
+
+
 #----- Explodes a multi-record query FASTA into one file per miRNA, keyed by the first header token -----#
 def split_query_per_miRNA(query_file, query_dir):
     query_dir = Path(query_dir)
     query_dir.mkdir(parents=True, exist_ok=True)
 
     paths_by_name = {}
+    used_stems = set()
     current_name = None
     current_record = []
 
@@ -74,7 +89,7 @@ def split_query_per_miRNA(query_file, query_dir):
             return
         if current_name in paths_by_name:
             raise RuntimeError(f"Duplicate query ID in FASTA: {current_name}")
-        path = query_dir / f"{current_name}.fa"
+        path = query_dir / f"{_safe_file_stem(current_name, used_stems)}.fa"
         path.write_text("".join(current_record))
         paths_by_name[current_name] = path
         current_name = None
@@ -98,12 +113,12 @@ def split_query_per_miRNA(query_file, query_dir):
     return paths_by_name
 
 
-#----- Resolves the RNAhybrid + GNU Parallel binaries this rule depends on -----#
+#----- Validates RNAhybrid and resolves the GNU Parallel binary this rule depends on -----#
 def ensure_dependencies():
-    return {
-        "parallel": which_required("parallel"),
-        "rnahybrid": which_required("RNAhybrid", "rnahybrid", label="RNAhybrid"),
-    }
+    # RNAhybrid itself is resolved per-invocation inside _rnahybrid_worker.py; validate its
+    # presence here (discarding the path) so we fail fast before dispatching the parallel fan-out.
+    which_required("RNAhybrid", "rnahybrid", label="RNAhybrid")
+    return {"parallel": which_required("parallel")}
 
 
 #----- Translates the optional RNAhybrid params into CLI flags, omitting any that are None -----#
@@ -178,57 +193,46 @@ def build_job_spec_tsv(query_paths_by_name, dist_map, chunk_paths, tsv_path):
     return tsv_path
 
 
-#----- GNU Parallel command for the uncalibrated path: one shared query fanned out across every target chunk -----#
-def build_parallel_command_broadcast(query, chunk_paths, output_dir, species, optional_args, threads, max_target_length, parallel_executable, rnahybrid_executable):
-    species_args = ["-s", "{3}"] if species is not None else []
-    # Keep the '{2/}' parallel replacement literal — build the template as a plain string.
-    output_template = f"{Path(output_dir).as_posix()}/output_{{2/}}.tsv"
-
-    job_template = " ".join([
-        rnahybrid_executable,
-        "-q", "{1}",
-        "-t", "{2}",
-        *species_args,
-        "-c",
-        "-m", str(max_target_length),
-        *optional_args,
-        ">", output_template,
+#----- GNU Parallel command (uncalibrated): worker per (query × chunk); paths travel as {n} args / env, never argv0 -----#
+def build_parallel_command_broadcast(query, chunk_paths, species, optional_args, threads, max_target_length, parallel_executable, worker_executable):
+    worker_call = " ".join([
+        "python3", "{1}",
+        "--query", "{2}",
+        "--target", "{3}",
+        "--max-target-length", str(max_target_length),
+        *(["--species", "{4}"] if species is not None else []),
+        "--", *optional_args,
     ])
-
     command = [
         parallel_executable, f"-j{max(1, threads)}",
-        job_template,
+        worker_call,
+        ":::", str(worker_executable),
         ":::", str(query),
         ":::", *[str(chunk_path) for chunk_path in chunk_paths],
     ]
     if species is not None:
         command.extend([":::", species])
-    return command, "output_chunk_*.tsv"
+    return command, "output_*.tsv"
 
 
-#----- GNU Parallel command for the calibrated path: each TSV row is (query_path, distribution, chunk_path) -----#
-def build_parallel_command_calibrated(spec_path, output_dir, optional_args, threads, max_target_length, parallel_executable, rnahybrid_executable):
-    # {1/.} = query basename without extension; {3/.} = chunk basename without extension.
-    output_template = f"{Path(output_dir).as_posix()}/output_{{1/.}}__{{3/.}}.tsv"
-
-    job_template = " ".join([
-        rnahybrid_executable,
-        "-q", "{1}",
-        "-d", "{2}",
-        "-t", "{3}",
-        "-c",
-        "-m", str(max_target_length),
-        *optional_args,
-        ">", output_template,
+#----- GNU Parallel command (calibrated): each TSV row is (query, distribution, chunk); paths as {n} args / env -----#
+def build_parallel_command_calibrated(spec_path, optional_args, threads, max_target_length, parallel_executable, worker_executable):
+    worker_call = " ".join([
+        "python3", "{1}",
+        "--query", "{2}",
+        "--dist", "{3}",
+        "--target", "{4}",
+        "--max-target-length", str(max_target_length),
+        "--", *optional_args,
     ])
-
     command = [
         parallel_executable, f"-j{max(1, threads)}",
         "--colsep", "\\t",
-        job_template,
+        worker_call,
+        ":::", str(worker_executable),
         "::::", str(spec_path),
     ]
-    return command, "output_*__chunk_*.tsv"
+    return command, "output_*__*.tsv"
 
 
 #----- Concatenates the per-chunk RNAhybrid outputs into one TSV, streaming through the kernel to bound memory -----#
@@ -248,6 +252,7 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
     output_path = ensure_parent(output_file)
 
     executables = ensure_dependencies()
+    worker_executable = str(Path(__file__).resolve().parent / "_rnahybrid_worker.py")
 
     # Per-sample tmp dir next to the final output so parallel samples never collide.
     tmp_dir = Path(tempfile.mkdtemp(prefix=".rnahybrid_", dir=output_path.parent))
@@ -275,12 +280,11 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
             )
             command, output_pattern = build_parallel_command_calibrated(
                 spec_path=spec_path,
-                output_dir=split_output_dir,
                 optional_args=optional_args,
                 threads=threads,
                 max_target_length=max_target_length,
                 parallel_executable=executables["parallel"],
-                rnahybrid_executable=executables["rnahybrid"],
+                worker_executable=worker_executable,
             )
         else:
             # Broadcast/uncalibrated branch: one shared query across all chunks.
@@ -292,16 +296,16 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
             command, output_pattern = build_parallel_command_broadcast(
                 query=query,
                 chunk_paths=chunk_paths,
-                output_dir=split_output_dir,
                 species=species,
                 optional_args=optional_args,
                 threads=threads,
                 max_target_length=max_target_length,
                 parallel_executable=executables["parallel"],
-                rnahybrid_executable=executables["rnahybrid"],
+                worker_executable=worker_executable,
             )
 
-        subprocess.run(command, check=True)
+        env = {**os.environ, "RNAHYBRID_OUT_DIR": str(split_output_dir)}
+        subprocess.run(command, check=True, env=env)
         merge_output_files(split_output_dir, output_pattern, output_path)
     finally:
         shutil.rmtree(tmp_dir, ignore_errors=True)
@@ -331,4 +335,5 @@ def run_from_snakemake(snakemake):
         distribution_file=distribution_file,
     )
 
-run_from_snakemake(snakemake)
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)

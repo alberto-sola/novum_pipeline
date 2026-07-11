@@ -66,7 +66,7 @@ The pipeline reads all its settings from `Config/config.yaml`, which you can edi
 
 ```bash
 conda activate snakemake-modern
-pip install pywebview pyqt5 pyqtwebengine
+pip install pywebview pyqt5 pyqtwebengine pyyaml
 ```
 
 See [Config editor (UI)](#config-editor-ui) in the quick start for how to launch it.
@@ -105,6 +105,15 @@ python UI/launcher.py
 ```
 
 It edits `Config/config.yaml` graphically and can start a run for you with a single click. It locates the repo from its own path, so you can launch it from any directory. When you trigger a run, Snakemake's output is written to `Data/Results/.pipeline.log` and shown as a live tail inside the app.
+
+### Tests
+
+Unit tests cover the data-prep parsers and the pipeline post-processing logic
+(no Snakemake or conda env needed — just `pandas` and `pyyaml` in the active env):
+
+```bash
+pytest data-prep/tests Workflow/Scripts/tests UI/tests
+```
 
 ## Outputs
 
@@ -254,7 +263,7 @@ The defaults are good for a first run. Reach for these when you want to tune the
 
 When calibration runs, `{sample}/w_calibration/rnacalibrate.json` holds one `(xi, theta)` row per query miRNA, and RNAhybrid is invoked once per `(miRNA, target chunk)` pair with that miRNA's own parameters — so every p-value reflects its own null model rather than a population average. The static `rnahybrid.distribution` value is ignored whenever calibration runs.
 
-`rnacalibrate.randomize_targets` maps to RNAcalibrate's `-s` flag and should usually stay `false` unless you have confirmed it produces valid fits for your inputs.
+`rnacalibrate.randomize_targets` maps to RNAcalibrate's `-s` flag. With `-s` (`true`, the default), p-values are calibrated against random sequences generated from each target's dinucleotide distribution — a proper null model. With `false`, the real target sequences are used directly as the random database, which is usually **not** what you want. Keep it `true` unless you have a specific reason to calibrate against the targets themselves.
 
 ### Accessibility (IntaRNA arm)
 
@@ -268,7 +277,7 @@ The two variants differ **only** in `--acc=C` vs `--acc=N`; every other IntaRNA 
 
 The top-level `threads` maps to IntaRNA's native `--threads`. Unlike the RNAhybrid arm (which chunks targets across GNU Parallel), IntaRNA runs as a single multi-threaded process per sample.
 
-`intarna.output.columns` is the column whitelist passed to IntaRNA via `--outCsvCols`. The downstream `tidy_intarna` rule needs at least `id1, id2, start1, end1, start2, end2, E`; trimming below that breaks the arm. Keep `hybridDP` and `subseqDP` too if you want `enhance_intarna` to draw duplex visualizations.
+`intarna.output.columns` is the column whitelist passed to IntaRNA via `--outCsvCols`. `tidy_intarna` needs at least `id1, id2, start1, end1, start2, end2, E`. The **consensus** arm additionally uses the carried metadata (`E_hybrid, ED1, ED2, Pu1, Pu2, subseqDP, hybridDP, seedStart1..seedEnd2`); trimming those does not crash consensus (they are filled `NA` with a note), but the consensus table will lack them. Keep `hybridDP` and `subseqDP` if you want `enhance_intarna` duplex visualizations.
 
 > **YAML 1.1 gotcha:** bare `on`/`off` parse as Python `True`/`False`. The Snakefile coerces them back for **both** `accessibility_variant` and `calibration_variant`, so `variant: on` works — but the quoted `"on"`/`"off"` form is more portable.
 

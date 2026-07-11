@@ -21,7 +21,6 @@ Data/Raw/miRNAs/*
 Data/Raw/RNAs/*
 Data/Results/*
 
-data-prep/tests
 data-prep/config-for-server.yaml
 data-prep/*.txt
 

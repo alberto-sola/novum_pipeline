@@ -5,4 +5,4 @@ channels:
   - defaults
 dependencies:
   - python=3.11
-  - pandas
+  - pandas=3.0

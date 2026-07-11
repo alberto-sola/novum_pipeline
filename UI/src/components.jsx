@@ -670,7 +670,12 @@ function ActionsBar({
 }) {
   const queriesOk = cfg.queries.length >= 1 && cfg.queries.every((q) => q.key.trim() && q.path.trim());
   const targetsOk = cfg.targets.length >= 1 && cfg.targets.every((t) => t.key.trim() && t.path && t.path.trim());
-  const ready = queriesOk && targetsOk && cfg.results_dir.trim();
+  const queryKeys = cfg.queries.map((q) => (q.key || "").trim()).filter(Boolean);
+  const targetKeys = cfg.targets.map((t) => (t.key || "").trim()).filter(Boolean);
+  const missingInQueries = targetKeys.filter((k) => !queryKeys.includes(k));   // target key, no query
+  const extraInQueries = queryKeys.filter((k) => !targetKeys.includes(k));     // query key, no target
+  const keysMatch = missingInQueries.length === 0 && extraInQueries.length === 0;
+  const ready = queriesOk && targetsOk && keysMatch && cfg.results_dir.trim();
 
   const running = pipelineState === "running";
   const saving = savingState === "saving";
@@ -686,6 +691,15 @@ function ActionsBar({
       <div className="status">
         <span className="status-dot" />
         <span>Ready · {formatScope(cfg.queries.length, cfg.targets.length, cfg.threads)}</span>
+      </div>
+    );
+  } else if (queriesOk && targetsOk && !keysMatch) {
+    status = (
+      <div className="status">
+        <span className="status-dot warn" />
+        <span style={{ color: "var(--danger)" }}>
+          queries/targets keys must match · Missing in queries: [{missingInQueries.join(", ")}]; extra in queries: [{extraInQueries.join(", ")}]
+        </span>
       </div>
     );
   } else {
