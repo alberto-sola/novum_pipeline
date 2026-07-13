@@ -114,6 +114,21 @@ function DisableGroup({ disabled, className = "", children }) {
   );
 }
 
+// Inline advisory beside a group header. "muted" = inert but harmless;
+// "warn" = the config will actually misbehave (mirrors a backend validator).
+function InlineNote({ tone = "muted", children }) {
+  return (
+    <span style={{
+      fontSize: 11,
+      marginLeft: 8,
+      fontStyle: "italic",
+      color: tone === "warn" ? "var(--warn)" : "var(--fg-4)",
+    }}>
+      {children}
+    </span>
+  );
+}
+
 // Focus management for the run overlay and YAML drawer. On open: remember the
 // previously focused element, move focus inside, trap Tab, and (when onEscape
 // is supplied) close on Escape. On close: restore focus to where it was. Esc
@@ -794,7 +809,7 @@ function YAMLDrawer({ open, onClose, cfg, onSave }) {
 
 // export to window for other scripts
 Object.assign(window, {
-  Toggle, Subcard, PillGroup, PillToggle, SegmentedControl, DisableGroup, ErrorBoundary,
+  Toggle, Subcard, PillGroup, PillToggle, SegmentedControl, DisableGroup, InlineNote, ErrorBoundary,
   PathInput, KeyedFileRow,
   FolderIcon, PlusIcon, TrashIcon, CodeIcon, PlayIcon, SaveIcon, SunIcon, MoonIcon, CopyIcon,
   CheckIcon, XIcon, StopIcon,

@@ -2,27 +2,15 @@ import subprocess
 import sys
 
 from _common import which_required, ensure_parent
+from _intarna_config import (
+    INTARNA_DEFAULT_ENERGY_SET,
+    INTARNA_DEFAULT_MODEL,
+    derive_seed_from_string,
+    opt,
+)
 
 
 INTARNA_MAX_OUTNUMBER = 1000
-
-#----- Parses the shared top-level seed "x,y" into IntaRNA's seedBP+seedQRange shape; raises if the width is outside [2,20] -----#
-def _derive_seed_from_string(seed_str):
-    if seed_str is None:
-        return None
-    try:
-        parts = str(seed_str).split(",")
-        if len(parts) != 2:
-            raise ValueError
-        x, y = int(parts[0].strip()), int(parts[1].strip())
-    except ValueError:
-        raise ValueError(f"top-level seed must be 'x,y' integers, got: {seed_str!r}")
-    bp = y - x + 1
-    if not (2 <= bp <= 20):
-        raise ValueError(
-            f"top-level seed '{seed_str}' gives seedBP={bp}, which is outside IntaRNA's [2,20] range"
-        )
-    return {"length": bp, "query_range": f"{x}-{y}"}
 
 
 #----- Seed enforcement is inherited from the top-level `seed`: absent → --noSeed. When present, --seedBP/--seedQRange are derived; the remaining sub-keys are independent overrides -----#
@@ -70,6 +58,24 @@ def _add_accessibility_flags(cmd, acc):
         cmd.append("--accNoGUend")
 
 
+#----- Appends --helix* flags from the helix block, skipping null/false entries. Emitted unconditionally: IntaRNA ignores them under any model but B (verified), and the mismatch is reported by validate_intarna_config rather than by withholding flags -----#
+def _add_helix_flags(cmd, helix):
+    if not helix:
+        return
+    if helix.get("min_bp") is not None:
+        cmd.append(f"--helixMinBP={helix['min_bp']}")
+    if helix.get("max_bp") is not None:
+        cmd.append(f"--helixMaxBP={helix['max_bp']}")
+    if helix.get("max_internal_loop") is not None:
+        cmd.append(f"--helixMaxIL={helix['max_internal_loop']}")
+    if helix.get("min_unpaired_probability") is not None:
+        cmd.append(f"--helixMinPu={helix['min_unpaired_probability']}")
+    if helix.get("max_energy") is not None:
+        cmd.append(f"--helixMaxE={helix['max_energy']}")
+    if helix.get("full_energy"):
+        cmd.append("--helixFullE")
+
+
 #----- Appends --out* filtering flags; `max_suboptimal_hits` and `max_total_energy` come from the shared top-level config, the rest from intarna.output -----#
 def _add_output_flags(cmd, out, max_suboptimal_hits=None, max_total_energy=None):
     if max_total_energy is not None:
@@ -113,20 +119,23 @@ def build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hit
 
     # Interaction model (applies to both variants)
     cmd += [
-        f"--mode={cfg.get('prediction_mode', 'H')}",
-        f"--model={cfg.get('model', 'S')}",
-        f"--intLenMax={cfg.get('max_interaction_length', 0)}",
-        f"--intLoopMax={cfg.get('max_loop_size', 10)}",
+        f"--mode={opt(cfg, 'prediction_mode', 'H')}",
+        f"--model={opt(cfg, 'model', INTARNA_DEFAULT_MODEL)}",
+        f"--energyVRNA={opt(cfg, 'energy_set', INTARNA_DEFAULT_ENERGY_SET)}",
+        f"--intLenMax={opt(cfg, 'max_interaction_length', 0)}",
+        f"--intLoopMax={opt(cfg, 'max_loop_size', 10)}",
     ]
 
     # Seed (inherited from the top-level seed; null → --noSeed)
     _add_seed_flags(cmd, cfg.get("seed") or {}, derived_seed=derived_seed)
 
+    # Helix (only honoured under --model=B, but harmless to pass always)
+    _add_helix_flags(cmd, cfg.get("helix") or {})
+
     # Accessibility (only meaningful when --acc=C, but harmless to pass always)
     _add_accessibility_flags(cmd, cfg.get("accessibility") or {})
 
     _add_output_flags(cmd, cfg.get("output") or {}, max_suboptimal_hits=max_suboptimal_hits, max_total_energy=max_total_energy)
-    cmd += list(cfg.get("extra_args") or [])
 
     return cmd
 
@@ -140,7 +149,7 @@ def run_intarna(query, target, out_path, acc, cfg, threads, max_suboptimal_hits,
 
 #----- Snakemake entry point: unpacks the injected `snakemake` object and calls the pure logic above -----#
 def run_from_snakemake(snakemake):
-    derived_seed = _derive_seed_from_string(snakemake.params.seed)
+    derived_seed = derive_seed_from_string(snakemake.params.seed)
     run_intarna(
         query=snakemake.input.query,
         target=snakemake.input.target,

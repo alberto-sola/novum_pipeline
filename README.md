@@ -198,7 +198,7 @@ RNAhybrid's own parameters — background species model, loop-size limits, p-val
 intarna:
 ```
 
-IntaRNA's parameters, including whether to apply accessibility correction, the prediction mode and model, and detailed seed / accessibility / output sub-blocks. See [Accessibility](#accessibility-intarna-arm) and [Seed handling](#seed-handling).
+IntaRNA's parameters, including whether to apply accessibility correction, the prediction mode, the interaction model, and the Nearest-Neighbor energy table (`energy_set`: `Turner99`, `Turner04`, or `Andronescu07`), plus detailed helix / seed / accessibility / output sub-blocks. The `helix.*` keys apply **only** under `model: B` and are ignored otherwise. See [Helix block](#helix-block-intarna-arm), [Accessibility](#accessibility-intarna-arm), and [Seed handling](#seed-handling).
 
 ```yaml
 #----- Parameters for plots (optional) -----#
@@ -273,11 +273,21 @@ When calibration runs, `{sample}/w_calibration/rnacalibrate.json` holds one `(xi
 - **`"off"`** — no accessibility correction (`--acc=N`). Outputs land under `{sample}/wo_accessibility/`.
 - **`"both"`** — produces both trees in one run.
 
-The two variants differ **only** in `--acc=C` vs `--acc=N`; every other IntaRNA key (`prediction_mode`, `model`, `max_interaction_length`, `max_loop_size`, `seed.*`, `accessibility.*`) applies to both. The `accessibility.*` flags are still passed under `--acc=N` (where they're a no-op) so the command line stays consistent.
+The two variants differ **only** in `--acc=C` vs `--acc=N`; every other IntaRNA key (`prediction_mode`, `model`, `energy_set`, `max_interaction_length`, `max_loop_size`, `helix.*`, `seed.*`, `accessibility.*`) applies to both. The `accessibility.*` flags are still passed under `--acc=N` (where they're a no-op) so the command line stays consistent.
+
+One helix key is variant-sensitive: `helix.min_unpaired_probability` (`--helixMinPu`) is **completely inert** under `--acc=N`, but bites hard under `--acc=C` — at `0.9` it eliminated every interaction in testing. The UI greys it out when the accessibility variant is `off`.
 
 The top-level `threads` maps to IntaRNA's native `--threads`. Unlike the RNAhybrid arm (which chunks targets across GNU Parallel), IntaRNA runs as a single multi-threaded process per sample.
 
 `intarna.output.columns` is the column whitelist passed to IntaRNA via `--outCsvCols`. `tidy_intarna` needs at least `id1, id2, start1, end1, start2, end2, E`. The **consensus** arm additionally uses the carried metadata (`E_hybrid, ED1, ED2, Pu1, Pu2, subseqDP, hybridDP, seedStart1..seedEnd2`); trimming those does not crash consensus (they are filled `NA` with a note), but the consensus table will lack them. Keep `hybridDP` and `subseqDP` if you want `enhance_intarna` duplex visualizations.
+
+### Helix block (IntaRNA arm)
+
+`intarna.model: B` selects IntaRNA's **helix-block** model, which decomposes an interaction into short stable helices — each at most `helix.max_bp` base pairs — joined by flexible interior loops, instead of extending a single seed. The six `intarna.helix.*` keys tune that decomposition, and they are **ignored under every other model** (`X`, `S`, `P`): a maximally restrictive helix block leaves the predicted energy unchanged under all three. Snakemake warns at start-up if you set them under the wrong model, and the UI greys the whole group out.
+
+Model `B` is not a cosmetic switch. On a test duplex it predicted −30.3 kcal/mol where the default `X` gave −36.4, with no helix keys set at all.
+
+**The seed must fit inside one helix.** IntaRNA hard-errors when the derived `--seedBP` exceeds `--helixMaxBP`, so the pipeline checks it itself and fails at DAG-build time — before the RNAhybrid arm burns an hour — with a message naming the config keys rather than the IntaRNA flags. Remember that the top-level `seed: x,y` derives `seedBP = y − x + 1` (so the shipped `seed: 2,7` is **6** base pairs, not 7). Both directions are reachable: widen the seed past `helix.max_bp`, or lower `helix.max_bp` below the seed's width. If you lower `helix.max_bp`, keep it ≥ the seed width.
 
 > **YAML 1.1 gotcha:** bare `on`/`off` parse as Python `True`/`False`. The Snakefile coerces them back for **both** `accessibility_variant` and `calibration_variant`, so `variant: on` works — but the quoted `"on"`/`"off"` form is more portable.
 

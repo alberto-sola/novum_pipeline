@@ -43,8 +43,17 @@ window.configToObject = function configToObject(cfg) {
     accessibility_variant: it.accessibility_variant,
     prediction_mode: it.prediction_mode,
     model: it.model,
+    energy_set: it.energy_set,
     max_interaction_length: it.max_interaction_length,
     max_loop_size: it.max_loop_size,
+    helix: {
+      // Written even while greyed out (model !== "B"), so toggling the model to compare
+      // arms never destroys the user's tuning; intarna.py warns that they are inert.
+      ...Object.fromEntries(
+        window.INTARNA_HELIX_NULLABLE_KEYS.map((k) => [k, _nullableValue(it.helix[k], false)])
+      ),
+      full_energy: it.helix.full_energy,
+    },
     seed: {
       max_energy: _nullableValue(it.seed.max_energy, false),
       max_hybrid_energy: _nullableValue(it.seed.max_hybrid_energy, false),
@@ -69,7 +78,6 @@ window.configToObject = function configToObject(cfg) {
       forbid_gu_at_ends: it.output.forbid_gu_at_ends,
       columns: window.INTARNA_OUTPUT_COLUMNS_DEFAULT,
     },
-    extra_args: [],
   };
 
   const pl = cfg.plots;
@@ -159,6 +167,13 @@ window.hydrateConfig = function hydrateConfig(raw) {
     if (ri.model != null) ci.model = ri.model;
     if (ri.max_interaction_length != null) ci.max_interaction_length = ri.max_interaction_length;
     if (ri.max_loop_size != null) ci.max_loop_size = ri.max_loop_size;
+    if (ri.energy_set != null) ci.energy_set = ri.energy_set;
+    if (ri.helix) {
+      window.INTARNA_HELIX_NULLABLE_KEYS.forEach((k) => {
+        ci.helix[k] = _toNullableScalar(ri.helix[k], ci.helix[k].value);
+      });
+      if (ri.helix.full_energy != null) ci.helix.full_energy = ri.helix.full_energy;
+    }
     if (ri.seed) {
       ci.seed.max_energy = _toNullableScalar(ri.seed.max_energy, ci.seed.max_energy.value);
       ci.seed.max_hybrid_energy = _toNullableScalar(ri.seed.max_hybrid_energy, ci.seed.max_hybrid_energy.value);

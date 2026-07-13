@@ -1,16 +1,18 @@
 #----- miRNAs (one query FASTA per target sample, joined by key) -----#
 queries:
-  bacteroides_thetaiotaomicron: Data/Raw/RNAs/bacteroides_thetaiotaomicron.fa
+  escherichia_coli: Data/Raw/RNAs/escherichia_coli.fa
+  fusobacterium_nucleatum: Data/Raw/RNAs/fusobacterium_nucleatum.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  bacteroides_thetaiotaomicron: Data/Raw/genomes/GCF_014131755.1_ASM1413175v1_cds_from_genomic.fna
+  escherichia_coli: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic.fna
+  fusobacterium_nucleatum: Data/Raw/genomes/GCF_003019295.1_ASM301929v1_cds_from_genomic.fna
 
 #----- Shared by both arms -----#
 threads: 16
-max_suboptimal_hits: null             # null → keep every hit below max_total_energy, per pair, on BOTH arms
-max_total_energy: -20                 # Energy cutoff. IntaRNA filters total E (incl. accessibility ED1+ED2);
-seed: null                            # RNAhybrid filters pure hybridization energy. Equal only when accessibility off.
+max_suboptimal_hits: 3                # null → keep every hit below max_total_energy, per pair, on BOTH arms
+max_total_energy: -18                 # Energy cutoff. IntaRNA filters total E (incl. accessibility ED1+ED2);
+seed: 2,7                             # RNAhybrid filters pure hybridization energy. Equal only when accessibility off.
                                       # Forced seed as "x,y" query positions; drives BOTH arms.
                                       # RNAhybrid → -f x,y ; IntaRNA → --seedBP/--seedQRange/--seedMaxUP=0.
                                       # null → no seed on either arm (IntaRNA emits --noSeed).
@@ -25,8 +27,8 @@ rnacalibrate:
 #----- Parameters for RNAhybrid -----#
 rnahybrid:
   species: 3utr_human
-  max_internal_loop: null
-  max_bulge_loop: null
+  max_internal_loop: 4
+  max_bulge_loop: 4
   pvalue_threshold: null
   distribution: null
 
@@ -35,8 +37,17 @@ intarna:
   accessibility_variant: on           # "on" | "off" | "both"
   prediction_mode: H                  # H heuristic | M exact | S seed-only
   model: X                            # X seed-extension | S legacy | B helix-block | P ensemble
+  energy_set: Turner04                # --energyVRNA  Turner99 | Turner04 | Andronescu07
   max_interaction_length: 0           # 0 = auto (min of seq length, accW)
-  max_loop_size: 10
+  max_loop_size: 4
+
+  helix:                              # ONLY applies when model: B (helix-block). Ignored under X/S/P.
+    min_bp: null                      # --helixMinBP  (default 2,  range [2,4])
+    max_bp: null                      # --helixMaxBP  (default 10, range [2,20]); must be >= the seed width
+    max_internal_loop: null           # --helixMaxIL  (default 0 = pure stacks, range [0,2])
+    min_unpaired_probability: null    # --helixMinPu  (inert when accessibility_variant: off)
+    max_energy: null                  # --helixMaxE   (default 0 = a helix must be stabilizing)
+    full_energy: false                # --helixFullE  makes max_energy count E_init, ED, dangling ends
 
   seed:                               # enabled / length / query_range are inherited from the top-level `seed`.
     max_energy: null                  # --seedMaxE
@@ -61,8 +72,6 @@ intarna:
     forbid_lonely_pairs: false        # --outNoLP
     forbid_gu_at_ends: false          # --outNoGUend
     columns: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
-
-  extra_args: []                      # Escape hatch: appended verbatim (e.g. helix-block flags, --accFile, --qRegion)
 
 #----- Parameters for plots (optional; omit or set type: null to skip) -----#
 plots:

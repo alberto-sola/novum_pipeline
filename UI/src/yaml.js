@@ -93,8 +93,17 @@ window.buildYAML = function buildYAML(cfg) {
   lines.push({ t: "nested", indent: 2, k: "accessibility_variant",  v: it.accessibility_variant,  kind: "str" });
   lines.push({ t: "nested", indent: 2, k: "prediction_mode",        v: it.prediction_mode,        kind: "str" });
   lines.push({ t: "nested", indent: 2, k: "model",                  v: it.model,                  kind: "str" });
+  lines.push({ t: "nested", indent: 2, k: "energy_set",             v: it.energy_set,             kind: "str" });
   lines.push({ t: "nested", indent: 2, k: "max_interaction_length", v: it.max_interaction_length, kind: "num" });
   lines.push({ t: "nested", indent: 2, k: "max_loop_size",          v: it.max_loop_size,          kind: "num" });
+  lines.push({ t: "blank" });
+
+  // helix sub-block — honoured only under model B (see intarna.py:validate_intarna_config)
+  lines.push({ t: "nested", indent: 2, k: "helix", v: "", kind: "bare" });
+  window.INTARNA_HELIX_NULLABLE_KEYS.forEach((key) => {
+    lines.push(nullableLineAt(4, key, it.helix[key], false));
+  });
+  lines.push({ t: "nested", indent: 4, k: "full_energy", v: it.helix.full_energy, kind: "bool" });
   lines.push({ t: "blank" });
 
   // seed sub-block. enabled/length/query_range are inherited from the top-level
@@ -126,11 +135,6 @@ window.buildYAML = function buildYAML(cfg) {
   lines.push({ t: "nested", indent: 4, k: "forbid_lonely_pairs", v: it.output.forbid_lonely_pairs, kind: "bool" });
   lines.push({ t: "nested", indent: 4, k: "forbid_gu_at_ends",   v: it.output.forbid_gu_at_ends,   kind: "bool" });
   lines.push({ t: "nested", indent: 4, k: "columns", v: window.INTARNA_OUTPUT_COLUMNS_DEFAULT, kind: "str" });
-  lines.push({ t: "blank" });
-
-  // extra_args is a UI escape hatch; always emitted as an empty list.
-  lines.push({ t: "nested", indent: 2, k: "extra_args", v: "", kind: "bare" });
-  lines.push({ t: "empty_list", indent: 4 });
   lines.push({ t: "blank" });
 
   // plots block (was build_plots; pvalue → pvalue_threshold)

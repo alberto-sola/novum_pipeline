@@ -334,13 +334,17 @@ function RNAHybridSection({ cfg, setCfg }) {
 // 6. IntaRNA
 function IntaRNASection({ cfg, setCfg }) {
   const it = cfg.intarna;
-  const set     = (patch) => setCfg({ ...cfg, intarna: { ...it, ...patch } });
-  const setSeed = (patch) => set({ seed:          { ...it.seed,          ...patch } });
-  const setAcc  = (patch) => set({ accessibility: { ...it.accessibility, ...patch } });
-  const setOut  = (patch) => set({ output:        { ...it.output,        ...patch } });
+  const set      = (patch) => setCfg({ ...cfg, intarna: { ...it, ...patch } });
+  const setSeed  = (patch) => set({ seed:          { ...it.seed,          ...patch } });
+  const setHelix = (patch) => set({ helix:         { ...it.helix,         ...patch } });
+  const setAcc   = (patch) => set({ accessibility: { ...it.accessibility, ...patch } });
+  const setOut   = (patch) => set({ output:        { ...it.output,        ...patch } });
 
   const accInert     = it.accessibility_variant === "off";
-  const seedEnforced = window.isSeedEnforced(cfg);   // enforcement follows the shared seed
+  const seedEnforced = window.isSeedEnforced(cfg);    // enforcement follows the shared seed
+  const helixActive  = window.isHelixActive(cfg);     // helix reaches IntaRNA only under model B
+  const helixInert   = window.helixInertKeys(cfg);    // mirrors backend validator (c)
+  const seedConflict = window.helixSeedConflict(cfg); // mirrors backend validator (a)
   const nullHint     = "null · let IntaRNA decide";
 
   return (
@@ -383,6 +387,17 @@ function IntaRNASection({ cfg, setCfg }) {
               ))}
             </select>
           </Subcard>
+          <Subcard label="Energy set" hint="Nearest-Neighbor table">
+            <select
+              className="select"
+              value={it.energy_set}
+              onChange={(e) => set({ energy_set: e.target.value })}
+            >
+              {window.INTARNA_ENERGY_SETS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </Subcard>
           <Subcard label="Max interaction length" hint="0 = auto">
             <input
               className="input mono"
@@ -403,6 +418,49 @@ function IntaRNASection({ cfg, setCfg }) {
               onChange={(e) => set({ max_loop_size: Number(e.target.value) })}
             />
           </Subcard>
+        </div>
+
+        <div>
+          <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
+            <div className="eyebrow strong">Helix</div>
+            {!helixActive && (helixInert.length > 0 ? (
+              <InlineNote tone="warn">
+                · {helixInert.join(", ")} set but ignored under model {it.model}
+              </InlineNote>
+            ) : (
+              <InlineNote>· model is {it.model} — helix applies only to model B</InlineNote>
+            ))}
+            {seedConflict && (
+              <InlineNote tone="warn">
+                · seed needs {seedConflict.seedBP} bp but max bp is {seedConflict.maxBP} — IntaRNA will fail
+              </InlineNote>
+            )}
+          </div>
+          <DisableGroup disabled={!helixActive} className="stack sm">
+            <div className="grid-2">
+              <NullableField name="Min bp" doc="[2..4]" kind="integer"
+                min={2} max={4} nullHint={nullHint}
+                value={it.helix.min_bp} onChange={(v) => setHelix({ min_bp: v })} />
+              <NullableField name="Max bp" doc="[2..20]" kind="integer"
+                min={2} max={20} nullHint={nullHint}
+                value={it.helix.max_bp} onChange={(v) => setHelix({ max_bp: v })} />
+              <NullableField name="Max internal loop" doc="[0..2], 0 = pure stacks" kind="integer"
+                min={0} max={2} nullHint={nullHint}
+                value={it.helix.max_internal_loop} onChange={(v) => setHelix({ max_internal_loop: v })} />
+              <NullableField name="Max energy" doc="kcal/mol"
+                nullHint={nullHint}
+                value={it.helix.max_energy} onChange={(v) => setHelix({ max_energy: v })} />
+              <DisableGroup disabled={accInert}>
+                <NullableField name="Min unpaired probability" doc="[0..1]"
+                  min={0} max={1} nullHint={nullHint}
+                  value={it.helix.min_unpaired_probability} onChange={(v) => setHelix({ min_unpaired_probability: v })} />
+              </DisableGroup>
+            </div>
+            <PillGroup label="Constraints">
+              <PillToggle on={it.helix.full_energy} onChange={(v) => setHelix({ full_energy: v })}
+                label="Full helix energy (max energy counts E_init, ED, dangles)" />
+            </PillGroup>
+          </DisableGroup>
         </div>
 
         <div>
@@ -443,9 +501,7 @@ function IntaRNASection({ cfg, setCfg }) {
           <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
             <div className="eyebrow strong">Accessibility</div>
             {accInert && (
-              <span style={{ fontSize: 11, color: "var(--fg-4)", marginLeft: 8, fontStyle: "italic" }}>
-                · variant is Off — flags below are sent but ignored
-              </span>
+              <InlineNote>· variant is Off — flags below are sent but ignored</InlineNote>
             )}
           </div>
           <DisableGroup disabled={accInert} className="stack sm">

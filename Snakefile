@@ -1,3 +1,6 @@
+import os
+import sys
+
 #----- Handle to the config file -----#
 configfile: "Config/config.yaml"
 
@@ -79,6 +82,17 @@ intarna_variants = variants_for_mode(
     _variant_mode(intarna_config, "accessibility_variant"),
     _ACCESSIBILITY_VARIANTS, "intarna.accessibility_variant",
 )
+
+#----- IntaRNA config validation at DAG-build time, so a bad config fails before the
+#      hour-long RNAhybrid arm starts. _intarna_config is stdlib-only by contract: it is
+#      imported here into the Snakemake DRIVER env, which ships none of the arms'
+#      scientific deps. Never import a script that ends in run_from_snakemake() instead. -----#
+sys.path.insert(0, os.path.join(workflow.basedir, "Workflow", "Scripts"))
+from _intarna_config import validate_intarna_config
+
+for _warning in validate_intarna_config(intarna_config, shared_seed):
+    logger.warning(_warning)
+
 
 RNAHYBRID_VARIANT_RE = f"{W_CALIBRATION}|{WO_CALIBRATION}"
 INTARNA_VARIANT_RE   = f"{W_ACCESSIBILITY}|{WO_ACCESSIBILITY}"
