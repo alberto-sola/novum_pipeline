@@ -61,13 +61,21 @@ class API:
         self._log_fh = None
         self._reset_run_state()
 
-    #----- Resets the run/latch fields to the idle state (shared by init and acknowledge) -----#
-    def _reset_run_state(self) -> None:
-        self._proc: subprocess.Popen | None = None
-        self._started_at: float | None = None
+    #----- _reset_run_state also drops the process handle (idle); _arm_run_state keeps it
+    #      and starts the clock for a fresh run. -----#
+    def _clear_run_latches(self) -> None:
         self._finished_at: float | None = None
         self._returncode: int | None = None
         self._cancelled = False
+
+    def _reset_run_state(self) -> None:
+        self._proc: subprocess.Popen | None = None
+        self._started_at: float | None = None
+        self._clear_run_latches()
+
+    def _arm_run_state(self) -> None:
+        self._started_at = time.time()
+        self._clear_run_latches()
 
     #----- file pickers used by the React form -----#
 
@@ -89,7 +97,6 @@ class API:
             return {"ok": False, "error": str(exc)}
 
     #----- pipeline lifecycle -----#
-
     def _is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
@@ -140,10 +147,7 @@ class API:
             except FileNotFoundError as exc:
                 self._close_log()
                 return {"ok": False, "error": f"snakemake not found on PATH ({exc})"}
-            self._started_at = time.time()
-            self._finished_at = None
-            self._returncode = None
-            self._cancelled = False
+            self._arm_run_state()
             return {
                 "ok": True,
                 "pid": self._proc.pid,
@@ -226,21 +230,6 @@ def main() -> None:
         min_size=(min_w, 1),
     )
 
-    #----- Applies Qt's advisory min-width hint once the native widget exists -----#
-    # The hint alone doesn't hold on WSLg (the compositor lets the user drag past it),
-    # so the `resized` snap-back below does the real enforcement.
-    def _set_min_width_hint(*_args) -> None:
-        widget = getattr(window, "native", None)
-        if widget is None:
-            print("[launcher] min-width: window.native is None; constraint not applied")
-            return
-        top = widget.window() if hasattr(widget, "window") and callable(widget.window) else widget
-        if hasattr(top, "setMinimumWidth"):
-            top.setMinimumWidth(min_w)
-            print(f"[launcher] min-width {min_w} hint set on {type(top).__name__}")
-        else:
-            print(f"[launcher] min-width: {type(top).__name__} has no setMinimumWidth")
-
     #----- Snaps sub-floor widths back to min_w, debounced so the correction fires once -----#
     # Firing on every resize during a drag makes the window drift in the pull direction,
     # since each resize() re-anchors to the just-moved top-left; waiting for the drag to
@@ -276,7 +265,6 @@ def main() -> None:
         timer.daemon = True
         timer.start()
 
-    window.events.shown += _set_min_width_hint
     window.events.resized += _snap_back
 
     # Force the Qt backend on Linux: the GTK backend needs system PyGObject

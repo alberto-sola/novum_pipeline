@@ -20,11 +20,11 @@ function App() {
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(null);
 
-  const [savingState, setSavingState] = useState("idle");
+  const [saving, setSaving] = useState(false);
   const [pipelineStatus, setPipelineStatus] = useState(null);
-  const [overlayOpen, setOverlayOpen] = useState(false);
 
   const pipelineState = pipelineStatus?.state ?? "idle";
+  const overlayOpen = pipelineStatus !== null;
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
@@ -53,9 +53,9 @@ function App() {
   };
 
   const save = async () => {
-    if (savingState === "saving") return;
+    if (saving) return;
     const api = window.pywebview?.api;
-    setSavingState("saving");
+    setSaving(true);
     try {
       if (!api) {
         showToast("Preview mode · nothing written");
@@ -65,7 +65,7 @@ function App() {
       if (res?.ok) showToast(`Saved to ${res.path}`, "success");
       else showToast(`Save failed · ${res?.error || "unknown error"}`, "danger");
     } finally {
-      setSavingState("idle");
+      setSaving(false);
     }
   };
 
@@ -87,7 +87,6 @@ function App() {
         return;
       }
     }
-    setOverlayOpen(true);
     setPipelineStatus({ state: "running", elapsed: 0 });
     const res = await api.run_pipeline(window.configToObject(cfg));
     if (!res?.ok) {
@@ -104,7 +103,6 @@ function App() {
   const dismissOverlay = async () => {
     const api = window.pywebview?.api;
     if (api?.acknowledge_pipeline) await api.acknowledge_pipeline();
-    setOverlayOpen(false);
     setPipelineStatus(null);
   };
 
@@ -165,7 +163,7 @@ function App() {
             onTheme={setTheme}
             pipelineState={pipelineState}
             elapsed={pipelineStatus?.elapsed}
-            savingState={savingState}
+            saving={saving}
           />
           <YAMLDrawer open={yamlOpen} onClose={() => setYamlOpen(false)} cfg={cfg} onSave={save} />
           <RunOverlay

@@ -7,7 +7,7 @@ function SectionCard({ num, title, sub, anchor, children, right }) {
         <div className="num">{num}</div>
         <div className="title">{title}</div>
         <div className="sub">{sub}</div>
-        <div style={{ flex: 1 }} />
+        <div className="spacer" />
         {right}
       </div>
       <div className="card-body">{children}</div>
@@ -18,7 +18,7 @@ function SectionCard({ num, title, sub, anchor, children, right }) {
 // 1. Queries (miRNA FASTAs, keyed)
 function QueriesSection({ cfg, setCfg }) {
   const { items, hasApi } = useApiList("list_queries");
-  const { add, update, remove } = useListEditor(
+  const { add, update, remove } = makeListEditor(
     cfg.queries,
     (next) => setCfg({ ...cfg, queries: next }),
     () => ({ id: "q" + Date.now().toString(36), key: "", path: "" }),
@@ -41,7 +41,7 @@ function QueriesSection({ cfg, setCfg }) {
           {!hasApi && <span></span>}
         </div>
         {cfg.queries.length === 0 && (
-          <div style={{ fontSize: 12, color: "var(--fg-4)", fontStyle: "italic", padding: "8px 2px" }}>
+          <div className="hint italic" style={{ padding: "8px 2px" }}>
             No queries yet — click <b>Add query</b>.
           </div>
         )}
@@ -60,7 +60,7 @@ function QueriesSection({ cfg, setCfg }) {
             emptyHint="No files in Data/Raw/RNAs/"
           />
         ))}
-        <div style={{ fontSize: 12, color: "var(--fg-4)", paddingTop: 4 }}>
+        <div className="hint" style={{ paddingTop: 4 }}>
           {cfg.queries.length} quer{cfg.queries.length === 1 ? "y" : "ies"} · keys must match target keys
         </div>
       </div>
@@ -71,7 +71,7 @@ function QueriesSection({ cfg, setCfg }) {
 // 2. Targets — keyed (CDS / RNAs / full genomes)
 function TargetsSection({ cfg, setCfg }) {
   const { items, hasApi } = useApiList("list_targets");
-  const { add, update, remove } = useListEditor(
+  const { add, update, remove } = makeListEditor(
     cfg.targets,
     (next) => setCfg({ ...cfg, targets: next }),
     () => ({ id: "t" + Date.now().toString(36), key: "", path: "" }),
@@ -95,7 +95,7 @@ function TargetsSection({ cfg, setCfg }) {
           {!hasApi && <span></span>}
         </div>
         {cfg.targets.length === 0 && (
-          <div style={{ fontSize: 12, color: "var(--fg-4)", fontStyle: "italic", padding: "8px 2px" }}>
+          <div className="hint italic" style={{ padding: "8px 2px" }}>
             No targets yet — click <b>Add target</b>.
           </div>
         )}
@@ -115,7 +115,7 @@ function TargetsSection({ cfg, setCfg }) {
                 placeholderPath="Data/Raw/genomes/*.fna"
                 emptyHint="No files in Data/Raw/genomes/"
               />
-              <div style={{ fontSize: 12, color: t.key && !keyMatched ? "var(--warn)" : "var(--fg-4)", padding: "2px 4px" }}>
+              <div className={`hint ${t.key && !keyMatched ? "warn" : ""}`} style={{ padding: "2px 4px" }}>
                 {t.key
                   ? (keyMatched
                       ? <span>✓ matches query <code style={{ fontFamily: "var(--font-mono)" }}>{t.key}</code></span>
@@ -125,7 +125,7 @@ function TargetsSection({ cfg, setCfg }) {
             </div>
           );
         })}
-        <div style={{ fontSize: 12, color: "var(--fg-4)", paddingTop: 4 }}>
+        <div className="hint" style={{ paddingTop: 4 }}>
           {cfg.targets.length} target{cfg.targets.length === 1 ? "" : "s"}
         </div>
       </div>
@@ -155,16 +155,17 @@ function SharedParamsSection({ cfg, setCfg }) {
             onChange={(e) => set({ threads: Number(e.target.value) })}
           />
         </Subcard>
+        {/* "auto", not "loose": a null here means each arm falls back to its own default. */}
         <NullableField name="Max suboptimal hits" kind="integer"
-          min={1}
+          min={1} nullHint="null · auto"
           value={cfg.max_suboptimal_hits}
           onChange={(v) => setNullable("max_suboptimal_hits", v)} />
         <NullableField name="Max total energy" doc="kcal/mol"
-          max={0}
+          max={0} nullHint="null · auto"
           value={cfg.max_total_energy}
           onChange={(v) => setNullable("max_total_energy", v)} />
-        <NullableField name="Seed" doc="nucleotides <start>,<end>" kind="pair"
-          min={1}
+        <NullableField name="Seed" doc="nucleotides start,end" kind="pair"
+          min={1} nullHint="null · auto"
           pairLabels={["start nt", "end nt"]}
           value={cfg.seed}
           onChange={(v) => setNullable("seed", v)} />
@@ -200,7 +201,7 @@ function RNACalibrateSection({ cfg, setCfg }) {
       <div className="stack lg">
         <Subcard label="Calibration variant">
           <SegmentedControl
-            options={window.CALIBRATE_MODES}
+            options={window.VARIANT_MODES}
             value={r.calibration_variant}
             onChange={(v) => set({ calibration_variant: v })}
             ariaLabel="Calibration variant"
@@ -273,7 +274,6 @@ function RNAHybridSection({ cfg, setCfg }) {
   const set = (patch) => setCfg({ ...cfg, rnahybrid: { ...r, ...patch } });
   const setF = (key, next) => set({ [key]: next });
   const distLocked = window.isDistributionForced(cfg);
-  const nullHint = "null · let RNAhybrid decide";
 
   return (
     <SectionCard
@@ -308,17 +308,17 @@ function RNAHybridSection({ cfg, setCfg }) {
         )}
 
         <div className="grid-2">
-          <NullableField name="Max internal loop" kind="integer"
-            min={0} nullHint={nullHint}
+          <NullableField name="Max internal loop" doc="nt" kind="integer"
+            min={0}
             value={r.max_internal_loop} onChange={(v) => setF("max_internal_loop", v)} />
-          <NullableField name="Max bulge loop" kind="integer"
-            min={0} nullHint={nullHint}
+          <NullableField name="Max bulge loop" doc="nt" kind="integer"
+            min={0}
             value={r.max_bulge_loop} onChange={(v) => setF("max_bulge_loop", v)} />
           <NullableField name="p-value threshold"
-            min={0} nullHint={nullHint}
+            min={0}
             value={r.pvalue_threshold} onChange={(v) => setF("pvalue_threshold", v)} />
-          <NullableField name="Distribution" doc="<mean>,<std>" kind="pair"
-            min={0} nullHint={nullHint}
+          <NullableField name="Distribution" doc="mean,std" kind="pair"
+            min={0}
             pairLabels={["mean", "std"]}
             value={r.distribution}
             onChange={(v) => setF("distribution", v)}
@@ -340,12 +340,11 @@ function IntaRNASection({ cfg, setCfg }) {
   const setAcc   = (patch) => set({ accessibility: { ...it.accessibility, ...patch } });
   const setOut   = (patch) => set({ output:        { ...it.output,        ...patch } });
 
-  const accInert     = it.accessibility_variant === "off";
-  const seedEnforced = window.isSeedEnforced(cfg);    // enforcement follows the shared seed
-  const helixActive  = window.isHelixActive(cfg);     // helix reaches IntaRNA only under model B
-  const helixInert   = window.helixInertKeys(cfg);    // mirrors backend validator (c)
+  const accInert    = it.accessibility_variant === "off";
+  const seedEnforced = window.isSeedEnforced(cfg);                         // enforcement follows the shared seed
+  const helixActive = window.isHelixActive(cfg);                   // helix reaches IntaRNA only under model B
+  const helixInert   = window.helixInertKeys(cfg);                  // mirrors backend validator (c)
   const seedConflict = window.helixSeedConflict(cfg); // mirrors backend validator (a)
-  const nullHint     = "null · let IntaRNA decide";
 
   return (
     <SectionCard
@@ -357,7 +356,7 @@ function IntaRNASection({ cfg, setCfg }) {
       <div className="stack lg">
         <Subcard label="Accessibility variant">
           <SegmentedControl
-            options={window.INTARNA_ACC_MODES}
+            options={window.VARIANT_MODES}
             value={it.accessibility_variant}
             onChange={(v) => set({ accessibility_variant: v })}
             ariaLabel="Accessibility variant"
@@ -398,26 +397,14 @@ function IntaRNASection({ cfg, setCfg }) {
               ))}
             </select>
           </Subcard>
-          <Subcard label="Max interaction length" hint="0 = auto">
-            <input
-              className="input mono"
-              type="number"
-              min={0}
-              step="1"
-              value={it.max_interaction_length}
-              onChange={(e) => set({ max_interaction_length: Number(e.target.value) })}
-            />
-          </Subcard>
-          <Subcard label="Max loop size">
-            <input
-              className="input mono"
-              type="number"
-              min={0}
-              step="1"
-              value={it.max_loop_size}
-              onChange={(e) => set({ max_loop_size: Number(e.target.value) })}
-            />
-          </Subcard>
+          <NullableField name="Max interaction length" doc="nt" kind="integer"
+            min={0} autoTag="AUTO (0)"
+            value={it.max_interaction_length}
+            onChange={(v) => set({ max_interaction_length: v })} />
+          <NullableField name="Max loop size" doc="unpaired nt" kind="integer"
+            min={0} autoTag="AUTO (10)"
+            value={it.max_loop_size}
+            onChange={(v) => set({ max_loop_size: v })} />
         </div>
 
         <div>
@@ -428,7 +415,7 @@ function IntaRNASection({ cfg, setCfg }) {
                 · {helixInert.join(", ")} set but ignored under model {it.model}
               </InlineNote>
             ) : (
-              <InlineNote>· model is {it.model} — helix applies only to model B</InlineNote>
+              <InlineNote>· Applies only to model B</InlineNote>
             ))}
             {seedConflict && (
               <InlineNote tone="warn">
@@ -439,20 +426,20 @@ function IntaRNASection({ cfg, setCfg }) {
           <DisableGroup disabled={!helixActive} className="stack sm">
             <div className="grid-2">
               <NullableField name="Min bp" doc="[2..4]" kind="integer"
-                min={2} max={4} nullHint={nullHint}
+                min={2} max={4}
                 value={it.helix.min_bp} onChange={(v) => setHelix({ min_bp: v })} />
               <NullableField name="Max bp" doc="[2..20]" kind="integer"
-                min={2} max={20} nullHint={nullHint}
+                min={2} max={20}
                 value={it.helix.max_bp} onChange={(v) => setHelix({ max_bp: v })} />
               <NullableField name="Max internal loop" doc="[0..2], 0 = pure stacks" kind="integer"
-                min={0} max={2} nullHint={nullHint}
+                min={0} max={2}
                 value={it.helix.max_internal_loop} onChange={(v) => setHelix({ max_internal_loop: v })} />
               <NullableField name="Max energy" doc="kcal/mol"
-                nullHint={nullHint}
+               
                 value={it.helix.max_energy} onChange={(v) => setHelix({ max_energy: v })} />
               <DisableGroup disabled={accInert}>
                 <NullableField name="Min unpaired probability" doc="[0..1]"
-                  min={0} max={1} nullHint={nullHint}
+                  min={0} max={1}
                   value={it.helix.min_unpaired_probability} onChange={(v) => setHelix({ min_unpaired_probability: v })} />
               </DisableGroup>
             </div>
@@ -466,7 +453,7 @@ function IntaRNASection({ cfg, setCfg }) {
         <div>
           <div style={{ display: "flex", alignItems: "center", marginBottom: 10 }}>
             <div className="eyebrow strong">Seed</div>
-            <div style={{ flex: 1 }} />
+            <div className="spacer" />
             <span style={{ fontSize: 12, color: seedEnforced ? "var(--accent-ink)" : "var(--fg-4)" }}>
               {seedEnforced ? "Enforced via shared seed" : "Disabled — set a shared seed"}
             </span>
@@ -474,19 +461,19 @@ function IntaRNASection({ cfg, setCfg }) {
           <DisableGroup disabled={!seedEnforced} className="stack sm">
             <div className="grid-2">
               <NullableField name="Max unpaired bases" kind="integer"
-                min={0} nullHint={nullHint}
+                min={0}
                 value={it.seed.max_unpaired_bases} onChange={(v) => setSeed({ max_unpaired_bases: v })} />
               <NullableField name="Target range" doc="'from-to,...'"
-                nullHint={nullHint}
+               
                 value={it.seed.target_range} onChange={(v) => setSeed({ target_range: v })} />
               <NullableField name="Max energy"
-                max={999} nullHint={nullHint}
+                max={999}
                 value={it.seed.max_energy} onChange={(v) => setSeed({ max_energy: v })} />
               <NullableField name="Max hybrid energy"
-                max={999} nullHint={nullHint}
+                max={999}
                 value={it.seed.max_hybrid_energy} onChange={(v) => setSeed({ max_hybrid_energy: v })} />
               <NullableField name="Min unpaired probability" doc="[0..1]"
-                min={0} max={1} nullHint={nullHint}
+                min={0} max={1}
                 value={it.seed.min_unpaired_probability} onChange={(v) => setSeed({ min_unpaired_probability: v })} />
             </div>
             <PillGroup label="Constraints">
@@ -506,11 +493,11 @@ function IntaRNASection({ cfg, setCfg }) {
           </div>
           <DisableGroup disabled={accInert} className="stack sm">
             <div className="grid-2">
-              <NullableField name="Window" doc="0 = global, null = default" kind="integer"
-                min={0} nullHint={nullHint}
+              <NullableField name="Window" doc="0 = global" kind="integer"
+                min={0}
                 value={it.accessibility.window} onChange={(v) => setAcc({ window: v })} />
-              <NullableField name="Max bp span" doc="0 = global, null = default" kind="integer"
-                min={0} nullHint={nullHint}
+              <NullableField name="Max bp span" doc="0 = global" kind="integer"
+                min={0}
                 value={it.accessibility.max_bp_span} onChange={(v) => setAcc({ max_bp_span: v })} />
             </div>
             <PillGroup label="Constraints">
@@ -524,7 +511,7 @@ function IntaRNASection({ cfg, setCfg }) {
           <div className="eyebrow strong" style={{ marginBottom: 10 }}>Output</div>
           <div className="grid-2">
             <NullableField name="Max ΔE" doc="cap vs MFE"
-              min={0} nullHint={nullHint}
+              min={0}
               value={it.output.max_delta_energy} onChange={(v) => setOut({ max_delta_energy: v })} />
             <Subcard label="Overlap">
               <select
@@ -538,7 +525,7 @@ function IntaRNASection({ cfg, setCfg }) {
               </select>
             </Subcard>
             <NullableField name="Min unpaired probability" doc="[0..1]"
-              min={0} max={1} nullHint={nullHint}
+              min={0} max={1}
               value={it.output.min_unpaired_probability} onChange={(v) => setOut({ min_unpaired_probability: v })} />
             <PillGroup label="Constraints">
               <PillToggle on={it.output.forbid_lonely_pairs} onChange={(v) => setOut({ forbid_lonely_pairs: v })} label="Forbid lonely pairs" />
@@ -561,20 +548,15 @@ function PlotsSection({ cfg, setCfg }) {
     set({ types: pl.types.includes(val) ? pl.types.filter((t) => t !== val) : [...pl.types, val] });
   };
 
-  const loci = useListEditor(
-    pl.locus,
-    (next) => set({ locus: next }),
-    () => ({ id: "l" + Date.now().toString(36), value: "", mirna: "" }),
-  );
-  const genes = useListEditor(
-    pl.gene,
-    (next) => set({ gene: next }),
-    () => ({ id: "g" + Date.now().toString(36), value: "", mirna: "" }),
-  );
-  const proteins = useListEditor(
-    pl.protein,
-    (next) => set({ protein: next }),
-    () => ({ id: "p" + Date.now().toString(36), value: "", mirna: "" }),
+  const editors = Object.fromEntries(
+    window.PLOT_PAIR_LISTS.map(({ key }) => [
+      key,
+      makeListEditor(
+        pl[key],
+        (next) => set({ [key]: next }),
+        () => ({ id: key[0] + Date.now().toString(36), value: "", mirna: "" }),
+      ),
+    ])
   );
 
   return (
@@ -593,16 +575,16 @@ function PlotsSection({ cfg, setCfg }) {
       }
     >
       <DisableGroup disabled={!enabled} className="stack lg">
-        <Subcard label="Plot types" hint={`${pl.types.length}/${window.PLOT_TYPES.length} on`}>
-          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-            {window.PLOT_TYPES.map((p) => {
-              const on = pl.types.includes(p.value);
-              return (
-                <PillToggle key={p.value} on={on} onChange={() => toggleType(p.value)} label={p.label} />
-              );
-            })}
-          </div>
-        </Subcard>
+        <PillGroup label="Plot types" hint={`${pl.types.length}/${window.PLOT_TYPES.length} on`}>
+          {window.PLOT_TYPES.map((p) => (
+            <PillToggle
+              key={p.value}
+              on={pl.types.includes(p.value)}
+              onChange={() => toggleType(p.value)}
+              label={p.label}
+            />
+          ))}
+        </PillGroup>
         <div className="grid-3">
           <Subcard label="Base font size">
             <input
@@ -636,131 +618,17 @@ function PlotsSection({ cfg, setCfg }) {
           </Subcard>
         </div>
 
-        <div>
-          <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-            <div className="eyebrow strong">Locus tags · {pl.locus.length}</div>
-            <div style={{ flex: 1 }} />
-            <button className="btn sm" onClick={loci.add}><PlusIcon /> Add locus</button>
-          </div>
-          <div className="eyebrow" style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8, padding: "0 2px", marginBottom: 6 }}>
-            <span>Locus tag</span>
-            <span>miRNA <span style={{ textTransform: "none", fontWeight: 400 }}>· optional</span></span>
-            <span></span>
-          </div>
-          <div className="stack xs">
-            {pl.locus.map((l, i) => {
-              const orphanMirna = !!(l.mirna && l.mirna.trim() && !(l.value && l.value.trim()));
-              return (
-                <div key={l.id} style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8 }}>
-                  <input
-                    className="input mono"
-                    value={l.value}
-                    placeholder="locus tag (required), e.g. FE838_RS16060"
-                    onChange={(e) => loci.update(i, { value: e.target.value })}
-                    style={{ borderColor: orphanMirna ? "var(--danger)" : undefined }}
-                    aria-invalid={orphanMirna}
-                  />
-                  <input
-                    className="input mono"
-                    value={l.mirna}
-                    placeholder="miRNA (optional), e.g. hsa-miR-1226-5p"
-                    onChange={(e) => loci.update(i, { mirna: e.target.value })}
-                  />
-                  <button className="btn sm danger-ghost" onClick={() => loci.remove(i)} aria-label="Remove locus">
-                    <TrashIcon />
-                  </button>
-                </div>
-              );
-            })}
-            {pl.locus.length === 0 && (
-              <div style={{ fontSize: 12, color: "var(--fg-4)", fontStyle: "italic" }}>No locus tags — list will be empty.</div>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-            <div className="eyebrow strong">Genes · {pl.gene.length}</div>
-            <div style={{ flex: 1 }} />
-            <button className="btn sm" onClick={genes.add}><PlusIcon /> Add gene</button>
-          </div>
-          <div className="eyebrow" style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8, padding: "0 2px", marginBottom: 6 }}>
-            <span>Gene</span>
-            <span>miRNA <span style={{ textTransform: "none", fontWeight: 400 }}>· optional</span></span>
-            <span></span>
-          </div>
-          <div className="stack xs">
-            {pl.gene.map((g, i) => {
-              const orphanMirna = !!(g.mirna && g.mirna.trim() && !(g.value && g.value.trim()));
-              return (
-                <div key={g.id} style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8 }}>
-                  <input
-                    className="input mono"
-                    value={g.value}
-                    placeholder="gene name (required), e.g. yegH"
-                    onChange={(e) => genes.update(i, { value: e.target.value })}
-                    style={{ borderColor: orphanMirna ? "var(--danger)" : undefined }}
-                    aria-invalid={orphanMirna}
-                  />
-                  <input
-                    className="input mono"
-                    value={g.mirna}
-                    placeholder="miRNA (optional), e.g. hsa-miR-1226-5p"
-                    onChange={(e) => genes.update(i, { mirna: e.target.value })}
-                  />
-                  <button className="btn sm danger-ghost" onClick={() => genes.remove(i)} aria-label="Remove gene">
-                    <TrashIcon />
-                  </button>
-                </div>
-              );
-            })}
-            {pl.gene.length === 0 && (
-              <div style={{ fontSize: 12, color: "var(--fg-4)", fontStyle: "italic" }}>No genes — list will be empty.</div>
-            )}
-          </div>
-        </div>
-
-        <div>
-          <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
-            <div className="eyebrow strong">Proteins · {pl.protein.length}</div>
-            <div style={{ flex: 1 }} />
-            <button className="btn sm" onClick={proteins.add}><PlusIcon /> Add protein</button>
-          </div>
-          <div className="eyebrow" style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8, padding: "0 2px", marginBottom: 6 }}>
-            <span>Protein</span>
-            <span>miRNA <span style={{ textTransform: "none", fontWeight: 400 }}>· optional</span></span>
-            <span></span>
-          </div>
-          <div className="stack xs">
-            {pl.protein.map((p, i) => {
-              const orphanMirna = !!(p.mirna && p.mirna.trim() && !(p.value && p.value.trim()));
-              return (
-                <div key={p.id} style={{ display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8 }}>
-                  <input
-                    className="input mono"
-                    value={p.value}
-                    placeholder="protein name (required)"
-                    onChange={(e) => proteins.update(i, { value: e.target.value })}
-                    style={{ borderColor: orphanMirna ? "var(--danger)" : undefined }}
-                    aria-invalid={orphanMirna}
-                  />
-                  <input
-                    className="input mono"
-                    value={p.mirna}
-                    placeholder="miRNA (optional), e.g. hsa-miR-1226-5p"
-                    onChange={(e) => proteins.update(i, { mirna: e.target.value })}
-                  />
-                  <button className="btn sm danger-ghost" onClick={() => proteins.remove(i)} aria-label="Remove protein">
-                    <TrashIcon />
-                  </button>
-                </div>
-              );
-            })}
-            {pl.protein.length === 0 && (
-              <div style={{ fontSize: 12, color: "var(--fg-4)", fontStyle: "italic" }}>No proteins — list will be empty.</div>
-            )}
-          </div>
-        </div>
+        {window.PLOT_PAIR_LISTS.map((spec) => (
+          <PairListEditor
+            key={spec.key}
+            heading={spec.heading}
+            noun={spec.noun}
+            valueHeader={spec.valueHeader}
+            valuePlaceholder={spec.valuePlaceholder}
+            items={pl[spec.key]}
+            editor={editors[spec.key]}
+          />
+        ))}
       </DisableGroup>
     </SectionCard>
   );

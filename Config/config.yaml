@@ -38,8 +38,8 @@ intarna:
   prediction_mode: H                  # H heuristic | M exact | S seed-only
   model: X                            # X seed-extension | S legacy | B helix-block | P ensemble
   energy_set: Turner04                # --energyVRNA  Turner99 | Turner04 | Andronescu07
-  max_interaction_length: 0           # 0 = auto (min of seq length, accW)
-  max_loop_size: 4
+  max_interaction_length: 0           # --intLenMax   (null/0 = auto: min of seq length, accW)
+  max_loop_size: 4                    # --intLoopMax  unpaired nt between paired bases (null = 10)
 
   helix:                              # ONLY applies when model: B (helix-block). Ignored under X/S/P.
     min_bp: null                      # --helixMinBP  (default 2,  range [2,4])

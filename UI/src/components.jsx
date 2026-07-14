@@ -9,7 +9,7 @@ function Toggle({ on, onChange, ariaLabel, disabled = false }) {
     <button
       type="button"
       className={`toggle ${on ? "on" : ""}`}
-      onClick={() => !disabled && onChange(!on)}
+      onClick={() => onChange(!on)}
       disabled={disabled}
       aria-label={ariaLabel}
       aria-pressed={on}
@@ -223,11 +223,11 @@ function promptBrowse(current, placeholder, label = "Select…") {
   return prompt(`${label} (simulated)`, current || placeholder || "");
 }
 
-function PathInput({ value, onChange, placeholder, mono = true }) {
+function PathInput({ value, onChange, placeholder }) {
   return (
     <div className="field-row">
       <input
-        className={`input ${mono ? "mono" : ""}`}
+        className="input mono"
         value={value}
         placeholder={placeholder}
         onChange={(e) => onChange(e.target.value)}
@@ -248,10 +248,10 @@ function PathInput({ value, onChange, placeholder, mono = true }) {
   );
 }
 
-// Plain helper (no React state) — generates the add/update/remove closures
-// every list-edit section needs. `minLength` keeps a section from emptying
-// itself below a sentinel (queries/targets require at least one row).
-function useListEditor(items, setItems, makeItem, minLength = 0) {
+// Plain helper (no React state) — the add/update/remove closures every list-edit
+// section needs. `minLength` keeps a section from emptying itself below a sentinel
+// (queries/targets require one row).
+function makeListEditor(items, setItems, makeItem, minLength = 0) {
   return {
     add: () => setItems([...items, makeItem()]),
     update: (idx, patch) => {
@@ -266,6 +266,56 @@ function useListEditor(items, setItems, makeItem, minLength = 0) {
       setItems(copy);
     },
   };
+}
+
+// A miRNA typed without a value is *orphaned*: configToObject drops rows with a blank
+// value, so it would vanish on save. Flag the row rather than discard it silently.
+const PAIR_ROW = { display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8 };
+
+function PairListEditor({ heading, noun, valueHeader, valuePlaceholder, items, editor }) {
+  return (
+    <div>
+      <div className="row-head">
+        <div className="eyebrow strong">{heading} · {items.length}</div>
+        <div className="spacer" />
+        <button className="btn sm" onClick={editor.add}><PlusIcon /> Add {noun}</button>
+      </div>
+      <div className="eyebrow" style={{ ...PAIR_ROW, padding: "0 2px", marginBottom: 6 }}>
+        <span>{valueHeader}</span>
+        <span>miRNA <span style={{ textTransform: "none", fontWeight: 400 }}>· optional</span></span>
+        <span></span>
+      </div>
+      <div className="stack xs">
+        {items.map((it, i) => {
+          const orphanMirna = !!(it.mirna && it.mirna.trim() && !(it.value && it.value.trim()));
+          return (
+            <div key={it.id} style={PAIR_ROW}>
+              <input
+                className="input mono"
+                value={it.value}
+                placeholder={valuePlaceholder}
+                onChange={(e) => editor.update(i, { value: e.target.value })}
+                style={{ borderColor: orphanMirna ? "var(--danger)" : undefined }}
+                aria-invalid={orphanMirna}
+              />
+              <input
+                className="input mono"
+                value={it.mirna}
+                placeholder="miRNA (optional), e.g. hsa-miR-1226-5p"
+                onChange={(e) => editor.update(i, { mirna: e.target.value })}
+              />
+              <button className="btn sm danger-ghost" onClick={() => editor.remove(i)} aria-label={`Remove ${noun}`}>
+                <TrashIcon />
+              </button>
+            </div>
+          );
+        })}
+        {items.length === 0 && (
+          <div className="hint italic">No {heading.toLowerCase()} — list will be empty.</div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // --- launcher bridge ---------------------------------------------
@@ -422,11 +472,11 @@ function StopIcon() { return <svg width="11" height="11" viewBox="0 0 12 12" ari
 function NullableField({
   name, doc, value, onChange,
   kind = "number",        // "number" | "integer" | "pair"
-  placeholder,
   pairLabels,             // ["start nt", "end nt"] etc.
   forcedNull = false,
   forcedNullHint,
   nullHint,
+  autoTag,                // OFF-state tag; names the value the tool falls back to
   min,
   max
 }) {
@@ -448,7 +498,7 @@ function NullableField({
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <span className="auto-tag">
-            {forcedNull ? "LOCKED · null" : (on ? "SET" : "AUTO (null)")}
+            {forcedNull ? "LOCKED · null" : (on ? "SET" : (autoTag || "AUTO (null)"))}
           </span>
           <Toggle
             on={on}
@@ -496,7 +546,6 @@ function NullableField({
             min={min}
             max={max}
             value={value.value}
-            placeholder={placeholder}
             onChange={(e) => {
               const raw = e.target.value;
               if (raw === "") return onChange({ ...value, value: "" });
@@ -510,7 +559,7 @@ function NullableField({
           />
         )
       ) : (
-        <div className="ghost-input">{nullHint || "null · auto"}</div>
+        <div className="ghost-input">{nullHint || "null · loose"}</div>
       )}
     </div>
   );
@@ -658,7 +707,7 @@ function RunOverlay({ open, status, onCancel, onClose, threads, queries, targets
   );
 }
 
-// --- layout ------------------------------------------------------
+// --- layout --- //
 
 function Hero({ cfg }) {
   const { set, total } = window.countOptionalParams(cfg);
@@ -681,7 +730,7 @@ function Hero({ cfg }) {
 // drive the activity rail when the pipeline is alive.
 function ActionsBar({
   cfg, onSave, onRun, onToggleYAML, theme, onTheme,
-  pipelineState, elapsed, savingState,
+  pipelineState, elapsed, saving,
 }) {
   const queriesOk = cfg.queries.length >= 1 && cfg.queries.every((q) => q.key.trim() && q.path.trim());
   const targetsOk = cfg.targets.length >= 1 && cfg.targets.every((t) => t.key.trim() && t.path && t.path.trim());
@@ -693,7 +742,6 @@ function ActionsBar({
   const ready = queriesOk && targetsOk && keysMatch && cfg.results_dir.trim();
 
   const running = pipelineState === "running";
-  const saving = savingState === "saving";
   const canRun = ready && pipelineState === "idle" && !saving;
 
   let status;
@@ -769,7 +817,7 @@ function YAMLDrawer({ open, onClose, cfg, onSave }) {
   // for a hidden panel.
   const lines = useMemo(() => (open ? window.buildYAML(cfg) : null), [cfg, open]);
   const html = useMemo(() => (lines ? window.renderYAML(lines) : ""), [lines]);
-  // `plain` is only needed when the user clicks Copy — compute lazily so the
+  // The plain-text form is only needed when the user clicks Copy — build it lazily so the
   // drawer doesn't pay for it on every keystroke that mutates `cfg`.
   const copy = () => { if (lines) navigator.clipboard?.writeText(window.renderYAMLPlain(lines)); };
 
@@ -810,10 +858,10 @@ function YAMLDrawer({ open, onClose, cfg, onSave }) {
 // export to window for other scripts
 Object.assign(window, {
   Toggle, Subcard, PillGroup, PillToggle, SegmentedControl, DisableGroup, InlineNote, ErrorBoundary,
-  PathInput, KeyedFileRow,
+  PathInput, KeyedFileRow, PairListEditor,
   FolderIcon, PlusIcon, TrashIcon, CodeIcon, PlayIcon, SaveIcon, SunIcon, MoonIcon, CopyIcon,
   CheckIcon, XIcon, StopIcon,
-  NullableField, useApiList, useListEditor, promptBrowse,
+  NullableField, useApiList, makeListEditor, promptBrowse,
   Spinner, Toast, ActivityRail, RunOverlay,
   Hero, ActionsBar, YAMLDrawer,
   formatElapsed, formatScope,

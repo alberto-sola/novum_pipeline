@@ -1,9 +1,32 @@
-// Novum Pipeline — config <-> form-state bridge (mirrors yaml.js buildYAML schema)
+// Novum Pipeline — config <-> form-state bridge.
+//
+// `configToObject` is the sole writer of the config schema: api.save_config dumps
+// it, and yaml.js renders the preview from it.
 
-// form-state nullable field -> its plain value (or null). Delegates to yaml.js's
-// resolveNullable so the null-collapsing rules live in exactly one place.
+// Nullable form field -> serialized {v, kind}. Pair-shaped fields (`a`/`b`) emit
+// "a,b"; unset/forced/blank fields collapse to null. The one place that collapsing
+// happens — data.js's derived warnings must route through it too, or they can
+// contradict what Save writes.
+function resolveNullable(field, forced) {
+  if (forced || !field.set) {
+    return { v: null, kind: "null" };
+  }
+  if ("a" in field && "b" in field) {
+    const { a, b } = field;
+    if (a === "" || b === "" || a == null || b == null) {
+      return { v: null, kind: "null" };
+    }
+    return { v: `${a},${b}`, kind: "str" };
+  }
+  if (field.value === "" || field.value === null || field.value === undefined) {
+    return { v: null, kind: "null" };
+  }
+  return { v: field.value, kind: typeof field.value === "string" ? "str" : "num" };
+}
+window.resolveNullable = resolveNullable;
+
 function _nullableValue(field, forced) {
-  return window.resolveNullable(field, forced).v;
+  return resolveNullable(field, forced).v;
 }
 
 function _pairListToArray(items) {
@@ -38,64 +61,47 @@ window.configToObject = function configToObject(cfg) {
     obj.rnahybrid[k] = _nullableValue(cfg.rnahybrid[k], k === "distribution" && distForced);
   });
 
+  // Helix values are written even while the form greys them out (model !== "B"), so
+  // toggling the model never destroys the user's tuning; the backend warns they are inert.
+  const _block = (state, spec) => Object.fromEntries(
+    spec.map(([k, kind]) => [
+      k,
+      kind === "n" ? _nullableValue(state[k], false)
+      : kind === "c" ? window.INTARNA_OUTPUT_COLUMNS_DEFAULT
+      : state[k],
+    ])
+  );
+
   const it = cfg.intarna;
+  const B = window.INTARNA_BLOCKS;
   obj.intarna = {
     accessibility_variant: it.accessibility_variant,
     prediction_mode: it.prediction_mode,
     model: it.model,
     energy_set: it.energy_set,
-    max_interaction_length: it.max_interaction_length,
-    max_loop_size: it.max_loop_size,
-    helix: {
-      // Written even while greyed out (model !== "B"), so toggling the model to compare
-      // arms never destroys the user's tuning; intarna.py warns that they are inert.
-      ...Object.fromEntries(
-        window.INTARNA_HELIX_NULLABLE_KEYS.map((k) => [k, _nullableValue(it.helix[k], false)])
-      ),
-      full_energy: it.helix.full_energy,
-    },
-    seed: {
-      max_energy: _nullableValue(it.seed.max_energy, false),
-      max_hybrid_energy: _nullableValue(it.seed.max_hybrid_energy, false),
-      min_unpaired_probability: _nullableValue(it.seed.min_unpaired_probability, false),
-      forbid_gu: it.seed.forbid_gu,
-      forbid_gu_at_ends: it.seed.forbid_gu_at_ends,
-      target_range: _nullableValue(it.seed.target_range, false),
-      max_unpaired_bases: _nullableValue(it.seed.max_unpaired_bases, false),
-      report_best_only: it.seed.report_best_only,
-    },
-    accessibility: {
-      window: _nullableValue(it.accessibility.window, false),
-      max_bp_span: _nullableValue(it.accessibility.max_bp_span, false),
-      forbid_lonely_pairs: it.accessibility.forbid_lonely_pairs,
-      forbid_gu_at_ends: it.accessibility.forbid_gu_at_ends,
-    },
-    output: {
-      max_delta_energy: _nullableValue(it.output.max_delta_energy, false),
-      overlap: it.output.overlap,
-      min_unpaired_probability: _nullableValue(it.output.min_unpaired_probability, false),
-      forbid_lonely_pairs: it.output.forbid_lonely_pairs,
-      forbid_gu_at_ends: it.output.forbid_gu_at_ends,
-      columns: window.INTARNA_OUTPUT_COLUMNS_DEFAULT,
-    },
+    ..._block(it, B.top),
+    helix:         _block(it.helix,         B.helix),
+    seed:          _block(it.seed,          B.seed),
+    accessibility: _block(it.accessibility, B.accessibility),
+    output:        _block(it.output,        B.output),
   };
 
+  // `type` alone enables plots (Snakefile: `plots_enabled = plots_type is not None`);
+  // every other key is read only inside rule build_plots. The rest of the block is
+  // therefore inert under `type: null`, so always write it — disabling plots must not
+  // destroy the user's basesize/thresholds/locus lists.
   const pl = cfg.plots;
-  if (pl.types.length === 0) {
-    obj.plots = { type: null };
-  } else {
-    const allTypes = window.PLOT_TYPES.map((p) => p.value);
-    const isAll = allTypes.every((t) => pl.types.includes(t));
-    obj.plots = {
-      type: isAll ? "all" : pl.types.join(","),
-      basesize: pl.basesize,
-      pvalue_threshold: pl.pvalue_threshold,
-      per_mirna_top_n: pl.per_mirna_top_n,
-      locus: _pairListToArray(pl.locus),
-      gene: _pairListToArray(pl.gene),
-      protein: _pairListToArray(pl.protein),
-    };
-  }
+  const allTypes = window.PLOT_TYPES.map((p) => p.value);
+  const isAll = pl.types.length > 0 && allTypes.every((t) => pl.types.includes(t));
+  obj.plots = {
+    type: pl.types.length === 0 ? null : (isAll ? "all" : pl.types.join(",")),
+    basesize: pl.basesize,
+    pvalue_threshold: pl.pvalue_threshold,
+    per_mirna_top_n: pl.per_mirna_top_n,
+    locus: _pairListToArray(pl.locus),
+    gene: _pairListToArray(pl.gene),
+    protein: _pairListToArray(pl.protein),
+  };
 
   obj.results_dir = cfg.results_dir;
   return obj;
@@ -165,54 +171,37 @@ window.hydrateConfig = function hydrateConfig(raw) {
     ci.accessibility_variant = _variantStr(ri.accessibility_variant, ci.accessibility_variant);
     if (ri.prediction_mode != null) ci.prediction_mode = ri.prediction_mode;
     if (ri.model != null) ci.model = ri.model;
-    if (ri.max_interaction_length != null) ci.max_interaction_length = ri.max_interaction_length;
-    if (ri.max_loop_size != null) ci.max_loop_size = ri.max_loop_size;
     if (ri.energy_set != null) ci.energy_set = ri.energy_set;
-    if (ri.helix) {
-      window.INTARNA_HELIX_NULLABLE_KEYS.forEach((k) => {
-        ci.helix[k] = _toNullableScalar(ri.helix[k], ci.helix[k].value);
+    // "c" (columns) is a constant the form never edits, so it is not hydrated back.
+    const _hydrateBlock = (rawBlock, state, spec) => {
+      if (!rawBlock) return;
+      spec.forEach(([k, kind]) => {
+        if (kind === "n") state[k] = _toNullableScalar(rawBlock[k], state[k].value);
+        else if (kind === "p" && rawBlock[k] != null) state[k] = rawBlock[k];
       });
-      if (ri.helix.full_energy != null) ci.helix.full_energy = ri.helix.full_energy;
-    }
-    if (ri.seed) {
-      ci.seed.max_energy = _toNullableScalar(ri.seed.max_energy, ci.seed.max_energy.value);
-      ci.seed.max_hybrid_energy = _toNullableScalar(ri.seed.max_hybrid_energy, ci.seed.max_hybrid_energy.value);
-      ci.seed.min_unpaired_probability = _toNullableScalar(ri.seed.min_unpaired_probability, ci.seed.min_unpaired_probability.value);
-      if (ri.seed.forbid_gu != null) ci.seed.forbid_gu = ri.seed.forbid_gu;
-      if (ri.seed.forbid_gu_at_ends != null) ci.seed.forbid_gu_at_ends = ri.seed.forbid_gu_at_ends;
-      ci.seed.target_range = _toNullableScalar(ri.seed.target_range, ci.seed.target_range.value);
-      ci.seed.max_unpaired_bases = _toNullableScalar(ri.seed.max_unpaired_bases, ci.seed.max_unpaired_bases.value);
-      if (ri.seed.report_best_only != null) ci.seed.report_best_only = ri.seed.report_best_only;
-    }
-    if (ri.accessibility) {
-      ci.accessibility.window = _toNullableScalar(ri.accessibility.window, ci.accessibility.window.value);
-      ci.accessibility.max_bp_span = _toNullableScalar(ri.accessibility.max_bp_span, ci.accessibility.max_bp_span.value);
-      if (ri.accessibility.forbid_lonely_pairs != null) ci.accessibility.forbid_lonely_pairs = ri.accessibility.forbid_lonely_pairs;
-      if (ri.accessibility.forbid_gu_at_ends != null) ci.accessibility.forbid_gu_at_ends = ri.accessibility.forbid_gu_at_ends;
-    }
-    if (ri.output) {
-      ci.output.max_delta_energy = _toNullableScalar(ri.output.max_delta_energy, ci.output.max_delta_energy.value);
-      if (ri.output.overlap != null) ci.output.overlap = ri.output.overlap;
-      ci.output.min_unpaired_probability = _toNullableScalar(ri.output.min_unpaired_probability, ci.output.min_unpaired_probability.value);
-      if (ri.output.forbid_lonely_pairs != null) ci.output.forbid_lonely_pairs = ri.output.forbid_lonely_pairs;
-      if (ri.output.forbid_gu_at_ends != null) ci.output.forbid_gu_at_ends = ri.output.forbid_gu_at_ends;
-    }
+    };
+
+    const B = window.INTARNA_BLOCKS;
+    _hydrateBlock(ri,               ci,               B.top);
+    _hydrateBlock(ri.helix,         ci.helix,         B.helix);
+    _hydrateBlock(ri.seed,          ci.seed,          B.seed);
+    _hydrateBlock(ri.accessibility, ci.accessibility, B.accessibility);
+    _hydrateBlock(ri.output,        ci.output,        B.output);
   }
 
   if (raw.plots) {
     const rp = raw.plots;
-    if (rp.type == null) {
-      cfg.plots.types = [];
-    } else {
-      const all = window.PLOT_TYPES.map((p) => p.value);
-      cfg.plots.types = rp.type === "all" ? all : String(rp.type).split(",").map((s) => s.trim()).filter(Boolean);
-      if (rp.basesize != null) cfg.plots.basesize = rp.basesize;
-      if (rp.pvalue_threshold != null) cfg.plots.pvalue_threshold = rp.pvalue_threshold;
-      if (rp.per_mirna_top_n != null) cfg.plots.per_mirna_top_n = rp.per_mirna_top_n;
-      cfg.plots.locus = _arrayToPairList(rp.locus, "l");
-      cfg.plots.gene = _arrayToPairList(rp.gene, "g");
-      cfg.plots.protein = _arrayToPairList(rp.protein, "p");
-    }
+    // Read the surrounding settings whether or not `type` is null — see the writer.
+    const all = window.PLOT_TYPES.map((p) => p.value);
+    cfg.plots.types = rp.type == null ? []
+      : rp.type === "all" ? all
+      : String(rp.type).split(",").map((s) => s.trim()).filter(Boolean);
+    if (rp.basesize != null) cfg.plots.basesize = rp.basesize;
+    if (rp.pvalue_threshold != null) cfg.plots.pvalue_threshold = rp.pvalue_threshold;
+    if (rp.per_mirna_top_n != null) cfg.plots.per_mirna_top_n = rp.per_mirna_top_n;
+    if (rp.locus != null) cfg.plots.locus = _arrayToPairList(rp.locus, "l");
+    if (rp.gene != null) cfg.plots.gene = _arrayToPairList(rp.gene, "g");
+    if (rp.protein != null) cfg.plots.protein = _arrayToPairList(rp.protein, "p");
   }
 
   if (raw.results_dir != null) cfg.results_dir = raw.results_dir;

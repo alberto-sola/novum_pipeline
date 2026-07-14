@@ -5,13 +5,7 @@ window.SPECIES_OPTIONS = [
   { value: "3utr_worm",  label: "Worm (3′UTR)" }
 ];
 
-window.CALIBRATE_MODES = [
-  { value: "on",   label: "On"   },
-  { value: "off",  label: "Off"  },
-  { value: "both", label: "Both" }
-];
-
-window.INTARNA_ACC_MODES = [
+window.VARIANT_MODES = [
   { value: "on",   label: "On"   },
   { value: "off",  label: "Off"  },
   { value: "both", label: "Both" }
@@ -55,30 +49,69 @@ window.PLOT_TYPES = [
   { value: "seed_class",          label: "seed class" }
 ];
 
+// The three plots pair-lists — same (value, optional miRNA) editor, different nouns.
+window.PLOT_PAIR_LISTS = [
+  { key: "locus",   heading: "Locus tags", noun: "locus",   valueHeader: "Locus tag",
+    valuePlaceholder: "locus tag (required), e.g. FE838_RS16060" },
+  { key: "gene",    heading: "Genes",      noun: "gene",    valueHeader: "Gene",
+    valuePlaceholder: "gene name (required), e.g. yegH" },
+  { key: "protein", heading: "Proteins",   noun: "protein", valueHeader: "Protein",
+    valuePlaceholder: "protein name (required)" },
+];
+
 // Nullable-field key lists per card. Used by section renderers (and the Hero
 // "set params" counter) so a single source of truth drives what's rendered
 // vs. what's just present in INITIAL_CONFIG.
 window.SHARED_NULLABLE_KEYS    = ["max_suboptimal_hits", "max_total_energy", "seed"];
 window.RNAHYBRID_NULLABLE_KEYS = ["max_internal_loop", "max_bulge_loop", "pvalue_threshold", "distribution"];
-window.INTARNA_SEED_NULLABLE_KEYS = [
-  "target_range", "max_unpaired_bases",
-  "max_energy", "max_hybrid_energy", "min_unpaired_probability"
-];
-window.INTARNA_HELIX_NULLABLE_KEYS = [
-  "min_bp", "max_bp", "max_internal_loop",
-  "min_unpaired_probability", "max_energy"
-];
-window.INTARNA_ACC_NULLABLE_KEYS    = ["window", "max_bp_span"];
-window.INTARNA_OUTPUT_NULLABLE_KEYS = ["max_delta_energy", "min_unpaired_probability"];
+
+// Ordered field specs for the `intarna:` sub-blocks. kind: "n" nullable {set,value}
+// field, "p" plain value, "c" constant. Key ORDER here is the order written to
+// config.yaml (safe_dump(sort_keys=False)) — keep it matching Config/config.yaml.
+window.INTARNA_BLOCKS = {
+  top: [
+    ["max_interaction_length", "n"],
+    ["max_loop_size", "n"],
+  ],
+  helix: [
+    ["min_bp", "n"], ["max_bp", "n"], ["max_internal_loop", "n"],
+    ["min_unpaired_probability", "n"], ["max_energy", "n"],
+    ["full_energy", "p"],
+  ],
+  seed: [
+    ["max_energy", "n"], ["max_hybrid_energy", "n"], ["min_unpaired_probability", "n"],
+    ["forbid_gu", "p"], ["forbid_gu_at_ends", "p"],
+    ["target_range", "n"], ["max_unpaired_bases", "n"],
+    ["report_best_only", "p"],
+  ],
+  accessibility: [
+    ["window", "n"], ["max_bp_span", "n"],
+    ["forbid_lonely_pairs", "p"], ["forbid_gu_at_ends", "p"],
+  ],
+  output: [
+    ["max_delta_energy", "n"], ["overlap", "p"], ["min_unpaired_probability", "n"],
+    ["forbid_lonely_pairs", "p"], ["forbid_gu_at_ends", "p"],
+    ["columns", "c"],
+  ],
+};
+
+const nullableKeys = (block) =>
+  window.INTARNA_BLOCKS[block].filter(([, kind]) => kind === "n").map(([k]) => k);
+
+window.INTARNA_TOP_NULLABLE_KEYS    = nullableKeys("top");
+window.INTARNA_HELIX_NULLABLE_KEYS  = nullableKeys("helix");
+window.INTARNA_SEED_NULLABLE_KEYS   = nullableKeys("seed");
+window.INTARNA_ACC_NULLABLE_KEYS    = nullableKeys("accessibility");
+window.INTARNA_OUTPUT_NULLABLE_KEYS = nullableKeys("output");
 
 // `distribution` is supplied by RNAcalibrate whenever calibration is part of the run,
 // so the RNAhybrid form forces it null in any variant other than "off".
 window.isDistributionForced = (cfg) => cfg.rnacalibrate.calibration_variant !== "off";
 
-// Seed enforcement follows the shared top-level seed: the IntaRNA seed sub-fields
-// only affect a run when a shared seed is set (see intarna.py:_add_seed_flags).
-// On window as the single source of truth shared with the form (sections.jsx).
-window.isSeedEnforced = (cfg) => cfg.seed.set;
+// The IntaRNA seed sub-fields only affect a run when a shared seed is set (see
+// intarna.py:_add_seed_flags). Via resolveNullable, not `.set`: a toggled-on-but-blank
+// seed saves as null, and would otherwise enable sub-fields for a run getting --noSeed.
+window.isSeedEnforced = (cfg) => window.resolveNullable(cfg.seed, false).v != null;
 
 // Helix parameters only reach IntaRNA under model B; under X/S/P they are inert.
 // Mirrors intarna.py:INTARNA_DEFAULT_HELIX_MAX_BP.
@@ -128,6 +161,7 @@ window.countOptionalParams = (cfg) => {
     locked: (k) => k === "distribution" && window.isDistributionForced(cfg),
   });
 
+  tally(cfg.intarna, window.INTARNA_TOP_NULLABLE_KEYS);
   tally(cfg.intarna.seed, window.INTARNA_SEED_NULLABLE_KEYS, {
     active: window.isSeedEnforced(cfg),
   });
@@ -175,10 +209,10 @@ window.INITIAL_CONFIG = {
     prediction_mode: "H",
     model: "X",
     energy_set: "Turner04",
-    max_interaction_length: 0,
-    max_loop_size: 10,
     // Placeholder `value`s mirror IntaRNA's own defaults, so flipping a field on is
-    // initially a no-op.
+    // initially a no-op. Except max_interaction_length, whose default (0) *means* auto.
+    max_interaction_length: { set: false, value: 10 },
+    max_loop_size:          { set: false, value: 10 },
     helix: {
       min_bp:                   { set: false, value: 2 },
       max_bp:                   { set: false, value: window.INTARNA_DEFAULT_HELIX_MAX_BP },

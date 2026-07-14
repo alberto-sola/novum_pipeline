@@ -120,8 +120,8 @@ def test_model_explicit_null_falls_back_to_X():
     assert _flag(cmd, "--model=") == "--model=X"
 
 def test_explicit_null_numeric_falls_back_to_default():
-    # A key present but null parses to None; a plain .get(k, default) would stringify
-    # it straight into the flag as "--intLoopMax=None".
+    # The fallbacks must equal IntaRNA's own defaults, so an unset toggle in the UI
+    # (which writes null here) is a no-op rather than a silent re-parameterization.
     cmd = _build({"max_loop_size": None, "max_interaction_length": None})
     assert _flag(cmd, "--intLoopMax=") == "--intLoopMax=10"
     assert _flag(cmd, "--intLenMax=") == "--intLenMax=0"
