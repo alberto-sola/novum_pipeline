@@ -122,13 +122,13 @@ def ensure_dependencies():
 
 
 #----- Translates the optional RNAhybrid params into CLI flags, omitting any that are None -----#
-def build_optional_args(max_suboptimal_hits=None, max_internal_loop=None, max_bulge_loop=None, max_total_energy=None, pvalue_threshold=None, seed=None, distribution=None):
+def build_optional_args(max_suboptimal_hits=None, max_internal_loop=None, max_bulge_loop=None, max_hybrid_energy=None, pvalue_threshold=None, seed=None, distribution=None):
     # (flag, value) in emission order; each pair is appended only when set.
     flag_values = [
         ("-b", max_suboptimal_hits),
         ("-u", max_internal_loop),
         ("-v", max_bulge_loop),
-        ("-e", max_total_energy),
+        ("-e", max_hybrid_energy),
         ("-p", pvalue_threshold),
         ("-f", seed),
         ("-d", distribution),
@@ -248,7 +248,7 @@ def merge_output_files(output_dir, output_pattern, merged_output_path):
 
 
 #----- Top-level driver: chunk the target, dispatch RNAhybrid via GNU Parallel, merge per-chunk outputs back together -----#
-def run_rnahybrid(query, target, species, output_file, max_target_length, threads=1, max_suboptimal_hits=None, max_internal_loop=None, max_bulge_loop=None, max_total_energy=None, pvalue_threshold=None, seed=None, distribution=None, distribution_file=None):
+def run_rnahybrid(query, target, species, output_file, max_target_length, threads=1, max_suboptimal_hits=None, max_internal_loop=None, max_bulge_loop=None, max_hybrid_energy=None, pvalue_threshold=None, seed=None, distribution=None, distribution_file=None):
     output_path = ensure_parent(output_file)
 
     executables = ensure_dependencies()
@@ -276,7 +276,7 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
                 tsv_path=tmp_dir / "job_spec.tsv",
             )
             optional_args = build_optional_args(
-                max_suboptimal_hits=max_suboptimal_hits, max_internal_loop=max_internal_loop, max_bulge_loop=max_bulge_loop, max_total_energy=max_total_energy, pvalue_threshold=pvalue_threshold, seed=seed,
+                max_suboptimal_hits=max_suboptimal_hits, max_internal_loop=max_internal_loop, max_bulge_loop=max_bulge_loop, max_hybrid_energy=max_hybrid_energy, pvalue_threshold=pvalue_threshold, seed=seed,
             )
             command, output_pattern = build_parallel_command_calibrated(
                 spec_path=spec_path,
@@ -290,7 +290,7 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
             # Broadcast/uncalibrated branch: one shared query across all chunks.
             species = validate_rnahybrid_args(species=species, distribution=distribution)
             optional_args = build_optional_args(
-                max_suboptimal_hits=max_suboptimal_hits, max_internal_loop=max_internal_loop, max_bulge_loop=max_bulge_loop, max_total_energy=max_total_energy, pvalue_threshold=pvalue_threshold, seed=seed,
+                max_suboptimal_hits=max_suboptimal_hits, max_internal_loop=max_internal_loop, max_bulge_loop=max_bulge_loop, max_hybrid_energy=max_hybrid_energy, pvalue_threshold=pvalue_threshold, seed=seed,
                 distribution=distribution,
             )
             command, output_pattern = build_parallel_command_broadcast(
@@ -327,7 +327,7 @@ def run_from_snakemake(snakemake):
         max_suboptimal_hits=snakemake.params.max_suboptimal_hits,
         max_internal_loop=snakemake.params.max_internal_loop,
         max_bulge_loop=snakemake.params.max_bulge_loop,
-        max_total_energy=snakemake.params.max_total_energy,
+        max_hybrid_energy=snakemake.params.max_hybrid_energy,
         pvalue_threshold=snakemake.params.pvalue_threshold,
         seed=snakemake.params.seed,
         distribution=snakemake.params.distribution,

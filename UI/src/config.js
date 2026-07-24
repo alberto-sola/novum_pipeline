@@ -146,8 +146,11 @@ window.hydrateConfig = function hydrateConfig(raw) {
 
   if (typeof raw.threads === "number") cfg.threads = raw.threads;
   cfg.max_suboptimal_hits = _toNullableScalar(raw.max_suboptimal_hits, cfg.max_suboptimal_hits.value);
-  cfg.max_total_energy = _toNullableScalar(raw.max_total_energy, cfg.max_total_energy.value);
   cfg.seed = _toNullablePair(raw.seed, cfg.seed.a, cfg.seed.b);
+  // configToObject rebuilds the file from form state, so opening and saving an old config
+  // migrates it. Flag the removed key so the substitution is visible, not merely correct.
+  // UI-only: configToObject builds its output explicitly, so this never reaches the YAML.
+  cfg.hadMaxTotalEnergy = raw.max_total_energy !== undefined;
 
   if (raw.rnacalibrate) {
     const rc = raw.rnacalibrate;
@@ -160,6 +163,7 @@ window.hydrateConfig = function hydrateConfig(raw) {
   if (raw.rnahybrid) {
     const rh = raw.rnahybrid;
     if (rh.species != null) cfg.rnahybrid.species = rh.species;
+    cfg.rnahybrid.max_hybrid_energy = _toNullableScalar(rh.max_hybrid_energy, cfg.rnahybrid.max_hybrid_energy.value);
     cfg.rnahybrid.max_internal_loop = _toNullableScalar(rh.max_internal_loop, cfg.rnahybrid.max_internal_loop.value);
     cfg.rnahybrid.max_bulge_loop = _toNullableScalar(rh.max_bulge_loop, cfg.rnahybrid.max_bulge_loop.value);
     cfg.rnahybrid.pvalue_threshold = _toNullableScalar(rh.pvalue_threshold, cfg.rnahybrid.pvalue_threshold.value);

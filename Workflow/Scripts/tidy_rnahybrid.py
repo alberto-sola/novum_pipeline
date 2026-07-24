@@ -36,6 +36,10 @@ def tidy_rnahybrid(input_path, output_path):
 
     df["Position"]    = df["Position"].astype(float) / df["Gene_length"]
 
+    # Ranks only — no gate, no per-pair cap, unlike tidy_intarna. RNAhybrid's -e filters
+    # exactly the quantity we gate on and -b caps per pair, both at the tool, so repeating
+    # either here would be redundant. IntaRNA has no flag that bounds E_hybrid (--outMaxE
+    # bounds the total), which is why that arm has to do both downstream.
     df = df.sort_values("Energy", kind="stable")[OUTPUT_COLUMNS]
 
     df.to_csv(ensure_parent(output_path), index=False)

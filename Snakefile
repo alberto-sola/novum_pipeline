@@ -13,8 +13,9 @@ results_dir         = config.get("results_dir", "Data/Results").rstrip("/")
 max_target_length   = rnacalibrate_config.get("max_target_length", 50000)
 shared_threads             = int(config.get("threads", 1))
 shared_max_suboptimal_hits = config.get("max_suboptimal_hits")
-shared_max_total_energy    = config.get("max_total_energy")
 shared_seed                = config.get("seed")
+rnahybrid_max_hybrid_energy = rnahybrid_config.get("max_hybrid_energy")
+intarna_max_hybrid_energy   = intarna_config.get("max_hybrid_energy")
 
 SAMPLE_DIR         = f"{results_dir}" + "/{sample}"
 SAMPLE_VARIANT_DIR = SAMPLE_DIR + "/{variant}"
@@ -88,10 +89,30 @@ intarna_variants = variants_for_mode(
 #      imported here into the Snakemake DRIVER env, which ships none of the arms'
 #      scientific deps. Never import a script that ends in run_from_snakemake() instead. -----#
 sys.path.insert(0, os.path.join(workflow.basedir, "Workflow", "Scripts"))
-from _intarna_config import validate_intarna_config
+from _intarna_config import (
+    INTARNA_DEFAULT_ACCESSIBILITY_SEARCH_DEPTH,
+    opt,
+    reject_removed_keys,
+    validate_intarna_config,
+)
 
-for _warning in validate_intarna_config(intarna_config, shared_seed):
+# Fatal before anything else: a removed key left in a config is inert but looks live.
+reject_removed_keys(config)
+
+# One validation call, one emit site: every fatal and every warning lives in the
+# driver-importable module, where each is unit-tested.
+for _warning in validate_intarna_config(
+    intarna_config, shared_seed,
+    rnahybrid_max_hybrid_energy=rnahybrid_max_hybrid_energy,
+    max_suboptimal_hits=shared_max_suboptimal_hits,
+    accessibility_on=W_ACCESSIBILITY in intarna_variants,
+):
     logger.warning(_warning)
+
+# opt(), not .get(default): an explicit `accessibility_search_depth:` null returns None
+# from .get and would blow up inside the max() in intarna_outnumber.
+intarna_search_depth = opt(intarna_config, "accessibility_search_depth",
+                           INTARNA_DEFAULT_ACCESSIBILITY_SEARCH_DEPTH)
 
 
 RNAHYBRID_VARIANT_RE = f"{W_CALIBRATION}|{WO_CALIBRATION}"
@@ -111,11 +132,35 @@ def calibration_input(wc):
     return []
 
 
+#----- The one predicate all three IntaRNA resolvers below branch on. Under the per-rule
+#      INTARNA_VARIANT_RE constraint the variant is one of exactly two literals, so
+#      "accessibility on" and "!= wo_accessibility" coincide — spell it once -----#
+def _accessibility_on(wc):
+    return wc.variant == W_ACCESSIBILITY
+
+
 #----- Per-variant accessibility routing: resolve the {variant} wildcard to IntaRNA's
 #      --acc mode (N=none, C=constrained) here, mirroring calibration_input, so the
 #      script consumes a resolved knob instead of re-declaring the variant literal -----#
 def intarna_acc_mode(wc):
-    return "N" if wc.variant == WO_ACCESSIBILITY else "C"
+    return "C" if _accessibility_on(wc) else "N"
+
+
+#----- --outMaxE filters TOTAL E, which equals E_hybrid only under acc=N. Emit it as a
+#      tool-level pre-filter exactly where that holds, and defer to tidy_intarna's
+#      E_hybrid gate under acc=C, where the same number would be a ~2x stricter bar -----#
+def intarna_outmaxe(wc):
+    return None if _accessibility_on(wc) else intarna_max_hybrid_energy
+
+
+#----- acc=C ranks by total E while the gate is on E_hybrid, so the strongest duplex can
+#      sit outside a top-1 list. Report deeper there and let tidy_intarna select. A floor,
+#      never a ceiling: a null shared knob means "all hits" and must not narrow to the
+#      depth — which is also why warning (e) tells the user only the cap can bound it -----#
+def intarna_outnumber(wc):
+    if not _accessibility_on(wc) or shared_max_suboptimal_hits is None:
+        return shared_max_suboptimal_hits
+    return max(intarna_search_depth, shared_max_suboptimal_hits)
 
 
 #----- Consensus arm-variant selection: prefer the w_* variant of each arm,
@@ -190,7 +235,7 @@ rule rnahybrid:
         max_suboptimal_hits=shared_max_suboptimal_hits,
         max_internal_loop=rnahybrid_config.get("max_internal_loop"),
         max_bulge_loop=rnahybrid_config.get("max_bulge_loop"),
-        max_total_energy=shared_max_total_energy,
+        max_hybrid_energy=rnahybrid_max_hybrid_energy,
         pvalue_threshold=rnahybrid_config.get("pvalue_threshold"),
         seed=shared_seed,
         distribution=rnahybrid_config.get("distribution"),
@@ -258,8 +303,8 @@ rule intarna:
     params:
         intarna             = intarna_config,
         acc                 = intarna_acc_mode,
-        max_suboptimal_hits = shared_max_suboptimal_hits,
-        max_total_energy    = shared_max_total_energy,
+        max_suboptimal_hits = intarna_outnumber,
+        out_max_energy      = intarna_outmaxe,
         seed                = shared_seed
     script:
         "Workflow/Scripts/intarna.py"
@@ -275,6 +320,11 @@ rule tidy_intarna:
         tidy=f"{SAMPLE_VARIANT_DIR}/intarna_tidy.csv"
     conda:
         "Workflow/Envs/intarna.yaml"
+    params:
+        # Authoritative gate on both variants: --outMaxE cannot express an E_hybrid bound
+        # under acc=C. Idempotent on wo_accessibility, where the tool already applied it.
+        max_hybrid_energy   = intarna_max_hybrid_energy,
+        max_suboptimal_hits = shared_max_suboptimal_hits
     script:
         "Workflow/Scripts/tidy_intarna.py"
 

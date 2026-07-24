@@ -11,7 +11,9 @@ OUTPUT_COLUMNS = [
 ]
 
 # Columns that must be present in IntaRNA CSV output for this script to work.
-REQUIRED_COLS = {"id1", "id2", "start1", "end1", "start2", "end2", "E"}
+# E_hybrid is the gate and sort key, so a trimmed intarna.output.columns must fail here
+# rather than silently produce an ungated file.
+REQUIRED_COLS = {"id1", "id2", "start1", "end1", "start2", "end2", "E", "E_hybrid"}
 
 
 #----- Streams the target FASTA once and returns a {Gene → sequence length} map for downstream position normalization -----#
@@ -19,8 +21,9 @@ def _parse_gene_lengths(fasta_path):
     return {parse_header_id(header): len(seq) for header, seq in iter_fasta_records(fasta_path)}
 
 
-#----- Renames IntaRNA's columns to the pipeline's canonical names, joins gene lengths, computes a 0–1 Position fraction, and emits an energy-sorted CSV -----#
-def tidy_intarna(input_path, target_fasta_path, output_path):
+#----- Renames IntaRNA's columns, joins gene lengths, computes a 0-1 Position fraction, then gates/ranks/caps on E_hybrid and emits the CSV -----#
+def tidy_intarna(input_path, target_fasta_path, output_path,
+                 max_hybrid_energy=None, max_suboptimal_hits=None):
     df = pd.read_csv(input_path, sep=";", dtype={"id1": str, "id2": str})
 
     missing = REQUIRED_COLS - set(df.columns)
@@ -49,9 +52,24 @@ def tidy_intarna(input_path, target_fasta_path, output_path):
     df["Position"] = df["Start1"].astype(float) / df["Gene_length"]
 
     df["E"] = df["E"].astype(float)
+    df["E_hybrid"] = df["E_hybrid"].astype(float)
+
+    # Gate on hybridization energy — the quantity RNAhybrid's -e filters and the scale the
+    # literature's -18 threshold is stated on. --outMaxE cannot express this under acc=C,
+    # where it bounds E_hybrid+ED1+ED2 instead, so this is the authoritative gate on both
+    # variants. On wo_accessibility it is a no-op: the tool already applied the same bound.
+    if max_hybrid_energy is not None:
+        df = df[df["E_hybrid"] <= float(max_hybrid_energy)]
+
+    # Rank by the gated quantity, then cap. Capping first could discard a qualifying row
+    # in favour of a better-total-E one that fails the gate.
+    df = df.sort_values("E_hybrid", kind="stable")
+
+    if max_suboptimal_hits is not None:
+        df = df.groupby(["miRNA", "Gene"], sort=False).head(int(max_suboptimal_hits))
 
     present_cols = [c for c in OUTPUT_COLUMNS if c in df.columns]
-    df = df.sort_values("E", kind="stable")[present_cols]
+    df = df[present_cols]
 
     df.to_csv(ensure_parent(output_path), index=False)
 
@@ -62,6 +80,9 @@ def run_from_snakemake(snakemake):
         input_path=snakemake.input.csv,
         target_fasta_path=snakemake.input.target,
         output_path=snakemake.output.tidy,
+        max_hybrid_energy=snakemake.params.max_hybrid_energy,
+        max_suboptimal_hits=snakemake.params.max_suboptimal_hits,
     )
 
-run_from_snakemake(snakemake)
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)

@@ -173,11 +173,10 @@ Your inputs. `queries:` and `targets:` are matched by key — each key names one
 #----- Shared by both arms -----#
 threads:
 max_suboptimal_hits:
-max_total_energy:
 seed:
 ```
 
-Settings both tools obey, kept in one place so the two arms can't drift apart: CPU threads, how many hits to keep per pair, the energy cutoff, and the seed constraint. Note that `max_total_energy` is not measured identically by the two tools — see [Shared settings](#shared-settings).
+Settings both tools obey, kept in one place so the two arms can't drift apart: CPU threads, how many hits to keep per pair, and the seed constraint. The energy cutoff is **not** shared — the two tools measure energy on different scales, so each arm carries its own (see [Energy cutoffs](#energy-cutoffs)).
 
 ```yaml
 #----- Parameters for RNAcalibrate -----#
@@ -246,12 +245,34 @@ The defaults are good for a first run. Reach for these when you want to tune the
 
 ### Shared settings
 
-`threads`, `max_suboptimal_hits`, `max_total_energy`, and `seed` sit at the top level so both tools read the same value. Two of them carry arm-specific meaning worth knowing:
+`threads`, `max_suboptimal_hits`, and `seed` sit at the top level so both tools read the same value.
 
-- **`max_total_energy`** — In IntaRNA this filters *total* interaction energy (hybridization plus the accessibility penalties `ED1 + ED2`); in RNAhybrid it filters *pure hybridization* energy. The two are directly comparable only when IntaRNA's accessibility correction is off (`accessibility_variant: "off"`).
-- **`max_suboptimal_hits`** — `null` means "keep every hit below `max_total_energy`, per pair" on both arms. With no energy cutoff set, that collapses RNAhybrid to best-hit-only per pair. Set it to `N` to cap both arms at `N` hits per pair. (IntaRNA's hard ceiling is 1000 hits/pair; RNAhybrid is uncapped, so the two can only differ for a pair with more than 1000 suboptimal hits below the cutoff.)
+- **`max_suboptimal_hits`** — `null` means "keep every hit below the arm's energy cutoff, per pair" on both arms. With no cutoff set, that collapses RNAhybrid to best-hit-only per pair. Set it to `N` to cap both arms at `N` hits per pair. (IntaRNA's hard ceiling is 1000 hits/pair; RNAhybrid is uncapped, so the two can only differ for a pair with more than 1000 suboptimal hits below the cutoff.)
 
 `seed` is covered under [Seed handling](#seed-handling).
+
+### Energy cutoffs
+
+Each arm gates on **hybridization** energy, but the two tools state it on different scales, so each carries its own key:
+
+```yaml
+rnahybrid:
+  max_hybrid_energy: -18      # -e ; RNAhybrid's mfe
+intarna:
+  max_hybrid_energy: -12.9    # IntaRNA's E_hybrid column
+```
+
+IntaRNA's `E_hybrid` includes duplex initiation (~+4.1 kcal/mol under Turner04) plus terminal-AU and dangling-end terms; RNAhybrid's `mfe` includes none of them. Measured over 1,122 matched pairs the difference is a constant **+5.10 kcal/mol** (additive, not proportional: regression slope +0.0019). So `-18` on the literature's scale is `-12.9` on IntaRNA's — the same bar, stated twice.
+
+**This is not a loosened threshold.** −18 is the value the source papers used; +5.10 is measured; −12.9 follows by arithmetic. The pipeline previously applied `-18` to IntaRNA's **total** energy (`E_hybrid + ED1 + ED2`), which demanded roughly −33 to −36 on RNAhybrid's scale — about twice the literature threshold — and silently emptied the consensus for 3 of 4 samples. Setting both keys to the same number reinstates that bug; the pipeline warns when they drift more than 1 kcal/mol from the expected relationship.
+
+Accessibility (`ED1`, `ED2`, `Pu1`, `Pu2`) is **reported, never gated** by our configuration. `intarna.output.min_unpaired_probability` and `intarna.seed.min_unpaired_probability` remain available and remain null by default: published `Pu ≥ 0.001` thresholds were benchmarked on bacterial sRNA near start codons, and applying them to CDS interiors deletes wet-lab-confirmed interactions. One caveat: because `--outMaxE` is withheld on `w_accessibility`, IntaRNA's own default of `0` applies there, imposing a weak implicit `ED1 + ED2 < |E_hybrid|` bound — it only bites when accessibility energy is large, but it means a site with e.g. `E_hybrid = -13.5` and `ED1 + ED2 = 14.0` survives on `wo_accessibility` yet is silently absent on `w_accessibility`.
+
+`intarna.accessibility_search_depth` (default 20) raises `--outNumber` on the `w_accessibility` arm only. Under `--acc=C` IntaRNA ranks by total energy while the gate is on `E_hybrid`, so the strongest duplex can sit outside a top-1 list; reporting deeper makes it reachable. It is a floor, never a ceiling — with `max_suboptimal_hits: null` it is ignored.
+
+### The consensus join
+
+`consensus_annotated.csv` joins the two arms on `(miRNA, Gene)` only. Each arm contributes **one** row per pair, chosen independently by its own gated energy, and coordinates never constrain the merge — so a consensus row means *both tools found a qualifying site somewhere in this gene*, not *both tools agree on this site*. `Site_offset_nt` reports how far apart the two chosen sites are, in nucleotides. `max_suboptimal_hits` therefore cannot change the consensus row count as long as it stays at or below `accessibility_search_depth`; it changes only which site each arm contributes. On `w_accessibility`, raising `max_suboptimal_hits` above `accessibility_search_depth` makes IntaRNA report deeper into its total-`E` ranking, and a pair whose only qualifying site sat below the old depth can newly appear — so above that threshold the row count can change too.
 
 ### Calibration (RNAhybrid arm)
 
@@ -314,7 +335,7 @@ intarna:
   max_loop_size: 30
 ```
 
-This yields no seed constraint, no accessibility correction, exact mode, and an energy threshold comparable to the shared `max_total_energy`.
+This yields no seed constraint, no accessibility correction, exact mode, and — with `intarna.max_hybrid_energy` — an energy threshold directly comparable to `rnahybrid.max_hybrid_energy`, since `E ≡ E_hybrid` when accessibility is off.
 
 ### Plots
 
@@ -358,13 +379,13 @@ queries + targets ──┤                                         ├→ inter
 ### IntaRNA arm
 
 7. **intarna** — runs IntaRNA with native `--threads`; no external chunking. The `w_accessibility` and `wo_accessibility` variants differ only in `--acc=C` vs `--acc=N`.
-8. **tidy_intarna** — filters and renames columns; computes `Position = Start1 / Gene_length` for positional comparability with the RNAhybrid arm.
+8. **tidy_intarna** — filters and renames columns; is the authoritative energy gate on both IntaRNA variants (gates on `E_hybrid`, ranks by `E_hybrid`, caps per pair); computes `Position = Start1 / Gene_length` for positional comparability with the RNAhybrid arm.
 9. **annotate_intarna** — parses FASTA headers and merges metadata (shares `annotate.py`, inserting after the `E` column).
 10. **enhance_intarna** — per-record human-readable report with energy, accessibility, and seed metadata plus a duplex block rendered from `subseqDP`/`hybridDP`.
 
 ### Consensus arm
 
-11. **intersect** — inner-joins the two arms' annotated tables on `(miRNA, target)`, keeping each arm's best hit per pair (lowest `P_value` for RNAhybrid, lowest `E` for IntaRNA). Emits `consensus/consensus_annotated.csv` — the pairs both tools predict. When an arm produced two variants, its `w_*` tree is used (calibrated / accessibility-on), falling back to `wo_*` when only that one ran.
+11. **intersect** — inner-joins the two arms' annotated tables on `(miRNA, target)`, keeping each arm's representative hit per pair by its best **gated energy** (lowest `Energy` for RNAhybrid, tie-broken by `P_value`; lowest `E_hybrid` for IntaRNA, tie-broken by `E`). Emits `consensus/consensus_annotated.csv` — the pairs both tools predict — and also emits `Site_offset_nt`, the distance in nucleotides between the two chosen sites. When an arm produced two variants, its `w_*` tree is used (calibrated / accessibility-on), falling back to `wo_*` when only that one ran.
 12. **enhance_consensus** — renders the consensus set as a per-record report: merged metadata plus both duplexes (RNAhybrid ASCII alignment and IntaRNA dot-bracket).
 
 ## Citation

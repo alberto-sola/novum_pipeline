@@ -5,12 +5,10 @@ from _common import which_required, ensure_parent
 from _intarna_config import (
     INTARNA_DEFAULT_ENERGY_SET,
     INTARNA_DEFAULT_MODEL,
+    INTARNA_MAX_OUTNUMBER,
     derive_seed_from_string,
     opt,
 )
-
-
-INTARNA_MAX_OUTNUMBER = 1000
 
 
 #----- Seed enforcement is inherited from the top-level `seed`: absent → --noSeed. When present, --seedBP/--seedQRange are derived; the remaining sub-keys are independent overrides -----#
@@ -76,10 +74,10 @@ def _add_helix_flags(cmd, helix):
         cmd.append("--helixFullE")
 
 
-#----- Appends --out* filtering flags; `max_suboptimal_hits` and `max_total_energy` come from the shared top-level config, the rest from intarna.output -----#
-def _add_output_flags(cmd, out, max_suboptimal_hits=None, max_total_energy=None):
-    if max_total_energy is not None:
-        cmd.append(f"--outMaxE={max_total_energy}")
+#----- Appends --out* filtering flags. `out_max_energy` is IntaRNA's TOTAL-energy bound (--outMaxE), supplied by the Snakefile only where it equals the hybridization gate (acc=N); `max_suboptimal_hits` is the shared knob, the rest come from intarna.output -----#
+def _add_output_flags(cmd, out, max_suboptimal_hits=None, out_max_energy=None):
+    if out_max_energy is not None:
+        cmd.append(f"--outMaxE={out_max_energy}")
     if out.get("max_delta_energy") is not None:
         cmd.append(f"--outDeltaE={out['max_delta_energy']}")
     if max_suboptimal_hits is None:
@@ -106,7 +104,7 @@ def _add_output_flags(cmd, out, max_suboptimal_hits=None, max_total_energy=None)
 
 
 #----- Assembles the IntaRNA command line for one (query, target); `acc` is the resolved --acc mode (N=none, C=constrained) from the Snakefile -----#
-def build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hits, max_total_energy, derived_seed):
+def build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hits, out_max_energy, derived_seed):
     cmd = [
         which_required("IntaRNA"),
         "-q", query,
@@ -135,15 +133,15 @@ def build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hit
     # Accessibility (only meaningful when --acc=C, but harmless to pass always)
     _add_accessibility_flags(cmd, cfg.get("accessibility") or {})
 
-    _add_output_flags(cmd, cfg.get("output") or {}, max_suboptimal_hits=max_suboptimal_hits, max_total_energy=max_total_energy)
+    _add_output_flags(cmd, cfg.get("output") or {}, max_suboptimal_hits=max_suboptimal_hits, out_max_energy=out_max_energy)
 
     return cmd
 
 
 #----- Top-level driver: builds the command and runs IntaRNA once per (sample × accessibility variant) -----#
-def run_intarna(query, target, out_path, acc, cfg, threads, max_suboptimal_hits, max_total_energy, derived_seed):
+def run_intarna(query, target, out_path, acc, cfg, threads, max_suboptimal_hits, out_max_energy, derived_seed):
     ensure_parent(out_path)
-    cmd = build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hits, max_total_energy, derived_seed)
+    cmd = build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hits, out_max_energy, derived_seed)
     subprocess.run(cmd, check=True)
 
 
@@ -158,7 +156,7 @@ def run_from_snakemake(snakemake):
         cfg=dict(snakemake.params.intarna),
         threads=snakemake.threads,
         max_suboptimal_hits=snakemake.params.max_suboptimal_hits,
-        max_total_energy=snakemake.params.max_total_energy,
+        out_max_energy=snakemake.params.out_max_energy,
         derived_seed=derived_seed,
     )
 

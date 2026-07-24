@@ -92,7 +92,7 @@ def _build(cfg, **kw):
     kw.setdefault("out_path", "out.csv")
     kw.setdefault("threads", 1)
     kw.setdefault("max_suboptimal_hits", 1)
-    kw.setdefault("max_total_energy", None)
+    kw.setdefault("out_max_energy", None)
     kw.setdefault("derived_seed", None)
     return intarna.build_command(cfg, **kw)
 
@@ -143,3 +143,15 @@ def test_build_command_ignores_legacy_extra_args():
     cmd = _build({"extra_args": ["--qAcc=N", "--personality=IntaRNAduplex"]})
     assert "--qAcc=N" not in cmd
     assert "--personality=IntaRNAduplex" not in cmd
+
+def test_outmaxe_emitted_when_set():
+    # Only reached on the wo_accessibility arm, where E == E_hybrid so --outMaxE (a TOTAL
+    # energy filter) expresses the hybridization gate exactly.
+    cmd = _build({}, out_max_energy=-12.9)
+    assert "--outMaxE=-12.9" in cmd
+
+def test_outmaxe_omitted_when_none():
+    # w_accessibility passes None: under acc=C, --outMaxE would filter E_hybrid+ED1+ED2,
+    # a ~2x stricter bar. tidy_intarna gates on E_hybrid downstream instead.
+    cmd = _build({}, out_max_energy=None)
+    assert _flag(cmd, "--outMaxE=") is None

@@ -144,6 +144,13 @@ function SharedParamsSection({ cfg, setCfg }) {
       sub="Apply to both RNAhybrid and IntaRNA"
       anchor="shared"
     >
+      {cfg.hadMaxTotalEnergy && (
+        <InlineNote tone="warn">
+          · max_total_energy was removed — it meant hybridization energy on RNAhybrid but
+          total energy on IntaRNA. The per-arm cutoffs now live on each tool's card; saving
+          rewrites the file.
+        </InlineNote>
+      )}
       <div className="grid-2">
         <Subcard label="Threads">
           <input
@@ -160,10 +167,6 @@ function SharedParamsSection({ cfg, setCfg }) {
           min={1} nullHint="null · auto"
           value={cfg.max_suboptimal_hits}
           onChange={(v) => setNullable("max_suboptimal_hits", v)} />
-        <NullableField name="Max total energy" doc="kcal/mol"
-          max={0} nullHint="null · auto"
-          value={cfg.max_total_energy}
-          onChange={(v) => setNullable("max_total_energy", v)} />
         <NullableField name="Seed" doc="nucleotides start,end" kind="pair"
           min={1} nullHint="null · auto"
           pairLabels={["start nt", "end nt"]}
@@ -308,6 +311,9 @@ function RNAHybridSection({ cfg, setCfg }) {
         )}
 
         <div className="grid-2">
+          <NullableField name="Max hybridization energy" doc="kcal/mol · MFE"
+            max={0} nullHint="null · no cutoff"
+            value={r.max_hybrid_energy} onChange={(v) => setF("max_hybrid_energy", v)} />
           <NullableField name="Max internal loop" doc="nt" kind="integer"
             min={0}
             value={r.max_internal_loop} onChange={(v) => setF("max_internal_loop", v)} />
@@ -397,6 +403,14 @@ function IntaRNASection({ cfg, setCfg }) {
               ))}
             </select>
           </Subcard>
+          <NullableField name="Max hybridization energy" doc="kcal/mol · E_hybrid"
+            max={0} nullHint="null · tool default (E ≤ 0)"
+            value={it.max_hybrid_energy}
+            onChange={(v) => set({ max_hybrid_energy: v })} />
+          <NullableField name="Accessibility search depth" doc="hits reported" kind="integer"
+            min={1} nullHint="null · use shared cap"
+            value={it.accessibility_search_depth}
+            onChange={(v) => set({ accessibility_search_depth: v })} />
           <NullableField name="Max interaction length" doc="nt" kind="integer"
             min={0} autoTag="AUTO (0)"
             value={it.max_interaction_length}

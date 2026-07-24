@@ -9,7 +9,8 @@ import config_io
 def test_roundtrip_preserves_structure(tmp_path):
     cfg = {
         "queries": {"ecoli": "a.fa"}, "targets": {"ecoli": "g.fna"},
-        "threads": 16, "max_suboptimal_hits": 1, "max_total_energy": -20, "seed": None,
+        "threads": 16, "max_suboptimal_hits": 1, "seed": None,
+        "rnahybrid": {"max_hybrid_energy": -18},
         "intarna": {"accessibility_variant": "on",
                     "output": {"columns": "id1,id2,E", "overlap": "B"}},
         "plots": {"type": None}, "results_dir": "Data/Results/",

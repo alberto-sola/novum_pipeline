@@ -28,3 +28,11 @@ def test_build_rnahybrid_command_species_vs_dist():
 def test_out_path_for_naming():
     assert worker.out_path_for("/out", "q.fa", "chunk_000001", False).name == "output_chunk_000001.tsv"
     assert worker.out_path_for("/out", "/x/hsa_miR-21.fa", "chunk_000001", True).name == "output_hsa_miR-21__chunk_000001.tsv"
+
+def test_energy_flag_comes_from_max_hybrid_energy():
+    # -e has always filtered pure hybridization MFE; the old parameter name claimed a
+    # total energy the flag never saw.
+    assert rnahybrid.build_optional_args(max_hybrid_energy=-18) == ["-e", "-18"]
+
+def test_no_energy_flag_when_cutoff_is_none():
+    assert "-e" not in rnahybrid.build_optional_args()

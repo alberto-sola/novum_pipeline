@@ -15,7 +15,7 @@ CONSENSUS_COLUMNS = [
     "Energy", "P_value", "Position_rnahybrid",
     "miRNA_unmatches", "miRNA_matches", "Target_matches", "Target_unmatches",
     "E", "E_hybrid", "ED1", "ED2", "Pu1", "Pu2",
-    "Start1", "End1", "Start2", "End2", "Position_intarna",
+    "Start1", "End1", "Start2", "End2", "Position_intarna", "Site_offset_nt",
     "subseqDP", "hybridDP",
     "seedStart1", "seedEnd1", "seedE", "seedStart2", "seedEnd2",
 ]
@@ -29,14 +29,14 @@ def select_best_hit(df, keys, rank_col, tiebreak_col=None):
     return ranked.drop_duplicates(subset=keys, keep="first")
 
 
-#----- Inner-joins the two arms' best hits per (miRNA, Gene); shared annotation kept from RNAhybrid, Position disambiguated -----#
+#----- Inner-joins the two arms' representative hits per (miRNA, Gene), each chosen by its own gated energy; shared annotation kept from RNAhybrid, Position disambiguated -----#
 def intersect_annotations(rnahybrid_csv, intarna_csv, output_csv):
     keys = ["miRNA", "Gene"]
     rnahybrid = pd.read_csv(rnahybrid_csv)
     intarna = pd.read_csv(intarna_csv)
 
-    rh_best = select_best_hit(rnahybrid, keys, "P_value", "Energy")
-    in_best = select_best_hit(intarna, keys, "E")
+    rh_best = select_best_hit(rnahybrid, keys, "Energy", "P_value")
+    in_best = select_best_hit(intarna, keys, "E_hybrid", "E")
 
     rh_best = rh_best.rename(columns={"Position": "Position_rnahybrid"})
     in_best = in_best.rename(columns={"Position": "Position_intarna"})
@@ -45,6 +45,17 @@ def intersect_annotations(rnahybrid_csv, intarna_csv, output_csv):
     in_best = in_best.drop(columns=drop_from_intarna)
 
     merged = rh_best.merge(in_best, on=keys, how="inner")
+
+    # The join is pair-granular — coordinates never constrain it, so a consensus row does
+    # NOT assert the two arms found the same site. Measure the disagreement rather than
+    # gating on it; both Position columns are start/Gene_length fractions (tidy_rnahybrid,
+    # tidy_intarna), so the difference scales back to nucleotides.
+    if {"Position_rnahybrid", "Position_intarna", "Gene_length"} <= set(merged.columns):
+        merged["Site_offset_nt"] = (
+            (merged["Position_intarna"] - merged["Position_rnahybrid"]).abs()
+            * merged["Gene_length"]
+        ).round(1)
+
     absent = [c for c in CONSENSUS_COLUMNS if c not in merged.columns]
     if absent:
         print(

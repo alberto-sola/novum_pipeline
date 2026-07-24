@@ -62,14 +62,16 @@ window.PLOT_PAIR_LISTS = [
 // Nullable-field key lists per card. Used by section renderers (and the Hero
 // "set params" counter) so a single source of truth drives what's rendered
 // vs. what's just present in INITIAL_CONFIG.
-window.SHARED_NULLABLE_KEYS    = ["max_suboptimal_hits", "max_total_energy", "seed"];
-window.RNAHYBRID_NULLABLE_KEYS = ["max_internal_loop", "max_bulge_loop", "pvalue_threshold", "distribution"];
+window.SHARED_NULLABLE_KEYS    = ["max_suboptimal_hits", "seed"];
+window.RNAHYBRID_NULLABLE_KEYS = ["max_hybrid_energy", "max_internal_loop", "max_bulge_loop", "pvalue_threshold", "distribution"];
 
 // Ordered field specs for the `intarna:` sub-blocks. kind: "n" nullable {set,value}
 // field, "p" plain value, "c" constant. Key ORDER here is the order written to
 // config.yaml (safe_dump(sort_keys=False)) — keep it matching Config/config.yaml.
 window.INTARNA_BLOCKS = {
   top: [
+    ["max_hybrid_energy", "n"],
+    ["accessibility_search_depth", "n"],
     ["max_interaction_length", "n"],
     ["max_loop_size", "n"],
   ],
@@ -190,7 +192,7 @@ window.INITIAL_CONFIG = {
   threads: 16,
   max_suboptimal_hits: { set: false, value: 1 },
   seed:                { set: false, a: 2, b: 7 },
-  max_total_energy:    { set: false, value: -18 },
+  hadMaxTotalEnergy: false,
   rnacalibrate: {
     calibration_variant: "on",
     k: 10000,
@@ -199,6 +201,7 @@ window.INITIAL_CONFIG = {
   },
   rnahybrid: {
     species: "3utr_human",
+    max_hybrid_energy: { set: true, value: -18 },
     max_internal_loop: { set: false, value: 1 },
     max_bulge_loop:    { set: false, value: 1 },
     pvalue_threshold:  { set: false, value: 0.05 },
@@ -209,6 +212,8 @@ window.INITIAL_CONFIG = {
     prediction_mode: "H",
     model: "X",
     energy_set: "Turner04",
+    max_hybrid_energy:          { set: true, value: -12.9 },
+    accessibility_search_depth: { set: true, value: 20 },
     // Placeholder `value`s mirror IntaRNA's own defaults, so flipping a field on is
     // initially a no-op. Except max_interaction_length, whose default (0) *means* auto.
     max_interaction_length: { set: false, value: 10 },

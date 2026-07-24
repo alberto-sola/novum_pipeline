@@ -10,10 +10,8 @@ targets:
 
 #----- Shared by both arms -----#
 threads: 16
-max_suboptimal_hits: 3                # null → keep every hit below max_total_energy, per pair, on BOTH arms
-max_total_energy: -18                 # Energy cutoff. IntaRNA filters total E (incl. accessibility ED1+ED2);
-seed: 2,7                             # RNAhybrid filters pure hybridization energy. Equal only when accessibility off.
-                                      # Forced seed as "x,y" query positions; drives BOTH arms.
+max_suboptimal_hits: 3                # null → keep every hit below the arm's energy cutoff, per pair, on BOTH arms
+seed: 2,7                             # Forced seed as "x,y" query positions; drives BOTH arms.
                                       # RNAhybrid → -f x,y ; IntaRNA → --seedBP/--seedQRange/--seedMaxUP=0.
                                       # null → no seed on either arm (IntaRNA emits --noSeed).
 
@@ -27,6 +25,7 @@ rnacalibrate:
 #----- Parameters for RNAhybrid -----#
 rnahybrid:
   species: 3utr_human
+  max_hybrid_energy: -18              # -e  hybridization MFE; the literature threshold
   max_internal_loop: 4
   max_bulge_loop: 4
   pvalue_threshold: null
@@ -38,6 +37,8 @@ intarna:
   prediction_mode: H                  # H heuristic | M exact | S seed-only
   model: X                            # X seed-extension | S legacy | B helix-block | P ensemble
   energy_set: Turner04                # --energyVRNA  Turner99 | Turner04 | Andronescu07
+  max_hybrid_energy: -12.9            # E_hybrid gate = -18 + 5.10 measured offset. NOT seed.max_hybrid_energy.
+  accessibility_search_depth: 20      # --outNumber FLOOR on w_accessibility only: acc=C ranks by total E while the gate is on E_hybrid, so the MFE site can fall outside top-1.
   max_interaction_length: 0           # --intLenMax   (null/0 = auto: min of seq length, accW)
   max_loop_size: 4                    # --intLoopMax  unpaired nt between paired bases (null = 10)
 

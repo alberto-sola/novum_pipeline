@@ -110,3 +110,106 @@ def test_validate_silent_for_empty_helix_block():
 
 def test_validate_no_helix_warning_under_model_B():
     assert validate({"model": "B", "helix": {"min_bp": 3}}, None) == []
+
+
+# --- removed top-level keys ---
+
+def test_reject_removed_keys_raises_on_max_total_energy():
+    with pytest.raises(ValueError, match="max_total_energy has been removed"):
+        cfgmod.reject_removed_keys({"max_total_energy": -18})
+
+def test_reject_removed_keys_raises_even_when_the_value_is_null():
+    # Nulling the key is the likeliest "I disabled it" migration attempt; silence there
+    # would leave the user believing they had turned the cutoff off on both arms.
+    with pytest.raises(ValueError, match="max_total_energy"):
+        cfgmod.reject_removed_keys({"max_total_energy": None})
+
+def test_reject_removed_keys_message_names_both_replacements():
+    with pytest.raises(ValueError) as exc:
+        cfgmod.reject_removed_keys({"max_total_energy": -18})
+    msg = str(exc.value)
+    assert "rnahybrid:" in msg and "intarna:" in msg
+    assert "-18" in msg and "-12.9" in msg
+
+def test_reject_removed_keys_silent_on_clean_config():
+    assert cfgmod.reject_removed_keys({"threads": 16}) is None
+    assert cfgmod.reject_removed_keys({}) is None
+    assert cfgmod.reject_removed_keys(None) is None
+
+
+# --- (d) the two arms must gate at comparable bars ---
+
+def test_offset_constant_is_the_measured_value():
+    assert cfgmod.INTARNA_RNAHYBRID_ENERGY_OFFSET == 5.10
+
+def test_energy_warning_silent_when_the_bars_are_comparable():
+    assert validate({"max_hybrid_energy": -12.9}, None,
+                    rnahybrid_max_hybrid_energy=-18) == []
+
+def test_energy_warning_fires_on_non_comparable_bars():
+    # -18 on BOTH arms is the pre-refactor bug: it demands ~2x the literature threshold
+    # of IntaRNA. That must be loud, not silently accepted.
+    warnings = validate({"max_hybrid_energy": -18.0}, None,
+                        rnahybrid_max_hybrid_energy=-18)
+    assert len(warnings) == 1
+    assert "non-comparable" in warnings[0]
+    assert "-12.90" in warnings[0]          # names the value the user probably wanted
+
+def test_energy_warning_silent_when_both_cutoffs_are_null():
+    # Both unset is a deliberate "no gating anywhere" — nothing to warn about.
+    assert validate({"max_hybrid_energy": None}, None) == []
+
+def test_energy_warning_fires_when_only_intarna_cutoff_is_null():
+    # One arm gated, the other not, is a BIGGER mismatch than two numeric cutoffs
+    # merely drifting apart — and exactly where a half-finished hand migration off
+    # max_total_energy lands. It must not be silent.
+    warnings = validate({"max_hybrid_energy": None}, None,
+                        rnahybrid_max_hybrid_energy=-18)
+    assert len(warnings) == 1
+    assert "intarna.max_hybrid_energy is null" in warnings[0]
+    assert "-18" in warnings[0]
+
+def test_energy_warning_fires_when_only_rnahybrid_cutoff_is_null():
+    warnings = validate({"max_hybrid_energy": -12.9}, None)
+    assert len(warnings) == 1
+    assert "rnahybrid.max_hybrid_energy is null" in warnings[0]
+    assert "-12.9" in warnings[0]
+
+def test_energy_warning_tolerance_is_one_kcal():
+    # A usability threshold, not a confidence bound — the median offset is pinned far
+    # tighter than this, so 1 kcal/mol of drift is a user choice, not measurement noise.
+    assert validate({"max_hybrid_energy": -13.8}, None,
+                    rnahybrid_max_hybrid_energy=-18) == []           # 0.9 off — quiet
+    assert len(validate({"max_hybrid_energy": -14.0}, None,
+                        rnahybrid_max_hybrid_energy=-18)) == 1       # 1.1 off — warns
+
+def test_energy_warning_coexists_with_the_helix_warning():
+    warnings = validate({"model": "X", "helix": {"min_bp": 3},
+                         "max_hybrid_energy": -18.0}, None,
+                        rnahybrid_max_hybrid_energy=-18)
+    assert len(warnings) == 2
+
+
+# --- (e) w_accessibility withholds --outMaxE, so only the per-pair cap bounds the CSV ---
+
+def test_unbounded_output_warning_fires_on_accessibility_with_null_cap():
+    warnings = validate({}, None, max_suboptimal_hits=None, accessibility_on=True)
+    assert len(warnings) == 1
+    assert str(cfgmod.INTARNA_MAX_OUTNUMBER) in warnings[0]
+
+def test_unbounded_output_warning_says_the_depth_knob_cannot_bound_it():
+    # accessibility_search_depth is a FLOOR on --outNumber: with a null cap the max()
+    # that would apply it is skipped entirely, so advising it here would be wrong.
+    warnings = validate({"accessibility_search_depth": 20}, None,
+                        max_suboptimal_hits=None, accessibility_on=True)
+    assert "accessibility_search_depth cannot" in warnings[0]
+
+def test_unbounded_output_warning_silent_once_the_cap_is_set():
+    assert validate({}, None, max_suboptimal_hits=1, accessibility_on=True) == []
+
+def test_unbounded_output_warning_silent_without_the_accessibility_arm():
+    # wo_accessibility carries --outMaxE, so the intermediate is already bounded there.
+    assert validate({}, None, max_suboptimal_hits=None, accessibility_on=False) == []
+
+def test_unbounded_output_warning_defaults_off_for_callers_that_omit_it():
+    assert validate({}, None) == []
