@@ -3,12 +3,14 @@ resolve+download genomes, build miRNA query FASTAs, write Config/config.yaml."""
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import os
 import sys
 from pathlib import Path
 
 import pairs as pairs_mod
-from fetch_genomes import make_session, resolve_assemblies, download_cds, cds_dest, _RATE_DELAY_NO_KEY, _RATE_DELAY_WITH_KEY
+from fetch_genomes import (make_session, resolve_assemblies, download_targets, target_dest,
+                           _RATE_DELAY_NO_KEY, _RATE_DELAY_WITH_KEY)
 from mirnas import (ensure_mature_fa, index_mature, resolve_mirna, write_query_fasta, query_fasta_path, MatureUnavailable)
 from config_writer import update_path_blocks
 
@@ -32,9 +34,10 @@ def select_emitted(taxa_order, genome_paths, mirna_resolved, rnas_dir):
     return queries, targets, skipped
 
 
-def _write_report(path, groups, genome_paths, hits_by_taxon, per_mirna):
+#----- Writes the per-(taxon,miRNA) TSV audit report; RNA_STATUS follows GENOME_PATH -----#
+def _write_report(path, groups, genome_paths, hits_by_taxon, per_mirna, rna_status):
     with open(path, "w") as fh:
-        fh.write("TAXON\tGENOME_STATUS\tACCESSION\tASSEMBLY_NAME\tGENOME_PATH\t"
+        fh.write("TAXON\tGENOME_STATUS\tACCESSION\tASSEMBLY_NAME\tGENOME_PATH\tRNA_STATUS\t"
                  "MIRNA_INPUT\tMIRNA_STATUS\tMIRNA_RESOLVED\n")
         for taxon in groups:
             hit = hits_by_taxon.get(taxon)
@@ -48,9 +51,10 @@ def _write_report(path, groups, genome_paths, hits_by_taxon, per_mirna):
             for raw in groups[taxon]:
                 status, resolved = per_mirna[(taxon, raw)]
                 fh.write(f"{taxon}\t{gstatus}\t{acc}\t{asm}\t{gpath or '-'}\t"
-                         f"{raw}\t{status}\t{resolved}\n")
+                         f"{rna_status.get(taxon, '-')}\t{raw}\t{status}\t{resolved}\n")
 
 
+#----- Bootstrap: resolve+download targets, build query FASTAs, write config and report -----#
 def run(pairs_path=None, inline=None, config="Config/config.yaml",
         rnas_dir="Data/Raw/RNAs", genomes_dir="Data/Raw/genomes",
         mirnas_dir="Data/Raw/miRNAs", prefix_chain=("hsa", "mmu"),
@@ -77,12 +81,19 @@ def run(pairs_path=None, inline=None, config="Config/config.yaml",
     hits_by_name = resolve_assemblies(list(name_to_key), session, delay)
     hits_by_taxon = {name_to_key[n]: h for n, h in hits_by_name.items()}
     if dry_run:
-        genome_paths = {k: (str(cds_dest(genomes_dir, h[0], h[1])) if h else None)
+        # Optimistic: we can't know whether an assembly has an RNA file without
+        # fetching it, so predict the merged name.
+        genome_paths = {k: (str(target_dest(genomes_dir, h[0], h[1])) if h else None)
                         for k, h in hits_by_taxon.items()}
+        rna_status = {}
     else:
-        print("--- Downloading CDS ---")
-        paths_by_name = download_cds(hits_by_name, genomes_dir, session, force=force)
+        print("--- Downloading CDS + RNA ---")
+        paths_by_name, rna_by_name = download_targets(hits_by_name, genomes_dir, session,
+                                                      delay, force=force)
         genome_paths = {name_to_key[n]: p for n, p in paths_by_name.items()}
+        rna_status = {name_to_key[n]: s for n, s in rna_by_name.items()}
+        counts = Counter(s for s in rna_status.values() if s != "-")
+        print("RNA: " + (", ".join(f"{n} {s}" for s, n in counts.most_common()) or "none"))
 
     # --- miRNAs ---
     print("--- Resolving miRNAs ---")
@@ -114,6 +125,8 @@ def run(pairs_path=None, inline=None, config="Config/config.yaml",
         print("# targets:")
         for k, v in targets.items():
             print(f"  {k}: {v}")
+        print("  (names assume rna_from_genomic is available; an assembly "
+              "without it lands as *_cds_from_genomic.fna)")
     else:
         for taxon in queries:
             write_query_fasta(taxon, mirna_resolved[taxon], rnas_dir)
@@ -127,10 +140,11 @@ def run(pairs_path=None, inline=None, config="Config/config.yaml",
     # Dry-run is a preview: don't write (and clobber) the authoritative report with
     # genome paths whose files were never fetched.
     if not dry_run:
-        _write_report(report, groups, genome_paths, hits_by_taxon, per_mirna)
+        _write_report(report, groups, genome_paths, hits_by_taxon, per_mirna, rna_status)
         print(f"Report → {report}")
 
 
+#----- CLI entry point: parse args, run, surface miRBase outages without a traceback -----#
 def main() -> None:
     ap = argparse.ArgumentParser(description="Bootstrap pipeline inputs from (taxon, miRNA) pairs.")
     ap.add_argument("inline", nargs="*", help='inline "taxon:miRNA" pairs')

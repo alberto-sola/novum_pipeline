@@ -1,0 +1,329 @@
+from __future__ import annotations
+
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+import gzip
+import io
+import tempfile
+import zipfile
+import zlib
+from pathlib import Path
+
+import requests
+
+from fetch_genomes import assembly_stem, rna_ftp_url, target_dest, append_gz_fasta, download_targets
+
+
+def test_rna_ftp_url_splits_accession_digits():
+    assert rna_ftp_url("GCF_000005845.2", "ASM584v2") == (
+        "https://ftp.ncbi.nlm.nih.gov/genomes/all/GCF/000/005/845/"
+        "GCF_000005845.2_ASM584v2/GCF_000005845.2_ASM584v2_rna_from_genomic.fna.gz")
+
+
+def test_rna_ftp_url_handles_gca_prefix():
+    assert "/GCA/014/131/755/" in rna_ftp_url("GCA_014131755.1", "ASM1413175v1")
+
+
+def test_assembly_stem_sanitizes_unsafe_characters():
+    assert assembly_stem("GCF_1.1", "ASM 1 (v2)") == "GCF_1.1_ASM_1__v2_"
+
+
+def test_target_dest_names_both_branches():
+    assert target_dest("g", "GCF_1.1", "ASM1", with_rna=True).name == \
+        "GCF_1.1_ASM1_cds_rna_from_genomic.fna"
+    assert target_dest("g", "GCF_1.1", "ASM1", with_rna=False).name == \
+        "GCF_1.1_ASM1_cds_from_genomic.fna"
+
+
+def _gz(path, text):
+    Path(path).write_bytes(_rna_gz_bytes(text))
+    return path
+
+
+def test_append_gz_fasta_concatenates_cds_before_rna():
+    d = Path(tempfile.mkdtemp())
+    part = d / "x.part"
+    part.write_bytes(b">lcl|X_cds_1 [gene=a]\nAAAA\n")
+    added = append_gz_fasta(part, _gz(d / "r.gz", ">lcl|X_ncrna_1 [product=b]\nGGGG\n"))
+    assert added == 1
+    assert part.read_text() == (">lcl|X_cds_1 [gene=a]\nAAAA\n"
+                                ">lcl|X_ncrna_1 [product=b]\nGGGG\n")
+
+
+def test_append_gz_fasta_inserts_missing_newline():
+    d = Path(tempfile.mkdtemp())
+    part = d / "x.part"
+    part.write_bytes(b">lcl|X_cds_1\nAAAA")          # no trailing newline
+    append_gz_fasta(part, _gz(d / "r.gz", ">lcl|X_rrna_1\nGGGG\n"))
+    assert part.read_text() == ">lcl|X_cds_1\nAAAA\n>lcl|X_rrna_1\nGGGG\n"
+
+
+def test_append_gz_fasta_counts_every_record():
+    d = Path(tempfile.mkdtemp())
+    part = d / "x.part"
+    part.write_bytes(b">lcl|X_cds_1\nAA\n")
+    assert append_gz_fasta(part, _gz(d / "r.gz", ">a\nGG\n>b\nCC\n>c\nTT\n")) == 3
+
+
+class _Resp:
+    """Minimal stand-in for a requests.Response used in streaming mode."""
+    def __init__(self, status_code=200, body=b""):
+        self.status_code = status_code
+        self._body = body
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"HTTP {self.status_code}")
+
+    def iter_content(self, chunk_size=1):
+        yield self._body
+
+
+class _StubSession:
+    """Serves one canned CDS zip for POST and RNA payload(s) for GET.
+
+    `rna_gz` may be:
+      - None: every GET 404s (no RNA available)
+      - bytes: every GET returns that same body with status 200
+      - dict[str, bytes | None]: looked up by whichever key appears as a
+        substring of the GET url, so different accessions sharing one batch
+        can each get their own RNA outcome (404 / ok / corrupt payload).
+    """
+    def __init__(self, zip_bytes=b"", rna_gz=None):
+        self.zip_bytes = zip_bytes
+        self.rna_gz = rna_gz
+        self.posts = []
+        self.gets = []
+
+    def post(self, url, **kw):
+        self.posts.append(url)
+        return _Resp(200, self.zip_bytes)
+
+    def get(self, url, **kw):
+        self.gets.append(url)
+        body = self.rna_gz
+        if isinstance(body, dict):
+            body = next((v for key, v in body.items() if key in url), None)
+        return _Resp(404) if body is None else _Resp(200, body)
+
+
+def _cds_zip_multi(pairs):
+    """Bundles several (accession, text) entries into one ZIP — for tests where a
+    single batched POST must serve more than one accession."""
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as zf:
+        for acc, text in pairs:
+            zf.writestr(f"ncbi_dataset/data/{acc}/cds_from_genomic.fna", text)
+    return buf.getvalue()
+
+
+def _cds_zip(acc, text):
+    return _cds_zip_multi([(acc, text)])
+
+
+def _rna_gz_bytes(text):
+    buf = io.BytesIO()
+    with gzip.GzipFile(fileobj=buf, mode="wb") as fh:
+        fh.write(text.encode())
+    return buf.getvalue()
+
+
+def _big_rna_text(n=500):
+    """A multi-record RNA FASTA big enough that a truncated gzip of it forces
+    the decompressor to yield many complete lines before the stream ends —
+    unlike a single short record, where the whole payload can sit in one
+    deflate block and a truncation raises before anything is emitted at all.
+    Needed so a corrupt-gzip test actually exercises "partial data already
+    written to disk", instead of accidentally looking clean by luck."""
+    lines = []
+    for i in range(n):
+        lines.append(f">lcl|X_ncrna_{i} [product=b]")
+        lines.append("GGGGCCCCAAAATTTT" * 4)
+    return "\n".join(lines) + "\n"
+
+
+def test_download_targets_merges_and_cleans_up_part_file():
+    d = Path(tempfile.mkdtemp())
+    s = _StubSession(_cds_zip("GCF_1.1", ">lcl|X_cds_1 [gene=a]\nAAAA\n"),
+                     _rna_gz_bytes(">lcl|X_ncrna_1 [product=b]\nGGGG\n"))
+    paths, status = download_targets({"ecoli": ("GCF_1.1", "ASM1")}, d, s, delay=0)
+    assert status == {"ecoli": "merged"}
+    out = Path(paths["ecoli"])
+    assert out.name == "GCF_1.1_ASM1_cds_rna_from_genomic.fna"
+    assert out.read_text().count(">") == 2
+    assert list(d.glob("*.part")) == []
+
+
+def test_download_targets_degrades_to_cds_only_on_404():
+    d = Path(tempfile.mkdtemp())
+    s = _StubSession(_cds_zip("GCF_1.1", ">lcl|X_cds_1\nAAAA\n"), rna_gz=None)
+    paths, status = download_targets({"t": ("GCF_1.1", "ASM1")}, d, s, delay=0)
+    assert status == {"t": "missing"}
+    assert Path(paths["t"]).name == "GCF_1.1_ASM1_cds_from_genomic.fna"
+    assert list(d.glob("*.part")) == []
+
+
+def test_download_targets_does_not_treat_cds_only_file_as_cached():
+    d = Path(tempfile.mkdtemp())
+    (d / "GCF_1.1_ASM1_cds_from_genomic.fna").write_text(">stale\nAAAA\n")
+    s = _StubSession(_cds_zip("GCF_1.1", ">lcl|X_cds_1\nCCCC\n"), rna_gz=None)
+    paths, status = download_targets({"t": ("GCF_1.1", "ASM1")}, d, s, delay=0)
+    assert status == {"t": "missing"}                    # refetched, not reused
+    assert Path(paths["t"]).read_text() == ">lcl|X_cds_1\nCCCC\n"
+
+
+def test_download_targets_uses_merged_file_as_cache():
+    d = Path(tempfile.mkdtemp())
+    (d / "GCF_1.1_ASM1_cds_rna_from_genomic.fna").write_text(">cached\nAAAA\n")
+    s = _StubSession()
+    paths, status = download_targets({"t": ("GCF_1.1", "ASM1")}, d, s, delay=0)
+    assert status == {"t": "cached"}
+    assert s.posts == [] and s.gets == []                # no network at all
+
+
+def test_download_targets_shares_one_download_across_taxa():
+    d = Path(tempfile.mkdtemp())
+    s = _StubSession(_cds_zip("GCF_1.1", ">lcl|X_cds_1\nAAAA\n"),
+                     _rna_gz_bytes(">lcl|X_ncrna_1\nGGGG\n"))
+    hits = {"a": ("GCF_1.1", "ASM1"), "b": ("GCF_1.1", "ASM1"), "c": None}
+    paths, status = download_targets(hits, d, s, delay=0)
+    assert paths["a"] == paths["b"]
+    assert "c" not in paths and "c" not in status
+    assert len(s.gets) == 1                              # deduped by accession
+
+
+def test_download_targets_corrupt_rna_errors_one_accession_without_killing_batch():
+    # A truncated gzip still has a valid header, so the HTTP transfer "succeeds"
+    # (no requests exception) and the failure only surfaces once gzip tries to
+    # read past the missing end-of-stream marker (EOFError, not OSError).
+    # Use a big multi-record payload (not a single short line): a short payload
+    # can sit inside one deflate block and a truncation raises before anything
+    # is emitted at all, which would make the corruption-on-disk scenario this
+    # test exists to catch impossible to trigger.
+    full = _rna_gz_bytes(_big_rna_text())
+    truncated = full[: int(len(full) * 0.9)]
+
+    d = Path(tempfile.mkdtemp())
+    zip_bytes = _cds_zip_multi([
+        ("GCF_1.1", ">lcl|X_cds_1\nAAAA\n"),
+        ("GCF_2.2", ">lcl|Y_cds_1\nCCCC\n"),
+    ])
+    s = _StubSession(zip_bytes, rna_gz={
+        "GCF_1.1": truncated,                             # corrupt: triggers EOFError
+        "GCF_2.2": _rna_gz_bytes(">lcl|Y_ncrna_1\nGGGG\n"),  # healthy sibling in the same batch
+    })
+    hits = {"bad": ("GCF_1.1", "ASM1"), "good": ("GCF_2.2", "ASM2")}
+    paths, status = download_targets(hits, d, s, delay=0)
+
+    # The corrupt accession is isolated as its own "error" status; the CDS half
+    # it already had still survives on disk (RNA merge failed, CDS did not).
+    assert status["bad"] == "error"
+    assert Path(paths["bad"]).name == "GCF_1.1_ASM1_cds_from_genomic.fna"
+    # Critically: the second accession in the same batch still completed —
+    # one accession's corrupt payload must not abort the others.
+    assert status["good"] == "merged"
+    assert Path(paths["good"]).name == "GCF_2.2_ASM2_cds_rna_from_genomic.fna"
+    # No orphaned staging file for either accession.
+    assert list(d.glob("*.part")) == []
+
+    # Byte-content proof (Finding 1): the file named *_cds_from_genomic.fna must
+    # actually contain ONLY the CDS record — never a partial RNA fragment that
+    # leaked onto disk before the truncated gzip raised mid-stream.
+    assert Path(paths["bad"]).read_text() == ">lcl|X_cds_1\nAAAA\n"
+
+
+def _assert_rollback_on_truncated_gzip(original: bytes):
+    # A big multi-record payload so the decompressor yields several complete lines
+    # (which the un-fixed code wrote straight to disk) before the truncation raises —
+    # a short single-record payload can fail before emitting anything at all, which
+    # would make the assertion pass by luck.
+    d = Path(tempfile.mkdtemp())
+    part = d / "x.part"
+    part.write_bytes(original)
+
+    full = _rna_gz_bytes(_big_rna_text())
+    truncated_gz = d / "r.gz"
+    truncated_gz.write_bytes(full[: int(len(full) * 0.9)])
+
+    raised = False
+    try:
+        append_gz_fasta(part, truncated_gz)
+    except (EOFError, zlib.error):
+        raised = True
+    assert raised, "append_gz_fasta must propagate the gzip failure"
+    assert part.read_bytes() == original      # rolled back to pristine pre-call bytes
+
+
+def test_append_gz_fasta_rolls_back_part_on_corrupt_gzip():
+    # Unit-level proof that append_gz_fasta itself is transactional.
+    _assert_rollback_on_truncated_gzip(b">lcl|X_cds_1 [gene=a]\nAAAA\n")
+
+
+def test_append_gz_fasta_rolls_back_empty_part_on_corrupt_gzip():
+    # rollback_to == 0 edge case: an empty .part must stay empty after a failed append.
+    _assert_rollback_on_truncated_gzip(b"")
+
+
+def test_download_targets_upgrade_unlinks_stale_cds_only_sibling():
+    # Migration case: a pre-existing CDS-only file for an accession must be
+    # removed once a re-run successfully merges RNA, so exactly one file per
+    # accession survives (README/spec: "a re-run replaces the earlier file").
+    d = Path(tempfile.mkdtemp())
+    stale = d / "GCF_1.1_ASM1_cds_from_genomic.fna"
+    stale.write_text(">stale_cds\nAAAA\n")
+    s = _StubSession(_cds_zip("GCF_1.1", ">lcl|X_cds_1\nCCCC\n"),
+                     _rna_gz_bytes(">lcl|X_ncrna_1\nGGGG\n"))
+    paths, status = download_targets({"t": ("GCF_1.1", "ASM1")}, d, s, delay=0, force=True)
+    assert status == {"t": "merged"}
+    assert Path(paths["t"]).name == "GCF_1.1_ASM1_cds_rna_from_genomic.fna"
+    remaining = sorted(p.name for p in d.glob("GCF_1.1_ASM1_*"))
+    assert remaining == ["GCF_1.1_ASM1_cds_rna_from_genomic.fna"]  # stale sibling gone
+    assert not stale.exists()
+
+
+def test_download_targets_forced_degrade_never_deletes_merged_sibling():
+    # Asymmetric-safety case: a good pre-existing merged file must survive a
+    # forced re-run that degrades to CDS-only (e.g. a transient FTP 404) —
+    # stale merged data beats fresh degraded data and self-heals later.
+    d = Path(tempfile.mkdtemp())
+    good = d / "GCF_1.1_ASM1_cds_rna_from_genomic.fna"
+    good.write_text(">good_merged\nAAAA\nGGGG\n")
+    s = _StubSession(_cds_zip("GCF_1.1", ">lcl|X_cds_1\nCCCC\n"), rna_gz=None)  # RNA 404s
+    paths, status = download_targets({"t": ("GCF_1.1", "ASM1")}, d, s, delay=0, force=True)
+    assert status == {"t": "missing"}
+    assert good.exists()                                   # merged file NOT deleted
+    assert good.read_text() == ">good_merged\nAAAA\nGGGG\n"  # and untouched
+
+
+def test_download_targets_force_refetches_despite_merged_cache():
+    d = Path(tempfile.mkdtemp())
+    (d / "GCF_1.1_ASM1_cds_rna_from_genomic.fna").write_text(">stale\nAAAA\n")
+    s = _StubSession(_cds_zip("GCF_1.1", ">lcl|X_cds_1\nCCCC\n"),
+                     _rna_gz_bytes(">lcl|X_ncrna_1\nGGGG\n"))
+    paths, status = download_targets({"t": ("GCF_1.1", "ASM1")}, d, s, delay=0, force=True)
+    assert status == {"t": "merged"}
+    assert s.posts != [] and s.gets != []                 # network happened despite the cached file
+    assert Path(paths["t"]).read_text() == (">lcl|X_cds_1\nCCCC\n"
+                                            ">lcl|X_ncrna_1\nGGGG\n")
+
+
+def test_download_targets_skips_rna_when_cds_missing_from_zip():
+    d = Path(tempfile.mkdtemp())
+    # The ZIP payload has no cds_from_genomic.fna entry for GCF_1.1 at all
+    # (e.g. NCBI's package omitted it) — RNA must never become the sole content.
+    s = _StubSession(_cds_zip("GCF_OTHER", ">lcl|Z_cds_1\nAAAA\n"),
+                     _rna_gz_bytes(">lcl|X_ncrna_1\nGGGG\n"))
+    paths, status = download_targets({"t": ("GCF_1.1", "ASM1")}, d, s, delay=0)
+    assert status == {"t": "-"}
+    assert paths == {"t": None}
+    assert s.gets == []                                   # RNA fetch skipped entirely
+    assert list(d.glob("*")) == []                         # nothing written for this accession
+
+
+if __name__ == "__main__":
+    tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]
+    for t in tests:
+        t()
+        print(f"ok  {t.__name__}")
+    print(f"\n{len(tests)} passed")

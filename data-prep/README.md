@@ -1,14 +1,15 @@
 # data-prep — pipeline input bootstrap
 
-Resolve + download bacterial CDS assemblies (NCBI) and build miRNA query FASTAs
-(miRBase), then surgically write the `queries:`/`targets:` blocks of
+Resolve + download bacterial assemblies (NCBI) — **CDS plus the non-coding
+`rna_from_genomic` set, merged into one target FASTA** — and build miRNA query
+FASTAs (miRBase), then surgically write the `queries:`/`targets:` blocks of
 `Config/config.yaml` (every other param and comment is preserved). It does **not**
 run Snakemake — you keep manual control.
 
 ## Usage
 
     python data-prep/prepare_inputs.py --pairs pairs.txt              # full run
-    python data-prep/prepare_inputs.py --pairs pairs.txt --dry-run    # preview, no writes/downloads of CDS
+    python data-prep/prepare_inputs.py --pairs pairs.txt --dry-run    # preview, no writes/downloads
     python data-prep/prepare_inputs.py Veillonella_parvula:hsa-miR-200b-3p   # inline pair(s)
 
 Input lines are **taxon-first**; the separator is a tab, a `:`, or spaces, and
@@ -32,7 +33,23 @@ in `prep_report.tsv` rather than aborting the run.
     --prefix-chain CSV   species fallback order   [hsa,mmu]
     --report PATH        per-(taxon,miRNA) TSV    [data-prep/prep_report.tsv]
     --force              re-download even if outputs exist
-    --dry-run            resolve + print the blocks; no CDS download, no config edit
+    --dry-run            resolve + print the blocks; no genome download, no config edit
+
+## Target FASTAs
+
+Each taxon gets **one** merged file in `--genomes-dir`:
+
+    <accession>_<assembly>_cds_rna_from_genomic.fna    CDS + ncRNA/rRNA/tRNA
+    <accession>_<assembly>_cds_from_genomic.fna        CDS only (RNA unavailable)
+
+The two halves come from different NCBI services: CDS from the Datasets v2 API,
+which does **not** publish `rna_from_genomic.fna` for prokaryotes, and the RNA
+set from the FTP mirror at a URL derived from the accession and assembly name.
+Neither half is kept separately — they are streamed into one file.
+
+Only the **merged** name counts as a cached download. A CDS-only file is a
+degraded result, so a later run retries it; that is also what migrates a
+pre-merge `genomes/` directory without needing `--force`.
 
 ## Notes
 
@@ -41,6 +58,11 @@ in `prep_report.tsv` rather than aborting the run.
 - Assembly selection prefers a RefSeq *reference* genome, then *representative*,
   then the latest/most-complete assembly — so long-tail taxa with no designated
   reference still resolve.
+- `prep_report.tsv` carries an `RNA_STATUS` column: `merged`, `cached`,
+  `missing` (NCBI has no RNA file — 404), `error` (fetch failed; the URL is
+  printed), or `-`. A missing RNA set never drops a taxon — it degrades to
+  CDS-only and is still written to `config.yaml`.
 - `NCBI_API_KEY` / `NCBI_API_EMAIL` (optional) raise the NCBI rate limit.
 
-See `docs/superpowers/specs/2026-06-30-data-prep-design.md` for the full design.
+See `docs/superpowers/specs/2026-06-30-data-prep-design.md` for the full design,
+and `docs/superpowers/specs/2026-07-23-cds-rna-merge-design.md` for the CDS+RNA merge.

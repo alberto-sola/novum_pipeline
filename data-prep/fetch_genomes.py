@@ -23,11 +23,13 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import gzip
 import os
 import shutil
 import tempfile
 import time
 import zipfile
+import zlib
 from pathlib import Path
 from urllib.parse import quote
 
@@ -41,9 +43,20 @@ _API_BASE = "https://api.ncbi.nlm.nih.gov/datasets/v2"
 # NCBI etiquette: identify the client. Email comes from NCBI_API_EMAIL if set.
 _DEFAULT_USER_AGENT = "ncbi-cds-downloader/1.0"
 
-# Filename inside each ncbi_dataset/data/<accession>/ directory to extract.
-# CDS FASTA by default; override via --zip-filename for protein.faa, rna.fna, genomic.gff, etc.
-_DEFAULT_ZIP_FILENAME = "cds_from_genomic.fna"
+# The CDS set NCBI ships inside each ncbi_dataset/data/<accession>/ directory.
+_CDS_FILENAME = "cds_from_genomic.fna"
+
+# Filename the standalone CLI extracts; override via --zip-filename for
+# protein.faa, rna.fna, genomic.gff, etc.
+_DEFAULT_ZIP_FILENAME = _CDS_FILENAME
+
+# Datasets v2 serves no rna_from_genomic.fna for prokaryotes, so the RNA half comes
+# from the FTP mirror, at a URL derived from (acc, asm) rather than queried.
+_FTP_BASE = "https://ftp.ncbi.nlm.nih.gov/genomes/all"
+_RNA_SUFFIX = "rna_from_genomic.fna.gz"
+
+# NCBI substitutes these characters in the assembly-name part of its paths.
+_NAME_UNSAFE = str.maketrans({c: "_" for c in " #()/"})
 
 # HTTP status codes worth retrying with backoff (rate limits + transient server errors).
 _RETRIABLE_STATUS = (429, 500, 502, 503, 504)
@@ -116,53 +129,191 @@ def resolve_assemblies(names: list[str], session: requests.Session, delay: float
     return result
 
 
-#----- The on-disk name for a downloaded CDS FASTA: <acc>_<asm>_cds_from_genomic.fna -----#
-def cds_dest(out_dir, acc: str, asm: str) -> Path:
-    return Path(out_dir) / f"{acc}_{asm}_cds_from_genomic.fna"
+#----- "<accession>_<assembly name>", the stem NCBI uses in both paths and filenames -----#
+def assembly_stem(acc: str, asm: str) -> str:
+    return f"{acc}_{asm.translate(_NAME_UNSAFE)}"
 
 
-#----- Downloads CDS for resolved hits -> <acc>_<asm>_cds_from_genomic.fna (skips existing) -----#
-def download_cds(hits: dict[str, tuple[str, str] | None], out_dir, session: requests.Session,
-                 force: bool = False, batch_size: int = 200) -> dict[str, str | None]:
+#----- FTP URL of an assembly's rna_from_genomic.fna.gz, derived from (acc, asm) -----#
+def rna_ftp_url(acc: str, asm: str) -> str:
+    # GCF_000005845.2 -> prefix "GCF", digits "000005845" -> .../GCF/000/005/845/
+    prefix, _, rest = acc.partition("_")
+    digits = rest.split(".", 1)[0]
+    stem = assembly_stem(acc, asm)
+    return (f"{_FTP_BASE}/{prefix}/{digits[0:3]}/{digits[3:6]}/{digits[6:9]}"
+            f"/{stem}/{stem}_{_RNA_SUFFIX}")
+
+
+#----- On-disk name for a target FASTA; `with_rna` picks the merged vs CDS-only name -----#
+def target_dest(out_dir, acc: str, asm: str, with_rna: bool = True) -> Path:
+    kind = "cds_rna" if with_rna else "cds"
+    return Path(out_dir) / f"{assembly_stem(acc, asm)}_{kind}_from_genomic.fna"
+
+
+#----- Appends a gzipped FASTA onto `part_path`, healing a missing newline; returns records added -----#
+def append_gz_fasta(part_path, gz_path) -> int:
+    part_path = Path(part_path)
+    records = 0
+    with part_path.open("rb+") as dst:
+        dst.seek(0, os.SEEK_END)
+        rollback_to = dst.tell()  # pristine CDS-only length; restore here on any failure
+        # A CDS chunk missing its trailing newline would glue onto the first RNA header.
+        if rollback_to:
+            dst.seek(-1, os.SEEK_END)
+            if dst.read(1) != b"\n":
+                dst.write(b"\n")
+        try:
+            with gzip.open(gz_path, "rb") as src:
+                for line in src:
+                    if line.startswith(b">"):
+                        records += 1
+                    dst.write(line)
+        except Exception:
+            # A gzip failing mid-stream has already written partial RNA; roll back so
+            # the caller's *_cds_from_genomic.fna name stays honest.
+            dst.seek(rollback_to)
+            dst.truncate()
+            raise
+    return records
+
+
+#----- Yields (accession, open member) for each matching file in the ZIPs; deletes each ZIP when done -----#
+def iter_package_members(zip_paths, filename):
+    for zip_path in zip_paths:
+        try:
+            with zipfile.ZipFile(zip_path) as zf:
+                for member in zf.namelist():
+                    parts = member.split("/")
+                    # NCBI Datasets ZIP layout: ncbi_dataset/data/<accession>/<filename>
+                    if (len(parts) == 4 and parts[0] == "ncbi_dataset"
+                            and parts[1] == "data" and parts[3] == filename):
+                        with zf.open(member) as src:
+                            yield parts[2], src
+        finally:
+            zip_path.unlink(missing_ok=True)
+
+
+#----- Extracts each accession's cds_from_genomic.fna from the batched ZIPs into a <stem>.part file -----#
+def _download_cds_parts(accessions, asm_by_acc, out_dir, session, batch_size):
+    parts: dict[str, Path] = {}
+    zip_paths = download_batch(accessions, ["CDS_FASTA"], session, batch_size)
+    for acc, src in iter_package_members(zip_paths, _CDS_FILENAME):
+        asm = asm_by_acc.get(acc)
+        if asm is None:
+            continue
+        # Staged as .part so an interrupted run can't leave a half-merged
+        # file the next run mistakes for complete.
+        part = out_dir / f"{assembly_stem(acc, asm)}.part"
+        with part.open("wb") as dst:
+            shutil.copyfileobj(src, dst)
+        parts[acc] = part
+    return parts
+
+
+#----- Streams a response body to a temp file the caller owns; self-cleans a failed transfer -----#
+def _stream_to_tempfile(response, suffix: str) -> Path:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as fh:
+        path = Path(fh.name)
+        try:
+            for chunk in response.iter_content(chunk_size=1 << 20):  # 1 MiB
+                fh.write(chunk)
+        except Exception:
+            path.unlink(missing_ok=True)
+            raise
+    return path
+
+
+#----- Fetches the assembly's RNA FASTA from FTP and appends it to `part`; returns merged/missing/error -----#
+def _append_rna(part, acc, asm, session):
+    url = rna_ftp_url(acc, asm)
+    tmp = None
+    try:
+        # The api-key header is scoped to the API host; strip it for the FTP mirror.
+        r = session.get(url, headers={"api-key": None}, stream=True, timeout=300)
+        if r.status_code == 404:
+            print(f"    no rna_from_genomic for {acc}")
+            return "missing"
+        r.raise_for_status()
+        tmp = _stream_to_tempfile(r, ".gz")
+        append_gz_fasta(part, tmp)
+        return "merged"
+    except (requests.RequestException, OSError, EOFError, zlib.error) as exc:
+        # A corrupt gzip transfers cleanly and fails only in the reader, raising
+        # EOFError/zlib.error — neither subclasses OSError, so both need naming.
+        # The URL is printed so a derivation bug can't look like "NCBI has no RNA".
+        print(f"    RNA fetch failed for {acc}: {exc.__class__.__name__} — {url}")
+        return "error"
+    finally:
+        if tmp is not None:
+            tmp.unlink(missing_ok=True)
+
+
+#----- Merges RNA onto a staged .part, renames it to its final name, drops a stale sibling -----#
+def _finalize_target(part, acc, asm, out_dir, session, delay):
+    status = _append_rna(part, acc, asm, session)
+    merged = status == "merged"
+    dest = target_dest(out_dir, acc, asm, with_rna=merged)
+    part.replace(dest)
+    if merged:
+        # Drop any pre-migration CDS-only file so one per accession survives.
+        # One-directional by design: a degraded result never deletes a merged
+        # sibling, since stale merged data beats it and self-heals via the cache.
+        target_dest(out_dir, acc, asm, with_rna=False).unlink(missing_ok=True)
+        print(f"    {dest.name}")
+    time.sleep(delay)
+    return status, dest
+
+
+#----- Downloads CDS (API) + rna_from_genomic (FTP) per accession, merged into one target FASTA -----#
+def download_targets(hits: dict[str, tuple[str, str] | None], out_dir, session,
+                     delay: float, force: bool = False,
+                     batch_size: int = 200) -> tuple[dict[str, str | None], dict[str, str]]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Dedup by accession: several taxa can resolve to the same assembly, so we
     # download each accession once and map the file back to every taxon below.
-    dest_by_acc: dict[str, Path] = {}
+    asm_by_acc: dict[str, str] = {}
     for hit in hits.values():
-        if hit is None:
-            continue
-        acc, asm = hit
-        dest_by_acc.setdefault(acc, cds_dest(out_dir, acc, asm))
+        if hit is not None:
+            asm_by_acc.setdefault(hit[0], hit[1])
 
-    todo = [acc for acc, dest in dest_by_acc.items() if force or not dest.exists()]
+    # Only the merged name counts as a cache hit. A CDS-only file is a degraded
+    # result, so we retry it — which also migrates pre-merge trees automatically.
+    final_by_acc: dict[str, Path] = {}
+    status_by_acc: dict[str, str] = {}
+    todo: list[str] = []
+    for acc, asm in asm_by_acc.items():
+        merged = target_dest(out_dir, acc, asm, with_rna=True)
+        if not force and merged.exists():
+            final_by_acc[acc], status_by_acc[acc] = merged, "cached"
+        else:
+            todo.append(acc)
+
     if todo:
-        for zip_path in download_batch(todo, ["CDS_FASTA"], session, batch_size):
-            try:
-                with zipfile.ZipFile(zip_path) as zf:
-                    for member in zf.namelist():
-                        parts = member.split("/")
-                        if (len(parts) == 4 and parts[0] == "ncbi_dataset"
-                                and parts[1] == "data" and parts[3] == "cds_from_genomic.fna"):
-                            dest = dest_by_acc.get(parts[2])
-                            if dest is None:
-                                continue
-                            with zf.open(member) as src, dest.open("wb") as dst:
-                                shutil.copyfileobj(src, dst)
-                            print(f"    {dest.name}")
-            finally:
-                zip_path.unlink(missing_ok=True)
+        parts = _download_cds_parts(todo, asm_by_acc, out_dir, session, batch_size)
+        for acc in todo:
+            part = parts.get(acc)
+            if part is None:
+                # CDS never landed; there is nothing to merge onto and RNA is
+                # never the sole content of a target FASTA.
+                status_by_acc[acc] = "-"
+                continue
+            status_by_acc[acc], final_by_acc[acc] = _finalize_target(
+                part, acc, asm_by_acc[acc], out_dir, session, delay)
 
     # Map every resolved taxon to its accession's file (None if it never landed),
-    # so taxa sharing one accession all receive the same path.
-    result: dict[str, str | None] = {}
+    # so taxa sharing one accession all receive the same path. final_by_acc holds
+    # only confirmed successes — a cache hit or a completed rename.
+    paths: dict[str, str | None] = {}
+    rna_status: dict[str, str] = {}
     for taxon, hit in hits.items():
         if hit is None:
             continue
-        dest = dest_by_acc[hit[0]]
-        result[taxon] = str(dest) if dest.exists() else None
-    return result
+        dest = final_by_acc.get(hit[0])
+        paths[taxon] = str(dest) if dest is not None else None
+        rna_status[taxon] = status_by_acc.get(hit[0], "-")
+    return paths, rna_status
 
 
 #----- Builds a requests session with retry-on-429/5xx and NCBI-etiquette headers -----#
@@ -225,13 +376,7 @@ def download_batch(accessions: list[str], include_types: list[str], session: req
         )
         r.raise_for_status()
         # Stream to disk: bacterial CDS sets are small, but multi-include or eukaryote payloads can be GB-scale.
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".zip")
-        try:
-            for data in r.iter_content(chunk_size=1 << 20):  # 1 MiB
-                tmp.write(data)
-        finally:
-            tmp.close()
-        zip_paths.append(Path(tmp.name))
+        zip_paths.append(_stream_to_tempfile(r, ".zip"))
     return zip_paths
 
 
@@ -242,31 +387,17 @@ def extract_flat(zip_paths: list[Path], acc_to_name: dict[str, str], out_dir: Pa
     result: dict[str, str | None] = {acc: None for acc in acc_to_name}
     out_suffix = Path(zip_filename).suffix or ".dat"
 
-    for zip_path in zip_paths:
-        try:
-            with zipfile.ZipFile(zip_path) as zf:
-                for member in zf.namelist():
-                    parts = member.split("/")
-                    # NCBI Datasets ZIP layout: ncbi_dataset/data/<accession>/<filename>
-                    if (
-                        len(parts) == 4
-                        and parts[0] == "ncbi_dataset"
-                        and parts[1] == "data"
-                        and parts[3] == zip_filename
-                    ):
-                        acc = parts[2]
-                        name = acc_to_name.get(acc)
-                        if name is None:
-                            continue
-                        # Spaces in scientific names break shell scripts; underscore them in filenames.
-                        safe_name = name.replace(" ", "_")
-                        dest = out_dir / f"{safe_name}__{acc}{out_suffix}"
-                        with zf.open(member) as src, dest.open("wb") as dst:
-                            shutil.copyfileobj(src, dst)
-                        result[acc] = str(dest)
-                        print(f"    {dest.name}")
-        finally:
-            zip_path.unlink(missing_ok=True)
+    for acc, src in iter_package_members(zip_paths, zip_filename):
+        name = acc_to_name.get(acc)
+        if name is None:
+            continue
+        # Spaces in scientific names break shell scripts; underscore them in filenames.
+        safe_name = name.replace(" ", "_")
+        dest = out_dir / f"{safe_name}__{acc}{out_suffix}"
+        with dest.open("wb") as dst:
+            shutil.copyfileobj(src, dst)
+        result[acc] = str(dest)
+        print(f"    {dest.name}")
 
     return result
 
