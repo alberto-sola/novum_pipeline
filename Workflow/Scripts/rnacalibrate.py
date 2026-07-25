@@ -97,7 +97,7 @@ def parse_rnacalibrate_output(stdout):
 
 #----- Top-level driver: stat the target FASTA, run RNAcalibrate, persist command + result as JSON -----#
 def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize_targets=False, max_internal_loop=None, max_bulge_loop=None, seed=None):
-    executable = which_required("RNAcalibrate", "rnacalibrate", label="RNAcalibrate")
+    executable = which_required("RNAcalibrate", "rnacalibrate")
     stats = compute_target_length_stats(target)
     length_arg = build_length_arg(stats)
     command = build_command(
@@ -140,4 +140,5 @@ def run_from_snakemake(snakemake):
         seed=snakemake.params.seed,
     )
 
-run_from_snakemake(snakemake)
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)

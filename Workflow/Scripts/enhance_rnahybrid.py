@@ -1,7 +1,8 @@
 import pandas as pd
 
 from _report import (
-    stream_records, render_rnahybrid_duplex, RNAHYBRID_DUPLEX_COLUMNS, SEPARATOR,
+    require_columns, stream_records, render_rnahybrid_duplex,
+    RNAHYBRID_DUPLEX_COLUMNS, SEPARATOR,
 )
 
 
@@ -9,9 +10,7 @@ from _report import (
 def enhance_results(annotated_csv_path, output_path):
     annotated = pd.read_csv(annotated_csv_path)
 
-    missing_columns = [column for column in RNAHYBRID_DUPLEX_COLUMNS if column not in annotated.columns]
-    if missing_columns:
-        raise ValueError(f"Missing required alignment column(s): {', '.join(missing_columns)}")
+    require_columns(annotated, RNAHYBRID_DUPLEX_COLUMNS, "annotated CSV")
 
     def render_record(fh, row, index_of):
         fh.write("\n")
@@ -34,4 +33,5 @@ def run_from_snakemake(snakemake):
         output_path=snakemake.output.enhanced
     )
 
-run_from_snakemake(snakemake)
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)

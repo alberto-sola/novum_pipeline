@@ -1,23 +1,19 @@
 #----- miRNAs (one query FASTA per target sample, joined by key) -----#
 queries:
   escherichia_coli: Data/Raw/RNAs/escherichia_coli.fa
-  fusobacterium_nucleatum: Data/Raw/RNAs/fusobacterium_nucleatum.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  escherichia_coli: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_from_genomic.fna
-  fusobacterium_nucleatum: Data/Raw/genomes/GCF_003019295.1_ASM301929v1_cds_from_genomic.fna
+  escherichia_coli: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_rna_from_genomic.fna
 
 #----- Shared by both arms -----#
-threads: 16
-max_suboptimal_hits: 3                # null → keep every hit below the arm's energy cutoff, per pair, on BOTH arms
-seed: 2,7                             # Forced seed as "x,y" query positions; drives BOTH arms.
-                                      # RNAhybrid → -f x,y ; IntaRNA → --seedBP/--seedQRange/--seedMaxUP=0.
-                                      # null → no seed on either arm (IntaRNA emits --noSeed).
+threads: 8
+max_suboptimal_hits: 1                # null → every hit below the arm's energy cutoff, per pair
+seed: null                            # Forced seed "x,y"; RNAhybrid -f, IntaRNA --seedBP/--seedQRange. null → no seed
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
-  calibration_variant: on             # "on" | "off" | "both"
+  calibration_variant: both             # "on" | "off" | "both"
   k: 10000
   max_target_length: 50000
   randomize_targets: true
@@ -26,8 +22,8 @@ rnacalibrate:
 rnahybrid:
   species: 3utr_human
   max_hybrid_energy: -18              # -e  hybridization MFE; the literature threshold
-  max_internal_loop: 4
-  max_bulge_loop: 4
+  max_internal_loop: null
+  max_bulge_loop: null
   pvalue_threshold: null
   distribution: null
 
@@ -35,12 +31,12 @@ rnahybrid:
 intarna:
   accessibility_variant: on           # "on" | "off" | "both"
   prediction_mode: H                  # H heuristic | M exact | S seed-only
-  model: X                            # X seed-extension | S legacy | B helix-block | P ensemble
+  model: S                            # X seed-extension | S legacy | B helix-block | P ensemble
   energy_set: Turner04                # --energyVRNA  Turner99 | Turner04 | Andronescu07
   max_hybrid_energy: -12.9            # E_hybrid gate = -18 + 5.10 measured offset. NOT seed.max_hybrid_energy.
-  accessibility_search_depth: 20      # --outNumber FLOOR on w_accessibility only: acc=C ranks by total E while the gate is on E_hybrid, so the MFE site can fall outside top-1.
+  accessibility_search_depth: 20      # --outNumber FLOOR on w_accessibility only (acc=C ranks by total E, the gate is on E_hybrid)
   max_interaction_length: 0           # --intLenMax   (null/0 = auto: min of seq length, accW)
-  max_loop_size: 4                    # --intLoopMax  unpaired nt between paired bases (null = 10)
+  max_loop_size: null                    # --intLoopMax  unpaired nt between paired bases (null = 10)
 
   helix:                              # ONLY applies when model: B (helix-block). Ignored under X/S/P.
     min_bp: null                      # --helixMinBP  (default 2,  range [2,4])
@@ -61,8 +57,15 @@ intarna:
     report_best_only: false           # --outBestSeedOnly
 
   accessibility:
-    window: null                      # --accW  (0 → RNAup-like global; null → IntaRNA default ~150)
-    max_bp_span: null                 # --accL  (0 → global; null → IntaRNA default ~100)
+    window: null                      # --accW  BOTH sides (0 → global, whole sequence; null → IntaRNA default 150)
+    max_bp_span: null                 # --accL  BOTH sides (0 → falls back to the window; null → IntaRNA default 100)
+                                      # Per-side overrides below: IntaRNA ABORTS if one is set alongside a
+                                      # DIFFERING shared value above. Also, *_max_bp_span must not exceed
+                                      # *_window — IntaRNA reports that on the QUERY side either way.
+    query_window: null                # --qAccW  overrides window on the miRNA side
+    query_max_bp_span: null           # --qAccL  overrides max_bp_span
+    target_window: null               # --tAccW  overrides window on the CDS side
+    target_max_bp_span: null          # --tAccL  overrides max_bp_span
     forbid_lonely_pairs: false        # --accNoLP
     forbid_gu_at_ends: false          # --accNoGUend
 

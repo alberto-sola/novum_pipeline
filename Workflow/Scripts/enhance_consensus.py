@@ -1,7 +1,7 @@
 import pandas as pd
 
 from _report import (
-    stream_records, render_rnahybrid_duplex, render_intarna_duplex,
+    require_columns, stream_records, render_rnahybrid_duplex, render_intarna_duplex,
     RNAHYBRID_DUPLEX_COLUMNS, INTARNA_DUPLEX_COLUMNS, SEPARATOR,
 )
 
@@ -14,9 +14,7 @@ DUPLEX_COLUMNS = RNAHYBRID_DUPLEX_COLUMNS + INTARNA_DUPLEX_COLUMNS
 def enhance_results(annotated_csv_path, output_path):
     annotated = pd.read_csv(annotated_csv_path)
 
-    missing = [c for c in DUPLEX_COLUMNS if c not in annotated.columns]
-    if missing:
-        raise ValueError(f"consensus CSV missing duplex column(s): {', '.join(missing)}")
+    require_columns(annotated, DUPLEX_COLUMNS, "consensus CSV")
 
     def render_record(fh, row, index_of):
         fh.write("\n")
@@ -41,4 +39,5 @@ def run_from_snakemake(snakemake):
         output_path=snakemake.output.enhanced,
     )
 
-run_from_snakemake(snakemake)
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)

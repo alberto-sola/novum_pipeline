@@ -59,9 +59,8 @@ window.PLOT_PAIR_LISTS = [
     valuePlaceholder: "protein name (required)" },
 ];
 
-// Nullable-field key lists per card. Used by section renderers (and the Hero
-// "set params" counter) so a single source of truth drives what's rendered
-// vs. what's just present in INITIAL_CONFIG.
+// Nullable-field key lists per card. Drives what section renderers (and the Hero
+// "set params" counter) render, vs. what's merely present in INITIAL_CONFIG.
 window.SHARED_NULLABLE_KEYS    = ["max_suboptimal_hits", "seed"];
 window.RNAHYBRID_NULLABLE_KEYS = ["max_hybrid_energy", "max_internal_loop", "max_bulge_loop", "pvalue_threshold", "distribution"];
 
@@ -88,6 +87,8 @@ window.INTARNA_BLOCKS = {
   ],
   accessibility: [
     ["window", "n"], ["max_bp_span", "n"],
+    ["query_window", "n"], ["query_max_bp_span", "n"],
+    ["target_window", "n"], ["target_max_bp_span", "n"],
     ["forbid_lonely_pairs", "p"], ["forbid_gu_at_ends", "p"],
   ],
   output: [
@@ -110,20 +111,19 @@ window.INTARNA_OUTPUT_NULLABLE_KEYS = nullableKeys("output");
 // so the RNAhybrid form forces it null in any variant other than "off".
 window.isDistributionForced = (cfg) => cfg.rnacalibrate.calibration_variant !== "off";
 
-// The IntaRNA seed sub-fields only affect a run when a shared seed is set (see
-// intarna.py:_add_seed_flags). Via resolveNullable, not `.set`: a toggled-on-but-blank
-// seed saves as null, and would otherwise enable sub-fields for a run getting --noSeed.
+// IntaRNA seed sub-fields only affect a run when a shared seed is set (intarna.py:
+// _add_seed_flags). Via resolveNullable, not `.set`: a toggled-on-but-blank seed saves as
+// null, and would otherwise enable sub-fields for a run getting --noSeed.
 window.isSeedEnforced = (cfg) => window.resolveNullable(cfg.seed, false).v != null;
 
 // Helix parameters only reach IntaRNA under model B; under X/S/P they are inert.
-// Mirrors intarna.py:INTARNA_DEFAULT_HELIX_MAX_BP.
+// Mirrors _intarna_config.py:INTARNA_DEFAULT_HELIX_MAX_BP.
 window.INTARNA_DEFAULT_HELIX_MAX_BP = 10;
 window.isHelixActive = (cfg) => cfg.intarna.model === "B";
 
-// Mirrors intarna.py:validate_intarna_config check (a): under model B the seed must fit
-// inside one helix, or IntaRNA hard-errors. Returns the offending numbers, else null.
-// Both fields go through resolveNullable so a set-but-blank input collapses to null here
-// exactly as it does on save — otherwise the warning could contradict the saved config.
+// Mirrors _intarna_config.py check (a): under model B the seed must fit inside one helix.
+// Returns the offending numbers, else null. Both fields go through resolveNullable so a
+// set-but-blank input collapses to null here exactly as it does on save.
 window.helixSeedConflict = (cfg) => {
   if (!window.isHelixActive(cfg)) return null;
   const seed = window.resolveNullable(cfg.seed, false).v;
@@ -143,10 +143,39 @@ window.helixInertKeys = (cfg) => {
   return cfg.intarna.helix.full_energy ? keys.concat("full_energy") : keys;
 };
 
-// Count optional (nullable) parameters the user has explicitly set, against the
-// number currently in play. Inert groups (no shared seed, accessibility variant
-// Off) and the locked distribution field (under calibration) are excluded from
-// both sides, so the ratio only reflects params that can actually affect this run.
+// The two accessibility sides — same window/span editor, different nouns and flags, in the
+// shape of PLOT_PAIR_LISTS above. Field keys derive as `${side}_window` /
+// `${side}_max_bp_span`, matching INTARNA_BLOCKS.accessibility and Config/config.yaml.
+window.ACCESSIBILITY_SIDES = [
+  { side: "query",  label: "Query (miRNA)", name: "Query",  wFlag: "--qAccW", lFlag: "--qAccL" },
+  { side: "target", label: "Target (CDS)",  name: "Target", wFlag: "--tAccW", lFlag: "--tAccL" },
+];
+
+// Mirrors _intarna_config.py:ACCESSIBILITY_WINDOW_CONFLICTS — IntaRNA aborts if a shared
+// accessibility key is set beside a DIFFERING per-side one; equal or unset is fine.
+// UI/tests/test_ui_config_contract.py asserts this table equals the Python one.
+window.ACCESSIBILITY_WINDOW_CONFLICTS = [
+  ["window", "query_window"],
+  ["window", "target_window"],
+  ["max_bp_span", "query_max_bp_span"],
+  ["max_bp_span", "target_max_bp_span"],
+];
+
+window.accessibilityConflicts = (cfg) => {
+  const acc = cfg.intarna.accessibility;
+  const conflicts = [];
+  for (const [sharedKey, sideKey] of window.ACCESSIBILITY_WINDOW_CONFLICTS) {
+    const shared = window.resolveNullable(acc[sharedKey], false).v;
+    const side = window.resolveNullable(acc[sideKey], false).v;
+    if (shared == null || side == null || shared === side) continue;
+    conflicts.push({ sharedKey, sideKey, shared, side });
+  }
+  return conflicts;
+};
+
+// Count optional (nullable) params the user has set, against the number in play. Inert
+// groups (no shared seed, accessibility Off) and the locked distribution field are excluded
+// from both sides, so the ratio only reflects params that can affect this run.
 window.countOptionalParams = (cfg) => {
   let set = 0, total = 0;
   const tally = (obj, keys, { active = true, locked = () => false } = {}) => {
@@ -178,8 +207,8 @@ window.countOptionalParams = (cfg) => {
   return { set, total };
 };
 
-// Default IntaRNA --outCsvCols string from Config/config.yaml. The form does not
-// expose `intarna.output.columns`; the YAML writer emits this constant.
+// Default --outCsvCols string. The form never exposes `intarna.output.columns`; the YAML
+// writer emits this constant.
 window.INTARNA_OUTPUT_COLUMNS_DEFAULT =
   "id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2";
 
@@ -239,6 +268,10 @@ window.INITIAL_CONFIG = {
     accessibility: {
       window:      { set: false, value: 150 },
       max_bp_span: { set: false, value: 100 },
+      query_window:       { set: false, value: 150 },
+      query_max_bp_span:  { set: false, value: 100 },
+      target_window:      { set: false, value: 150 },
+      target_max_bp_span: { set: false, value: 100 },
       forbid_lonely_pairs: false,
       forbid_gu_at_ends: false
     },

@@ -8,6 +8,7 @@ import sys
 import tempfile
 
 from _common import which_required, ensure_parent
+from _rnahybrid_worker import OUTPUT_GLOB_BROADCAST, OUTPUT_GLOB_CALIBRATED
 
 
 #----- Splits the target FASTA into chunk files of bounded line count, never breaking a record across chunks -----#
@@ -117,7 +118,7 @@ def split_query_per_miRNA(query_file, query_dir):
 def ensure_dependencies():
     # RNAhybrid itself is resolved per-invocation inside _rnahybrid_worker.py; validate its
     # presence here (discarding the path) so we fail fast before dispatching the parallel fan-out.
-    which_required("RNAhybrid", "rnahybrid", label="RNAhybrid")
+    which_required("RNAhybrid", "rnahybrid")
     return {"parallel": which_required("parallel")}
 
 
@@ -212,7 +213,7 @@ def build_parallel_command_broadcast(query, chunk_paths, species, optional_args,
     ]
     if species is not None:
         command.extend([":::", species])
-    return command, "output_*.tsv"
+    return command, OUTPUT_GLOB_BROADCAST
 
 
 #----- GNU Parallel command (calibrated): each TSV row is (query, distribution, chunk); paths as {n} args / env -----#
@@ -232,7 +233,7 @@ def build_parallel_command_calibrated(spec_path, optional_args, threads, max_tar
         ":::", str(worker_executable),
         "::::", str(spec_path),
     ]
-    return command, "output_*__*.tsv"
+    return command, OUTPUT_GLOB_CALIBRATED
 
 
 #----- Concatenates the per-chunk RNAhybrid outputs into one TSV, streaming through the kernel to bound memory -----#
@@ -263,20 +264,24 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
     try:
         chunk_paths = write_fasta_chunks(target, chunk_dir)
         dist_map = load_per_query_distributions(distribution_file)
+        calibrated = dist_map is not None
 
-        if dist_map is not None:
-            # Calibrated branch: one RNAhybrid invocation per (miRNA, chunk), each with its own -d.
-            # `species` and `distribution` are intentionally ignored here — calibration provides
-            # the per-miRNA xi/theta that supersede both.
+        # One call for both branches. On the calibrated path the static `distribution` is
+        # dropped explicitly rather than by omission: calibration supplies per-miRNA xi/theta
+        # via the job spec's -d column, which supersedes both it and `species`.
+        optional_args = build_optional_args(
+            max_suboptimal_hits=max_suboptimal_hits, max_internal_loop=max_internal_loop, max_bulge_loop=max_bulge_loop, max_hybrid_energy=max_hybrid_energy, pvalue_threshold=pvalue_threshold, seed=seed,
+            distribution=None if calibrated else distribution,
+        )
+
+        if calibrated:
+            # One RNAhybrid invocation per (miRNA, chunk), each with its own -d.
             query_paths_by_name = split_query_per_miRNA(query, tmp_dir / "queries")
             spec_path = build_job_spec_tsv(
                 query_paths_by_name=query_paths_by_name,
                 dist_map=dist_map,
                 chunk_paths=chunk_paths,
                 tsv_path=tmp_dir / "job_spec.tsv",
-            )
-            optional_args = build_optional_args(
-                max_suboptimal_hits=max_suboptimal_hits, max_internal_loop=max_internal_loop, max_bulge_loop=max_bulge_loop, max_hybrid_energy=max_hybrid_energy, pvalue_threshold=pvalue_threshold, seed=seed,
             )
             command, output_pattern = build_parallel_command_calibrated(
                 spec_path=spec_path,
@@ -289,10 +294,6 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
         else:
             # Broadcast/uncalibrated branch: one shared query across all chunks.
             species = validate_rnahybrid_args(species=species, distribution=distribution)
-            optional_args = build_optional_args(
-                max_suboptimal_hits=max_suboptimal_hits, max_internal_loop=max_internal_loop, max_bulge_loop=max_bulge_loop, max_hybrid_energy=max_hybrid_energy, pvalue_threshold=pvalue_threshold, seed=seed,
-                distribution=distribution,
-            )
             command, output_pattern = build_parallel_command_broadcast(
                 query=query,
                 chunk_paths=chunk_paths,

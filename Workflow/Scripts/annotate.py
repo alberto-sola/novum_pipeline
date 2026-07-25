@@ -41,12 +41,14 @@ def parse_fasta_annotations(fasta_path):
 #----- Left-joins the FASTA annotations onto the tidy table, inserting them after `insert_after` column -----#
 def annotate_results(tidy_csv_path, fasta_path, output_path, insert_after):
     tidy = pd.read_csv(tidy_csv_path)
-    annotations = parse_fasta_annotations(fasta_path)
 
-    annotated = tidy.merge(annotations, on="Gene", how="left")
-
+    # Checked before the FASTA is streamed: the anchor column depends on neither, so a
+    # misconfigured insert_after should not first cost a pass over a genome-scale file.
     if insert_after not in tidy.columns:
         raise ValueError(f"tidy CSV is missing required column {insert_after!r}")
+
+    annotations = parse_fasta_annotations(fasta_path)
+    annotated = tidy.merge(annotations, on="Gene", how="left")
 
     fasta_columns = [column for column in annotations.columns if column != "Gene"]
     ordered_columns = []
@@ -69,4 +71,5 @@ def run_from_snakemake(snakemake):
         insert_after=snakemake.params.insert_after,
     )
 
-run_from_snakemake(snakemake)
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)

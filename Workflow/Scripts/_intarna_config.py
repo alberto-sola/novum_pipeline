@@ -1,48 +1,41 @@
 """IntaRNA config schema: defaults, seed derivation, and DAG-build-time validation.
 
-Imported by BOTH `intarna.py` (at rule-execution time, inside the IntaRNA conda env) and
-the Snakefile (at DAG-build time, in the Snakemake driver env). That second consumer is
-why this module must stay **dependency-free** — stdlib only, no pandas, no third-party
-imports — exactly like `_common.py`. An import added here runs in the driver env, which
-ships none of the arms' scientific dependencies.
-
-Keeping this separate from `intarna.py` means the driver never imports a script that ends
-in `run_from_snakemake(snakemake)`, so nothing here depends on that call staying guarded.
+Imported by BOTH `intarna.py` (inside the IntaRNA conda env) and the Snakefile (at
+DAG-build time, in the driver env). That second consumer is why this module must stay
+**dependency-free** — stdlib only: the driver env ships none of the arms' scientific
+dependencies. Keeping it separate from `intarna.py` also means the driver never imports
+a script that ends in `run_from_snakemake(snakemake)`.
 """
 
 INTARNA_ENERGY_SETS = ("Turner99", "Turner04", "Andronescu07")
 INTARNA_DEFAULT_ENERGY_SET = "Turner04"
 
-# IntaRNA's own defaults, mirrored here because validate_intarna_config reproduces two
-# of its constraints.
+# IntaRNA's own defaults, mirrored because validate_intarna_config reproduces two of its
+# constraints.
 INTARNA_DEFAULT_MODEL = "X"
 INTARNA_DEFAULT_HELIX_MAX_BP = 10
 
-# --outNumber's hard ceiling: IntaRNA accepts [0,1000], where 0 means "report nothing", so
-# 1000 is how `max_suboptimal_hits: null` ("all hits") is spelled. intarna.py clamps to it;
-# warning (e) quotes it.
+# --outNumber accepts [0,1000] (0 = report nothing), so 1000 is how `max_suboptimal_hits:
+# null` ("all hits") is spelled.
 INTARNA_MAX_OUTNUMBER = 1000
 
-# Ours, not IntaRNA's: the --outNumber floor applied on w_accessibility only, where acc=C
-# ranks by total E while the gate is on E_hybrid.
+# Ours, not IntaRNA's: the --outNumber floor on w_accessibility only, where acc=C ranks by
+# total E while the gate is on E_hybrid.
 INTARNA_DEFAULT_ACCESSIBILITY_SEARCH_DEPTH = 20
 
-# Measured median of (IntaRNA E_hybrid - RNAhybrid mfe) over matched, unfiltered acc=N
-# hits on 600 E. coli CDS (n=1122): additive, regression slope +0.0019 against mfe, sd
-# 1.06. Independently reproduced at 5.12. IntaRNA's E_hybrid carries duplex initiation
-# (~+4.1 under Turner04) plus terminal-AU/dangling-end terms; RNAhybrid's mfe carries
-# neither. See docs/superpowers/specs/2026-07-23-cross-arm-energy-gate-design.md.
+# Measured median of (IntaRNA E_hybrid - RNAhybrid mfe) over matched, unfiltered acc=N hits
+# on 600 E. coli CDS (n=1122): additive, slope +0.0019 against mfe, sd 1.06. IntaRNA's
+# E_hybrid carries duplex initiation (~+4.1 under Turner04) plus terminal-AU/dangling-end
+# terms; RNAhybrid's mfe carries neither.
+# See docs/superpowers/specs/2026-07-23-cross-arm-energy-gate-design.md.
 INTARNA_RNAHYBRID_ENERGY_OFFSET = 5.10
 
-# Warning (d) fires past this much drift from the expected relationship. Chosen as a
-# usability threshold, not a confidence bound: the median offset is known far more tightly
-# than this (SE ~0.03 at n=1122), so anything past 1 kcal/mol is a deliberate choice by the
-# user rather than measurement noise.
+# Drift past this trips warning (d). A usability threshold, not a confidence bound — the
+# median is known to SE ~0.03, so 1 kcal/mol is a deliberate choice, not noise.
 ENERGY_OFFSET_TOLERANCE = 1.0
 
-# Top-level keys that nothing reads any more, mapped to the message that explains the
-# hand migration. Keeping such a key inert-but-present is the exact failure this refactor
-# exists to end, so its presence is fatal rather than ignored.
+# Keys nothing reads any more, mapped to the message explaining the hand migration. An
+# inert-but-present key is the exact failure this refactor ends, so presence is fatal.
 REMOVED_TOP_LEVEL_KEYS = {
     "max_total_energy": (
         "max_total_energy has been removed. It filtered pure hybridization energy on the "
@@ -98,9 +91,8 @@ def _energy_comparability_warnings(cfg, rnahybrid_max_hybrid_energy):
     if intarna_cutoff is None and rnahybrid_max_hybrid_energy is None:
         return []
 
-    # Exactly one unset is the more asymmetric case — a bigger mismatch than two
-    # numeric cutoffs merely drifting apart, and exactly where a half-finished hand
-    # migration off max_total_energy lands.
+    # Exactly one unset — a bigger mismatch than two cutoffs merely drifting apart, and
+    # where a half-finished migration off max_total_energy lands.
     if intarna_cutoff is None or rnahybrid_max_hybrid_energy is None:
         null_key, null_arm, set_key, set_value = (
             ("intarna", "IntaRNA", "rnahybrid", rnahybrid_max_hybrid_energy)
@@ -126,7 +118,86 @@ def _energy_comparability_warnings(cfg, rnahybrid_max_hybrid_energy):
     ]
 
 
-#----- (e) w_accessibility withholds --outMaxE, so the per-pair cap is the only thing bounding the intermediate CSV. accessibility_search_depth cannot stand in: it is a FLOOR on --outNumber, and a null cap skips the max() that would apply it -----#
+# The accessibility window/span knobs, in Config/config.yaml order. Single source of the
+# key→flag mapping: intarna.py emits from it, the conflict check below quotes from it.
+# Spelled out rather than derived from a "q"/"t" rule so `grep -r qAccW` still finds it.
+ACCESSIBILITY_WINDOW_FLAGS = (
+    ("window", "--accW"),
+    ("max_bp_span", "--accL"),
+    ("query_window", "--qAccW"),
+    ("query_max_bp_span", "--qAccL"),
+    ("target_window", "--tAccW"),
+    ("target_max_bp_span", "--tAccL"),
+)
+
+# Each shared accessibility key paired with the per-side counterparts that override it.
+# Measured on 3.4.1: a shared value beside a DIFFERING per-side one aborts the run; equal
+# values are fine. UI/src/data.js mirrors this table; a test asserts they agree.
+ACCESSIBILITY_WINDOW_CONFLICTS = (
+    ("window", "query_window"),
+    ("window", "target_window"),
+    ("max_bp_span", "query_max_bp_span"),
+    ("max_bp_span", "target_max_bp_span"),
+)
+
+
+#----- (f) IntaRNA aborts on a shared accessibility window set beside a differing per-side one,
+#      rather than letting either win; catch it before the hour-long RNAhybrid arm starts.
+#      Deliberately NOT checked: `*_max_bp_span <= *_window` — IntaRNA already reports that
+#      clearly per side, and a copy here would have to re-derive the side resolution -----#
+def _reject_accessibility_conflicts(acc):
+    flag_for = dict(ACCESSIBILITY_WINDOW_FLAGS)
+    for shared_key, side_key in ACCESSIBILITY_WINDOW_CONFLICTS:
+        shared, side = acc.get(shared_key), acc.get(side_key)
+        if shared is None or side is None or shared == side:
+            continue
+        raise ValueError(
+            f"intarna.accessibility.{shared_key} is {shared} and {side_key} is {side}. "
+            f'IntaRNA rejects a shared window alongside a differing per-side one ("ERROR: '
+            f'{flag_for[shared_key]} and {flag_for[side_key]} are set to different '
+            f'values"). Set either {shared_key} or {side_key}, not both.'
+        )
+
+
+#----- (b) IntaRNA reads an unknown energy set as a parameter-FILE path, fails to load it, and exits 255 asking the user to file a bug report. Reject it here instead -----#
+def _reject_unknown_energy_set(cfg):
+    energy_set = opt(cfg, "energy_set", INTARNA_DEFAULT_ENERGY_SET)
+    if energy_set not in INTARNA_ENERGY_SETS:
+        raise ValueError(
+            f"intarna.energy_set must be one of {list(INTARNA_ENERGY_SETS)}, got {energy_set!r}"
+        )
+
+
+#----- (a) Under model B the seed must fit inside a single helix or IntaRNA hard-errors — reachable by widening the seed or by lowering the cap beneath it. Inert under every other model -----#
+def _reject_seed_wider_than_helix(model, helix, derived_seed, seed_str):
+    if model != "B" or derived_seed is None:
+        return
+    max_bp = opt(helix, "max_bp", INTARNA_DEFAULT_HELIX_MAX_BP)
+    if derived_seed["length"] > max_bp:
+        raise ValueError(
+            f"seed {seed_str!r} needs {derived_seed['length']} base pairs, but "
+            f"intarna.helix.max_bp is {max_bp}. Under intarna.model: B the seed must "
+            f"fit inside one helix. Raise intarna.helix.max_bp to at least "
+            f"{derived_seed['length']}, or shorten the top-level seed."
+        )
+
+
+#----- (c) The --helix* flags are emitted unconditionally because IntaRNA ignores them cleanly under any model but B; report the mismatch instead of withholding them -----#
+def _inert_helix_warnings(model, helix):
+    if model == "B":
+        return []
+    # `0` is a legitimate value (max_internal_loop: 0 = pure stacks), so compare
+    # against None/False rather than testing truthiness.
+    inert = sorted(k for k, v in helix.items() if v is not None and v is not False)
+    if not inert:
+        return []
+    return [
+        f"intarna.helix {inert} is set but intarna.model is {model!r}: helix "
+        f"parameters apply only to model B and will be ignored."
+    ]
+
+
+#----- (e) w_accessibility withholds --outMaxE, so the per-pair cap is all that bounds the intermediate CSV. accessibility_search_depth cannot stand in: it is a FLOOR on --outNumber, which a null cap ignores -----#
 def _unbounded_output_warnings(max_suboptimal_hits, accessibility_on):
     if not accessibility_on or max_suboptimal_hits is not None:
         return []
@@ -140,48 +211,25 @@ def _unbounded_output_warnings(max_suboptimal_hits, accessibility_on):
     ]
 
 
-#----- DAG-build-time config validation: raises ValueError on a config IntaRNA would die on, so the run fails before the hour-long RNAhybrid arm starts; returns advisory warnings -----#
+#----- DAG-build-time validation: raises on a config IntaRNA would die on, returns advisory warnings.
+#      Each check is a lettered helper above — (a)/(b)/(f) raise, (c)/(d)/(e) return warnings — so
+#      adding one means writing a helper and a line here, never growing this body -----#
 def validate_intarna_config(cfg, seed_str, rnahybrid_max_hybrid_energy=None,
                             max_suboptimal_hits=None, accessibility_on=False):
     cfg = cfg or {}
     helix = cfg.get("helix") or {}
     model = opt(cfg, "model", INTARNA_DEFAULT_MODEL)
 
-    # IntaRNA reads an unknown energy set as a parameter-FILE path, fails to load it, and
-    # exits 255 asking the user to file a bug report. Reject it here instead.
-    energy_set = opt(cfg, "energy_set", INTARNA_DEFAULT_ENERGY_SET)
-    if energy_set not in INTARNA_ENERGY_SETS:
-        raise ValueError(
-            f"intarna.energy_set must be one of {list(INTARNA_ENERGY_SETS)}, got {energy_set!r}"
-        )
-
+    # Every fatal runs before any warning is collected — a warning list a raise discards
+    # is wasted work.
+    _reject_unknown_energy_set(cfg)
+    _reject_accessibility_conflicts(cfg.get("accessibility") or {})
     # The only validation of the top-level seed string, so it must run for every model.
     derived_seed = derive_seed_from_string(seed_str)
+    _reject_seed_wider_than_helix(model, helix, derived_seed, seed_str)
 
-    warnings = _energy_comparability_warnings(cfg, rnahybrid_max_hybrid_energy)
-    warnings += _unbounded_output_warnings(max_suboptimal_hits, accessibility_on)
-
-    if model != "B":
-        # `0` is a legitimate value (max_internal_loop: 0 = pure stacks), so compare
-        # against None/False rather than testing truthiness.
-        inert = sorted(k for k, v in helix.items() if v is not None and v is not False)
-        if inert:
-            warnings.append(
-                f"intarna.helix {inert} is set but intarna.model is {model!r}: helix "
-                f"parameters apply only to model B and will be ignored."
-            )
-        return warnings
-
-    # Under model B the seed must fit inside a single helix or IntaRNA hard-errors —
-    # reachable both by widening the seed and by lowering the cap beneath it.
-    if derived_seed is not None:
-        max_bp = opt(helix, "max_bp", INTARNA_DEFAULT_HELIX_MAX_BP)
-        if derived_seed["length"] > max_bp:
-            raise ValueError(
-                f"seed {seed_str!r} needs {derived_seed['length']} base pairs, but "
-                f"intarna.helix.max_bp is {max_bp}. Under intarna.model: B the seed must "
-                f"fit inside one helix. Raise intarna.helix.max_bp to at least "
-                f"{derived_seed['length']}, or shorten the top-level seed."
-            )
-
-    return warnings
+    return (
+        _energy_comparability_warnings(cfg, rnahybrid_max_hybrid_energy)
+        + _unbounded_output_warnings(max_suboptimal_hits, accessibility_on)
+        + _inert_helix_warnings(model, helix)
+    )

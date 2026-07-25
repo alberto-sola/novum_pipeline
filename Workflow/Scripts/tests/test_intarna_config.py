@@ -213,3 +213,42 @@ def test_unbounded_output_warning_silent_without_the_accessibility_arm():
 
 def test_unbounded_output_warning_defaults_off_for_callers_that_omit_it():
     assert validate({}, None) == []
+
+
+# --- (f) IntaRNA refuses a shared accessibility window beside a differing per-side one ---
+
+@pytest.mark.parametrize("acc,shared_key,side_key", [
+    ({"window": 0, "query_window": 150}, "window", "query_window"),
+    ({"window": 0, "target_window": 150}, "window", "target_window"),
+    ({"max_bp_span": 0, "query_max_bp_span": 100}, "max_bp_span", "query_max_bp_span"),
+    ({"max_bp_span": 0, "target_max_bp_span": 100}, "max_bp_span", "target_max_bp_span"),
+])
+def test_accessibility_conflict_is_fatal(acc, shared_key, side_key):
+    # Measured on IntaRNA 3.4.1: `--accW=0 --accL=0 --tAccW=40 --tAccL=40` exits with
+    # "# ERROR : --accW and --tAccW are set to different values". The flags do not
+    # layer and neither wins, so this must never reach the tool.
+    with pytest.raises(ValueError) as excinfo:
+        validate({"accessibility": acc}, None)
+    message = str(excinfo.value)
+    assert shared_key in message
+    assert side_key in message
+
+def test_accessibility_equal_values_are_allowed():
+    # IntaRNA itself tolerates the redundant-but-consistent form.
+    assert validate({"accessibility": {"window": 40, "target_window": 40}}, None) == []
+
+def test_accessibility_per_side_alone_is_the_normal_override():
+    assert validate({"accessibility": {
+        "query_window": 0, "query_max_bp_span": 0,
+        "target_window": 150, "target_max_bp_span": 100,
+    }}, None) == []
+
+def test_accessibility_shared_alone_is_allowed():
+    assert validate({"accessibility": {"window": 0, "max_bp_span": 0}}, None) == []
+
+def test_accessibility_zero_versus_null_is_not_a_conflict():
+    # `window: 0` with an unset per-side key is an override-free config, not a mismatch.
+    assert validate({"accessibility": {"window": 0, "query_window": None}}, None) == []
+
+def test_accessibility_block_absent_is_allowed():
+    assert validate({}, None) == []

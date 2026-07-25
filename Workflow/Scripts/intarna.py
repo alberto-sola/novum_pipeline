@@ -3,6 +3,7 @@ import sys
 
 from _common import which_required, ensure_parent
 from _intarna_config import (
+    ACCESSIBILITY_WINDOW_FLAGS,
     INTARNA_DEFAULT_ENERGY_SET,
     INTARNA_DEFAULT_MODEL,
     INTARNA_MAX_OUTNUMBER,
@@ -11,7 +12,63 @@ from _intarna_config import (
 )
 
 
-#----- Seed enforcement is inherited from the top-level `seed`: absent → --noSeed. When present, --seedBP/--seedQRange are derived; the remaining sub-keys are independent overrides -----#
+#----- Emits `--flag=value` per (config key, flag) that is set. Guard is `is not None`, never
+#      truthiness: `0` is a real value here (accessibility window 0 = whole sequence) -----#
+def _add_value_flags(cmd, block, table):
+    if not block:
+        return
+    for key, flag in table:
+        value = block.get(key)
+        if value is not None:
+            cmd.append(f"{flag}={value}")
+
+
+#----- Emits the bare `--flag` for each (config key, flag) the block sets truthy -----#
+def _add_bool_flags(cmd, block, table):
+    if not block:
+        return
+    for key, flag in table:
+        if block.get(key):
+            cmd.append(flag)
+
+
+# Flag tables, in Config/config.yaml order. Every group is emitted unconditionally — IntaRNA
+# ignores the inapplicable ones cleanly (helix outside model B, accessibility under --acc=N),
+# and validate_intarna_config reports the mismatch instead of the emitter withholding flags.
+_SEED_VALUE_FLAGS = (
+    ("max_energy", "--seedMaxE"),
+    ("max_hybrid_energy", "--seedMaxEhybrid"),
+    ("min_unpaired_probability", "--seedMinPu"),
+    ("target_range", "--seedTRange"),
+)
+_SEED_BOOL_FLAGS = (
+    ("forbid_gu", "--seedNoGU"),
+    ("forbid_gu_at_ends", "--seedNoGUend"),
+    ("report_best_only", "--outBestSeedOnly"),
+)
+_ACCESSIBILITY_BOOL_FLAGS = (
+    ("forbid_lonely_pairs", "--accNoLP"),
+    ("forbid_gu_at_ends", "--accNoGUend"),
+)
+_HELIX_VALUE_FLAGS = (
+    ("min_bp", "--helixMinBP"),
+    ("max_bp", "--helixMaxBP"),
+    ("max_internal_loop", "--helixMaxIL"),
+    ("min_unpaired_probability", "--helixMinPu"),
+    ("max_energy", "--helixMaxE"),
+)
+_HELIX_BOOL_FLAGS = (("full_energy", "--helixFullE"),)
+_OUTPUT_VALUE_FLAGS = (
+    ("max_delta_energy", "--outDeltaE"),
+    ("min_unpaired_probability", "--outMinPu"),
+)
+_OUTPUT_BOOL_FLAGS = (
+    ("forbid_lonely_pairs", "--outNoLP"),
+    ("forbid_gu_at_ends", "--outNoGUend"),
+)
+
+
+#----- Seed enforcement is inherited from the top-level `seed`: absent → --noSeed. When present, --seedBP/--seedQRange are derived and the sub-keys are independent overrides -----#
 def _add_seed_flags(cmd, seed, derived_seed=None):
     if derived_seed is None:
         cmd.append("--noSeed")
@@ -19,86 +76,51 @@ def _add_seed_flags(cmd, seed, derived_seed=None):
 
     cmd.append(f"--seedBP={derived_seed['length']}")
     cmd.append(f"--seedQRange={derived_seed['query_range']}")
-
     # --seedMaxUP: explicit override wins, else RNAhybrid-parity 0
-    if seed.get("max_unpaired_bases") is not None:
-        cmd.append(f"--seedMaxUP={seed['max_unpaired_bases']}")
-    else:
-        cmd.append("--seedMaxUP=0")
+    cmd.append(f"--seedMaxUP={opt(seed, 'max_unpaired_bases', 0)}")
 
-    if seed.get("max_energy") is not None:
-        cmd.append(f"--seedMaxE={seed['max_energy']}")
-    if seed.get("max_hybrid_energy") is not None:
-        cmd.append(f"--seedMaxEhybrid={seed['max_hybrid_energy']}")
-    if seed.get("min_unpaired_probability") is not None:
-        cmd.append(f"--seedMinPu={seed['min_unpaired_probability']}")
-    if seed.get("forbid_gu"):
-        cmd.append("--seedNoGU")
-    if seed.get("forbid_gu_at_ends"):
-        cmd.append("--seedNoGUend")
-    if seed.get("target_range") is not None:
-        cmd.append(f"--seedTRange={seed['target_range']}")
-    if seed.get("report_best_only"):
-        cmd.append("--outBestSeedOnly")
+    _add_value_flags(cmd, seed, _SEED_VALUE_FLAGS)
+    _add_bool_flags(cmd, seed, _SEED_BOOL_FLAGS)
 
 
-#----- Appends --accW/--accL/--accNoLP/--accNoGUend from the accessibility block, skipping any null/false entries -----#
+#----- Accessibility window/span flags plus --accNoLP/--accNoGUend. The per-side flags override
+#      the shared pair but do NOT layer: IntaRNA hard-errors on a shared value beside a differing
+#      per-side one, so that conflict is fatal in validate_intarna_config, not resolved here -----#
 def _add_accessibility_flags(cmd, acc):
-    if not acc:
-        return
-    if acc.get("window") is not None:
-        cmd.append(f"--accW={acc['window']}")
-    if acc.get("max_bp_span") is not None:
-        cmd.append(f"--accL={acc['max_bp_span']}")
-    if acc.get("forbid_lonely_pairs"):
-        cmd.append("--accNoLP")
-    if acc.get("forbid_gu_at_ends"):
-        cmd.append("--accNoGUend")
+    _add_value_flags(cmd, acc, ACCESSIBILITY_WINDOW_FLAGS)
+    _add_bool_flags(cmd, acc, _ACCESSIBILITY_BOOL_FLAGS)
 
 
-#----- Appends --helix* flags from the helix block, skipping null/false entries. Emitted unconditionally: IntaRNA ignores them under any model but B (verified), and the mismatch is reported by validate_intarna_config rather than by withholding flags -----#
+#----- Appends --helix* flags from the helix block -----#
 def _add_helix_flags(cmd, helix):
-    if not helix:
-        return
-    if helix.get("min_bp") is not None:
-        cmd.append(f"--helixMinBP={helix['min_bp']}")
-    if helix.get("max_bp") is not None:
-        cmd.append(f"--helixMaxBP={helix['max_bp']}")
-    if helix.get("max_internal_loop") is not None:
-        cmd.append(f"--helixMaxIL={helix['max_internal_loop']}")
-    if helix.get("min_unpaired_probability") is not None:
-        cmd.append(f"--helixMinPu={helix['min_unpaired_probability']}")
-    if helix.get("max_energy") is not None:
-        cmd.append(f"--helixMaxE={helix['max_energy']}")
-    if helix.get("full_energy"):
-        cmd.append("--helixFullE")
+    _add_value_flags(cmd, helix, _HELIX_VALUE_FLAGS)
+    _add_bool_flags(cmd, helix, _HELIX_BOOL_FLAGS)
 
 
-#----- Appends --out* filtering flags. `out_max_energy` is IntaRNA's TOTAL-energy bound (--outMaxE), supplied by the Snakefile only where it equals the hybridization gate (acc=N); `max_suboptimal_hits` is the shared knob, the rest come from intarna.output -----#
-def _add_output_flags(cmd, out, max_suboptimal_hits=None, out_max_energy=None):
-    if out_max_energy is not None:
-        cmd.append(f"--outMaxE={out_max_energy}")
-    if out.get("max_delta_energy") is not None:
-        cmd.append(f"--outDeltaE={out['max_delta_energy']}")
+#----- --outNumber accepts [0,1000]; a null cap means "all hits", spelled as the ceiling -----#
+def _resolve_outnumber(max_suboptimal_hits):
     if max_suboptimal_hits is None:
-        n_hits = INTARNA_MAX_OUTNUMBER
-    elif max_suboptimal_hits > INTARNA_MAX_OUTNUMBER:
+        return INTARNA_MAX_OUTNUMBER
+    if max_suboptimal_hits > INTARNA_MAX_OUTNUMBER:
         print(
             f"intarna: max_suboptimal_hits={max_suboptimal_hits} exceeds IntaRNA's "
             f"--outNumber ceiling; clamping to {INTARNA_MAX_OUTNUMBER}.",
             file=sys.stderr,
         )
-        n_hits = INTARNA_MAX_OUTNUMBER
-    else:
-        n_hits = max_suboptimal_hits
-    cmd.append(f"--outNumber={n_hits}")
-    cmd.append(f"--outOverlap={out.get('overlap', 'B')}")
-    if out.get("min_unpaired_probability") is not None:
-        cmd.append(f"--outMinPu={out['min_unpaired_probability']}")
-    if out.get("forbid_lonely_pairs"):
-        cmd.append("--outNoLP")
-    if out.get("forbid_gu_at_ends"):
-        cmd.append("--outNoGUend")
+        return INTARNA_MAX_OUTNUMBER
+    return max_suboptimal_hits
+
+
+#----- --out* filtering flags. `out_max_energy` is IntaRNA's TOTAL-energy bound (--outMaxE), supplied by the Snakefile only where it equals the hybridization gate (acc=N) -----#
+def _add_output_flags(cmd, out, max_suboptimal_hits=None, out_max_energy=None):
+    if out_max_energy is not None:
+        cmd.append(f"--outMaxE={out_max_energy}")
+    _add_value_flags(cmd, out, _OUTPUT_VALUE_FLAGS)
+    cmd.append(f"--outNumber={_resolve_outnumber(max_suboptimal_hits)}")
+    cmd.append(f"--outOverlap={opt(out, 'overlap', 'B')}")
+    _add_bool_flags(cmd, out, _OUTPUT_BOOL_FLAGS)
+    # Truthiness, not `is not None`: an empty `columns:` must fall back to IntaRNA's own
+    # column set rather than emit a bare `--outCsvCols=`.
     if out.get("columns"):
         cmd.append(f"--outCsvCols={out['columns']}")
 

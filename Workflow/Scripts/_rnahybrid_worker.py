@@ -24,6 +24,13 @@ def out_path_for(out_dir, query_path, chunk_path, calibrated):
     return Path(out_dir) / name
 
 
+# The globs rnahybrid.py collects out_path_for's output with, kept beside the naming rule
+# they have to match: a divergence otherwise surfaces as "No output files were produced by
+# RNAhybrid" from merge_output_files rather than as the naming mismatch it is.
+OUTPUT_GLOB_CALIBRATED = "output_*__*.tsv"
+OUTPUT_GLOB_BROADCAST  = "output_*.tsv"
+
+
 #----- Builds the single RNAhybrid command; -d (calibrated) wins over -s (species) -----#
 def build_rnahybrid_command(rnahybrid, query, target, max_target_length, species=None, distribution=None, extra_args=()):
     cmd = [rnahybrid, "-q", query, "-t", target, "-c", "-m", str(max_target_length)]
@@ -53,7 +60,7 @@ def main(argv=None):
         extra = extra[1:]
 
     cmd = build_rnahybrid_command(
-        which_required("RNAhybrid", "rnahybrid", label="RNAhybrid"),
+        which_required("RNAhybrid", "rnahybrid"),
         args.query, args.target, args.max_target_length,
         species=args.species, distribution=args.dist, extra_args=extra,
     )

@@ -351,6 +351,23 @@ function IntaRNASection({ cfg, setCfg }) {
   const helixActive = window.isHelixActive(cfg);                   // helix reaches IntaRNA only under model B
   const helixInert   = window.helixInertKeys(cfg);                  // mirrors backend validator (c)
   const seedConflict = window.helixSeedConflict(cfg); // mirrors backend validator (a)
+  const accConflicts = window.accessibilityConflicts(cfg); // mirrors backend validator (f)
+
+  // "Global" is not stored — it IS window === 0 && max_bp_span === 0 on that side, so the
+  // pill can never disagree with the fields it summarizes. Untoggling unsets both, which
+  // hands the side back to IntaRNA's local defaults (150/100).
+  const accSideGlobal = (side) => {
+    const w = it.accessibility[`${side}_window`];
+    const s = it.accessibility[`${side}_max_bp_span`];
+    return w.set && w.value === 0 && s.set && s.value === 0;
+  };
+  const setSideGlobal = (side, on) => setAcc(
+    on
+      ? { [`${side}_window`]:      { set: true, value: 0 },
+          [`${side}_max_bp_span`]: { set: true, value: 0 } }
+      : { [`${side}_window`]:      { set: false, value: 150 },
+          [`${side}_max_bp_span`]: { set: false, value: 100 } }
+  );
 
   return (
     <SectionCard
@@ -504,16 +521,48 @@ function IntaRNASection({ cfg, setCfg }) {
             {accInert && (
               <InlineNote>· variant is Off — flags below are sent but ignored</InlineNote>
             )}
+            {accConflicts.length > 0 && (
+              <InlineNote tone="warn">
+                · {accConflicts.map(({ sharedKey, sideKey }) => `${sharedKey} vs ${sideKey}`).join(", ")}
+                {" "}differ — IntaRNA will abort on a shared window set beside a differing per-side one
+              </InlineNote>
+            )}
           </div>
           <DisableGroup disabled={accInert} className="stack sm">
             <div className="grid-2">
-              <NullableField name="Window" doc="0 = global" kind="integer"
-                min={0}
+              <NullableField name="Window" doc="0 = whole sequence" kind="integer"
+                min={0} autoTag="AUTO (150)"
                 value={it.accessibility.window} onChange={(v) => setAcc({ window: v })} />
-              <NullableField name="Max bp span" doc="0 = global" kind="integer"
-                min={0}
+              <NullableField name="Max bp span" doc="0 = use window" kind="integer"
+                min={0} autoTag="AUTO (100)"
                 value={it.accessibility.max_bp_span} onChange={(v) => setAcc({ max_bp_span: v })} />
             </div>
+
+            <Subcard label="Per-side overrides"
+                     hint="leave the shared pair above unset when using these — IntaRNA aborts on a mismatch">
+              <div className="stack sm">
+                {window.ACCESSIBILITY_SIDES.map((spec) => (
+                  <div key={spec.side}>
+                    <PillGroup label={spec.label}>
+                      <PillToggle on={accSideGlobal(spec.side)}
+                                  onChange={(v) => setSideGlobal(spec.side, v)}
+                                  label="Global" />
+                    </PillGroup>
+                    <DisableGroup disabled={accSideGlobal(spec.side)} className="grid-2">
+                      <NullableField name={`${spec.name} window`} doc={spec.wFlag} kind="integer"
+                        min={0} autoTag="AUTO (150)"
+                        value={it.accessibility[`${spec.side}_window`]}
+                        onChange={(v) => setAcc({ [`${spec.side}_window`]: v })} />
+                      <NullableField name={`${spec.name} max bp span`} doc={spec.lFlag} kind="integer"
+                        min={0} autoTag="AUTO (100)"
+                        value={it.accessibility[`${spec.side}_max_bp_span`]}
+                        onChange={(v) => setAcc({ [`${spec.side}_max_bp_span`]: v })} />
+                    </DisableGroup>
+                  </div>
+                ))}
+              </div>
+            </Subcard>
+
             <PillGroup label="Constraints">
               <PillToggle on={it.accessibility.forbid_lonely_pairs} onChange={(v) => setAcc({ forbid_lonely_pairs: v })} label="Forbid lonely pairs" />
               <PillToggle on={it.accessibility.forbid_gu_at_ends}   onChange={(v) => setAcc({ forbid_gu_at_ends: v })}   label="Forbid G:U at ends" />

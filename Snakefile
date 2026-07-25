@@ -17,7 +17,7 @@ shared_seed                = config.get("seed")
 rnahybrid_max_hybrid_energy = rnahybrid_config.get("max_hybrid_energy")
 intarna_max_hybrid_energy   = intarna_config.get("max_hybrid_energy")
 
-SAMPLE_DIR         = f"{results_dir}" + "/{sample}"
+SAMPLE_DIR         = results_dir + "/{sample}"
 SAMPLE_VARIANT_DIR = SAMPLE_DIR + "/{variant}"
 
 #----- Per-sample query lookup: `queries:` mapping (keys must match `targets:`),
@@ -46,43 +46,35 @@ plots_type    = plots_config.get("type")
 plots_enabled = plots_type is not None
 plots_slug    = (plots_type or "none").replace(",", "-").replace(" ", "")
 
-#----- Variant axes: each arm maps a config "mode" to the output-tree literals it expands into -----#
+#----- Variant axes: each arm has one boolean axis, encoded in the output tree as a
+#      (with, without) pair of sibling directory names. Naming each pair once is what keeps
+#      the wildcard regexes and the consensus fallback below from drifting apart -----#
 W_CALIBRATION    = "w_calibration"
 WO_CALIBRATION   = "wo_calibration"
 W_ACCESSIBILITY  = "w_accessibility"
 WO_ACCESSIBILITY = "wo_accessibility"
+CALIBRATION_LITERALS   = (W_CALIBRATION,   WO_CALIBRATION)
+ACCESSIBILITY_LITERALS = (W_ACCESSIBILITY, WO_ACCESSIBILITY)
 VARIANT_LABELS = {W_CALIBRATION: "calibrated", WO_CALIBRATION: "uncalibrated"}
 
-#----- on→with-variant / off→without / both→both; one builder so the shape can't drift -----#
-def _variant_map(with_literal, without_literal):
-    return {"on": [with_literal], "off": [without_literal], "both": [with_literal, without_literal]}
-
-_CALIBRATION_VARIANTS   = _variant_map(W_CALIBRATION,   WO_CALIBRATION)
-_ACCESSIBILITY_VARIANTS = _variant_map(W_ACCESSIBILITY, WO_ACCESSIBILITY)
-
-#----- Shared validate+lookup: turn a resolved mode into its variant list, or fail listing the allowed set -----#
-def variants_for_mode(mode, mode_to_variants, label):
-    if mode not in mode_to_variants:
-        raise ValueError(
-            f"{label} must be one of {list(mode_to_variants)}, got {mode!r}"
-        )
-    return mode_to_variants[mode]
-
-#----- Shared variant resolver: read `key` from cfg (default "both"); YAML 1.1 parses bare on/off as bools, so coerce back -----#
-def _variant_mode(cfg, key):
+#----- The one resolver both arms go through: read `key` from cfg (default "both"), coerce
+#      YAML 1.1's bare on/off back from bool, and expand on→with / off→without / both→both
+#      into the arm's directory literals, failing with the allowed set on anything else -----#
+def variants_for(cfg, key, label, literals):
+    with_literal, without_literal = literals
     mode = cfg.get(key, "both")
     if isinstance(mode, bool):
         mode = "on" if mode else "off"
-    return mode
+    modes = {"on": [with_literal], "off": [without_literal],
+             "both": [with_literal, without_literal]}
+    if mode not in modes:
+        raise ValueError(f"{label} must be one of {list(modes)}, got {mode!r}")
+    return modes[mode]
 
-variants = variants_for_mode(
-    _variant_mode(rnacalibrate_config, "calibration_variant"),
-    _CALIBRATION_VARIANTS, "rnacalibrate.calibration_variant",
-)
-intarna_variants = variants_for_mode(
-    _variant_mode(intarna_config, "accessibility_variant"),
-    _ACCESSIBILITY_VARIANTS, "intarna.accessibility_variant",
-)
+variants = variants_for(rnacalibrate_config, "calibration_variant",
+                        "rnacalibrate.calibration_variant", CALIBRATION_LITERALS)
+intarna_variants = variants_for(intarna_config, "accessibility_variant",
+                                "intarna.accessibility_variant", ACCESSIBILITY_LITERALS)
 
 #----- IntaRNA config validation at DAG-build time, so a bad config fails before the
 #      hour-long RNAhybrid arm starts. _intarna_config is stdlib-only by contract: it is
@@ -115,20 +107,26 @@ intarna_search_depth = opt(intarna_config, "accessibility_search_depth",
                            INTARNA_DEFAULT_ACCESSIBILITY_SEARCH_DEPTH)
 
 
-RNAHYBRID_VARIANT_RE = f"{W_CALIBRATION}|{WO_CALIBRATION}"
-INTARNA_VARIANT_RE   = f"{W_ACCESSIBILITY}|{WO_ACCESSIBILITY}"
+RNAHYBRID_VARIANT_RE = "|".join(CALIBRATION_LITERALS)
+INTARNA_VARIANT_RE   = "|".join(ACCESSIBILITY_LITERALS)
+
+# Spelled once: rule rnacalibrate's output and calibration_input's return must agree, and a
+# divergence would surface as a missing-input error rather than as the wiring bug it is.
+RNACALIBRATE_JSON = SAMPLE_DIR + "/" + W_CALIBRATION + "/rnacalibrate.json"
 
 
-#----- Per-variant calibration routing: the {variant} wildcard is constrained to
-#      the two calibration literals; calibration_input(wc) supplies the JSON only
-#      for w_calibration so a single rnahybrid rule serves both branches -----#
+#----- Every {variant} wildcard is one of the four arm literals; each rule then narrows to
+#      its own arm's two through the per-rule wildcard_constraints below -----#
 wildcard_constraints:
-    variant = "|".join([W_CALIBRATION, WO_CALIBRATION, W_ACCESSIBILITY, WO_ACCESSIBILITY])
+    variant = f"{RNAHYBRID_VARIANT_RE}|{INTARNA_VARIANT_RE}"
 
 
+#----- Per-variant calibration routing: supplies the JSON only for w_calibration, so a
+#      single rnahybrid rule serves both branches. Preserve the empty-list-vs-path
+#      contract — rnahybrid.py coerces `[]` to None to pick the broadcast branch -----#
 def calibration_input(wc):
     if wc.variant == W_CALIBRATION:
-        return f"{results_dir}/{wc.sample}/{W_CALIBRATION}/rnacalibrate.json"
+        return RNACALIBRATE_JSON.format(sample=wc.sample)
     return []
 
 
@@ -163,18 +161,15 @@ def intarna_outnumber(wc):
     return max(intarna_search_depth, shared_max_suboptimal_hits)
 
 
-#----- Consensus arm-variant selection: prefer the w_* variant of each arm,
-#      fall back to wo_* when only that ran; resolved once at DAG-build time -----#
-def _preferred_variant(available, preferred, fallback):
-    return preferred if preferred in available else fallback
+#----- Consensus arm-variant selection: prefer the w_* variant of each arm, fall back to
+#      wo_* when only that ran. Constants, not input functions: the choice reads the config
+#      and never the wildcards, so it genuinely resolves once at DAG-build time -----#
+def _preferred_variant(available, literals):
+    with_literal, without_literal = literals
+    return with_literal if with_literal in available else without_literal
 
-def _consensus_rnahybrid_annotated(wc):
-    variant = _preferred_variant(variants, W_CALIBRATION, WO_CALIBRATION)
-    return f"{results_dir}/{wc.sample}/{variant}/rnahybrid_annotated.csv"
-
-def _consensus_intarna_annotated(wc):
-    variant = _preferred_variant(intarna_variants, W_ACCESSIBILITY, WO_ACCESSIBILITY)
-    return f"{results_dir}/{wc.sample}/{variant}/intarna_annotated.csv"
+CONSENSUS_RNAHYBRID_VARIANT = _preferred_variant(variants, CALIBRATION_LITERALS)
+CONSENSUS_INTARNA_VARIANT   = _preferred_variant(intarna_variants, ACCESSIBILITY_LITERALS)
 
 
 #----- output finale ‒ pipeline conclusion -----#
@@ -205,7 +200,7 @@ rule rnacalibrate:
         query=lambda wc: queries[wc.sample],
         target=lambda wc: targets[wc.sample]
     output:
-        calibration=f"{SAMPLE_DIR}/" + W_CALIBRATION + "/rnacalibrate.json"
+        calibration=RNACALIBRATE_JSON
     conda:
         "Workflow/Envs/rnahybrid.yaml"
     params:
@@ -319,7 +314,9 @@ rule tidy_intarna:
     output:
         tidy=f"{SAMPLE_VARIANT_DIR}/intarna_tidy.csv"
     conda:
-        "Workflow/Envs/intarna.yaml"
+        # postprocess, not intarna: this rule needs pandas and never invokes the binary,
+        # and pinning it here is what let intarna.yaml drop pandas entirely.
+        "Workflow/Envs/postprocess.yaml"
     params:
         # Authoritative gate on both variants: --outMaxE cannot express an E_hybrid bound
         # under acc=C. Idempotent on wo_accessibility, where the tool already applied it.
@@ -360,8 +357,8 @@ rule enhance_intarna:
 #----- Intersect the two arms' annotated tables into the consensus (both-tools) set -----#
 rule intersect:
     input:
-        rnahybrid=_consensus_rnahybrid_annotated,
-        intarna=_consensus_intarna_annotated
+        rnahybrid=SAMPLE_DIR + "/" + CONSENSUS_RNAHYBRID_VARIANT + "/rnahybrid_annotated.csv",
+        intarna=SAMPLE_DIR + "/" + CONSENSUS_INTARNA_VARIANT + "/intarna_annotated.csv"
     output:
         annotated=f"{SAMPLE_DIR}/consensus/consensus_annotated.csv"
     conda:
@@ -384,7 +381,7 @@ rule enhance_consensus:
 rule build_plots:
     input:
         annotated=expand(
-            f"{results_dir}" + "/{{sample}}/{variant}/rnahybrid_annotated.csv",
+            results_dir + "/{{sample}}/{variant}/rnahybrid_annotated.csv",
             variant=variants,
         )
     output:
@@ -392,13 +389,16 @@ rule build_plots:
     conda:
         "Workflow/Envs/plots.yaml"
     params:
+        # opt(), not .get(default): the shipped config writes `locus:`/`gene:`/`protein:` as
+        # bare nulls, which .get would pass straight through — leaving these defaults inert
+        # and the R side's own %||% fallbacks doing the work.
         type=plots_type,
-        basesize=plots_config.get("basesize", 12),
-        pvalue_threshold=plots_config.get("pvalue_threshold", []),
-        locus=plots_config.get("locus", []),
-        gene=plots_config.get("gene", []),
-        protein=plots_config.get("protein", []),
-        per_mirna_top_n=plots_config.get("per_mirna_top_n", 12),
+        basesize=opt(plots_config, "basesize", 12),
+        pvalue_threshold=opt(plots_config, "pvalue_threshold", []),
+        locus=opt(plots_config, "locus", []),
+        gene=opt(plots_config, "gene", []),
+        protein=opt(plots_config, "protein", []),
+        per_mirna_top_n=opt(plots_config, "per_mirna_top_n", 12),
         variant_labels=[VARIANT_LABELS[v] for v in variants]
     script:
         "Workflow/Scripts/build_plots.R"

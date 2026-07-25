@@ -52,4 +52,5 @@ def run_from_snakemake(snakemake):
         output_path=snakemake.output.tidy,
     )
 
-run_from_snakemake(snakemake)
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)

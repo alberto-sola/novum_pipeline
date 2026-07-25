@@ -31,6 +31,14 @@ def test_outnumber_null_defaults_to_cap():
     intarna._add_output_flags(cmd, {"overlap": "B"}, max_suboptimal_hits=None)
     assert _outnumber(cmd) == intarna.INTARNA_MAX_OUTNUMBER
 
+def test_overlap_explicit_null_falls_back_to_default():
+    # An explicit `overlap:` null reaches here as None. A plain .get(k, "B") would pass it
+    # through and stringify it into the flag as the literal "--outOverlap=None", which
+    # IntaRNA rejects — this is exactly what opt() exists to prevent.
+    cmd = []
+    intarna._add_output_flags(cmd, {"overlap": None}, max_suboptimal_hits=1)
+    assert "--outOverlap=B" in cmd
+
 
 def test_helix_flags_emitted_for_each_key():
     cmd = []
@@ -76,6 +84,64 @@ def test_helix_zero_is_a_real_value_not_a_skip():
     cmd = []
     intarna._add_helix_flags(cmd, {"max_internal_loop": 0, "max_energy": 0})
     assert cmd == ["--helixMaxIL=0", "--helixMaxE=0"]
+
+
+def test_accessibility_shared_flags_still_emitted():
+    cmd = []
+    intarna._add_accessibility_flags(cmd, {"window": 150, "max_bp_span": 100})
+    assert cmd == ["--accW=150", "--accL=100"]
+
+def test_accessibility_per_side_flags_emitted():
+    # IntaRNA's own README gives this asymmetric example: global query, local target.
+    cmd = []
+    intarna._add_accessibility_flags(cmd, {
+        "window": None,
+        "max_bp_span": None,
+        "query_window": 0,
+        "query_max_bp_span": 0,
+        "target_window": 150,
+        "target_max_bp_span": 100,
+    })
+    assert cmd == ["--qAccW=0", "--qAccL=0", "--tAccW=150", "--tAccL=100"]
+
+def test_accessibility_zero_is_a_real_value_not_a_skip():
+    # window 0 = whole sequence (global). A truthiness check would silently drop it
+    # and leave IntaRNA on its 150 nt local default — the opposite setting.
+    cmd = []
+    intarna._add_accessibility_flags(cmd, {"window": 0, "max_bp_span": 0})
+    assert cmd == ["--accW=0", "--accL=0"]
+
+def test_accessibility_nulls_are_omitted_entirely():
+    # Omission is what hands the decision back to IntaRNA's own defaults (150/100).
+    cmd = []
+    intarna._add_accessibility_flags(cmd, {
+        "window": None, "max_bp_span": None,
+        "query_window": None, "query_max_bp_span": None,
+        "target_window": None, "target_max_bp_span": None,
+        "forbid_lonely_pairs": False, "forbid_gu_at_ends": False,
+    })
+    assert cmd == []
+
+def test_accessibility_shared_and_per_side_coexist_when_equal():
+    # IntaRNA tolerates equal values; only a MISMATCH is rejected, and that is
+    # _intarna_config's job, not the emitter's.
+    cmd = []
+    intarna._add_accessibility_flags(cmd, {"window": 40, "target_window": 40})
+    assert cmd == ["--accW=40", "--tAccW=40"]
+
+def test_accessibility_constraint_pills_follow_the_windows():
+    cmd = []
+    intarna._add_accessibility_flags(cmd, {
+        "target_window": 40,
+        "forbid_lonely_pairs": True,
+        "forbid_gu_at_ends": True,
+    })
+    assert cmd == ["--tAccW=40", "--accNoLP", "--accNoGUend"]
+
+def test_build_command_emits_per_side_accessibility_flags():
+    cmd = _build({"accessibility": {"query_window": 0, "target_window": 150}})
+    assert "--qAccW=0" in cmd
+    assert "--tAccW=150" in cmd
 
 
 def _flag(cmd, prefix):

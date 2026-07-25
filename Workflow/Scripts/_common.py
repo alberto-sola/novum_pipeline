@@ -12,13 +12,13 @@ import shutil
 from pathlib import Path
 
 
-#----- Resolves a required executable from PATH, trying each candidate name in order -----#
-def which_required(*candidates, label=None):
+#----- Resolves a required executable from PATH, trying each candidate name in order; the first candidate names the tool in the error -----#
+def which_required(*candidates):
     for name in candidates:
         path = shutil.which(name)
         if path is not None:
             return path
-    raise RuntimeError(f"Required executable not found in PATH: {label or candidates[0]}")
+    raise RuntimeError(f"Required executable not found in PATH: {candidates[0]}")
 
 
 #----- Yields (header, sequence) per FASTA record: header is the text after '>', sequence is the residues with whitespace stripped -----#

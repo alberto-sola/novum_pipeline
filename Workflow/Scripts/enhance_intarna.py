@@ -1,7 +1,8 @@
 import pandas as pd
 
 from _report import (
-    fmt, stream_records, render_intarna_duplex, INTARNA_DUPLEX_COLUMNS, SEPARATOR,
+    column_pairs, require_columns, stream_records, write_pairs,
+    render_intarna_duplex, INTARNA_DUPLEX_COLUMNS, SEPARATOR,
 )
 
 
@@ -14,22 +15,18 @@ SKIP_AS_METADATA = set(INTARNA_DUPLEX_COLUMNS + ENERGY_COLUMNS + SEED_COLUMNS)
 def enhance_results(annotated_csv_path, output_path):
     annotated = pd.read_csv(annotated_csv_path)
 
-    if "subseqDP" not in annotated.columns or "hybridDP" not in annotated.columns:
-        raise ValueError("annotated CSV must contain 'subseqDP' and 'hybridDP' columns")
+    require_columns(annotated, INTARNA_DUPLEX_COLUMNS, "annotated CSV")
 
-    cols = list(annotated.columns)
-    energy_pairs = [(c, cols.index(c)) for c in ENERGY_COLUMNS if c in cols]
-    seed_pairs   = [(c, cols.index(c)) for c in SEED_COLUMNS   if c in cols]
+    energy_pairs = column_pairs(annotated, ENERGY_COLUMNS)
+    seed_pairs   = column_pairs(annotated, SEED_COLUMNS)
 
     def render_record(fh, row, index_of):
         if energy_pairs:
             fh.write("\n")
-            for col, idx in energy_pairs:
-                fh.write(f"{col}: {fmt(row[idx])}\n")
+            write_pairs(fh, energy_pairs, row)
         if seed_pairs:
             fh.write("\n")
-            for col, idx in seed_pairs:
-                fh.write(f"{col}: {fmt(row[idx])}\n")
+            write_pairs(fh, seed_pairs, row)
         fh.write("\n")
         render_intarna_duplex(fh, row[index_of["subseqDP"]], row[index_of["hybridDP"]])
         fh.write(f"\n{SEPARATOR}\n\n")
@@ -44,4 +41,5 @@ def run_from_snakemake(snakemake):
         output_path=snakemake.output.enhanced,
     )
 
-run_from_snakemake(snakemake)
+if "snakemake" in globals():
+    run_from_snakemake(snakemake)
