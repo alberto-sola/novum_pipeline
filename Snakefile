@@ -130,7 +130,7 @@ def calibration_input(wc):
     return []
 
 
-#----- The one predicate all three IntaRNA resolvers below branch on. Under the per-rule
+#----- The one predicate every IntaRNA resolver below branches on. Under the per-rule
 #      INTARNA_VARIANT_RE constraint the variant is one of exactly two literals, so
 #      "accessibility on" and "!= wo_accessibility" coincide — spell it once -----#
 def _accessibility_on(wc):
@@ -159,6 +159,17 @@ def intarna_outnumber(wc):
     if not _accessibility_on(wc) or shared_max_suboptimal_hits is None:
         return shared_max_suboptimal_hits
     return max(intarna_search_depth, shared_max_suboptimal_hits)
+
+
+#----- Per-side Pu floors: the mirror of intarna_outmaxe. That one withholds under acc=C;
+#      these withhold under acc=N, which computes no Pu at all — `accessibility_variant:
+#      both` must not carry a floor into the wo_ arm and empty it -----#
+def intarna_min_pu_target(wc):
+    return intarna_config.get("min_target_unpaired_probability") if _accessibility_on(wc) else None
+
+
+def intarna_min_pu_query(wc):
+    return intarna_config.get("min_query_unpaired_probability") if _accessibility_on(wc) else None
 
 
 #----- Consensus arm-variant selection: prefer the w_* variant of each arm, fall back to
@@ -313,6 +324,13 @@ rule tidy_intarna:
         target=lambda wc: targets[wc.sample]
     output:
         tidy=f"{SAMPLE_VARIANT_DIR}/intarna_tidy.csv"
+    resources:
+        # Measured peak RSS on the largest real input (1.09 GB, 6.3M rows): 405 MB with a
+        # Pu floor set, 873 MB with only the energy gate — tidy_intarna.py reads in batches
+        # so this scales with the SURVIVORS, not the file. `max_suboptimal_hits: null`
+        # removes the per-pair cap and can push it well past this. Advisory: it binds only
+        # under `--resources mem_mb=N` or a cluster profile, not plain `--cores all`.
+        mem_mb = 1200
     conda:
         # postprocess, not intarna: this rule needs pandas and never invokes the binary,
         # and pinning it here is what let intarna.yaml drop pandas entirely.
@@ -321,7 +339,11 @@ rule tidy_intarna:
         # Authoritative gate on both variants: --outMaxE cannot express an E_hybrid bound
         # under acc=C. Idempotent on wo_accessibility, where the tool already applied it.
         max_hybrid_energy   = intarna_max_hybrid_energy,
-        max_suboptimal_hits = shared_max_suboptimal_hits
+        max_suboptimal_hits = shared_max_suboptimal_hits,
+        # Withheld under acc=N by the resolvers above; applied before the cap, so they
+        # select which site represents a pair rather than only rejecting the chosen one.
+        min_target_unpaired_probability = intarna_min_pu_target,
+        min_query_unpaired_probability  = intarna_min_pu_query
     script:
         "Workflow/Scripts/tidy_intarna.py"
 

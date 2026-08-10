@@ -424,6 +424,14 @@ function IntaRNASection({ cfg, setCfg }) {
             max={0} nullHint="null · tool default (E ≤ 0)"
             value={it.max_hybrid_energy}
             onChange={(v) => set({ max_hybrid_energy: v })} />
+          <NullableField name="Min target unpaired probability" doc="Pu1 floor · gene side"
+            min={0} max={1} nullHint="null · no accessibility floor"
+            value={it.min_target_unpaired_probability}
+            onChange={(v) => set({ min_target_unpaired_probability: v })} />
+          <NullableField name="Min query unpaired probability" doc="Pu2 floor · miRNA side"
+            min={0} max={1} nullHint="null · no accessibility floor"
+            value={it.min_query_unpaired_probability}
+            onChange={(v) => set({ min_query_unpaired_probability: v })} />
           <NullableField name="Accessibility search depth" doc="hits reported" kind="integer"
             min={1} nullHint="null · use shared cap"
             value={it.accessibility_search_depth}

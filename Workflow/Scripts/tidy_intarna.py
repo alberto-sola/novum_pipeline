@@ -15,51 +15,111 @@ OUTPUT_COLUMNS = [
 # rather than silently produce an ungated file.
 REQUIRED_COLS = {"id1", "id2", "start1", "end1", "start2", "end2", "E", "E_hybrid"}
 
+# Rows per read batch. Sized against the largest real input (6.3M rows, 1.17 GB): at
+# ~423 B/row a batch costs ~100 MB, already below the surviving set's own footprint —
+# the one term chunking cannot remove — so shrinking further buys iterations, not memory.
+# Throughput is flat from 100k to 1M rows/batch, which makes this purely a memory knob.
+READ_CHUNK_ROWS = 250_000
+
+# IntaRNA writes uppercase NAN in the seed columns under --noSeed (top-level seed: null),
+# and that spelling is outside pandas' default NA set — the five columns would land as
+# Python strings and cost 34% of the frame. Declaring it types them as float, so they also
+# reach the enhance report as "NA" rather than the literal string "NAN".
+INTARNA_NA_VALUES = ["NAN"]
+
 
 #----- Streams the target FASTA once and returns a {Gene → sequence length} map for downstream position normalization -----#
 def _parse_gene_lengths(fasta_path):
     return {parse_header_id(header): len(seq) for header, seq in iter_fasta_records(fasta_path)}
 
 
-#----- Renames IntaRNA's columns, joins gene lengths, computes a 0-1 Position fraction, then gates/ranks/caps on E_hybrid and emits the CSV -----#
-def tidy_intarna(input_path, target_fasta_path, output_path,
-                 max_hybrid_energy=None, max_suboptimal_hits=None):
-    df = pd.read_csv(input_path, sep=";", dtype={"id1": str, "id2": str})
-
-    missing = REQUIRED_COLS - set(df.columns)
+#----- Column guard, run once against the header rather than per batch. Pu1/Pu2 stay out
+#      of REQUIRED_COLS: trimming intarna.output.columns is legitimate. But a floor
+#      against a column that is not there would silently admit every row -----#
+def _require_columns(columns, floors):
+    missing = REQUIRED_COLS - set(columns)
     if missing:
         raise ValueError(f"IntaRNA CSV is missing required columns: {sorted(missing)}")
 
-    df = df.rename(columns={"id1": "Gene", "id2": "miRNA",
-                             "start1": "Start1", "end1": "End1",
-                             "start2": "Start2", "end2": "End2"})
+    for column, floor in floors:
+        if floor is not None and column not in columns:
+            raise ValueError(
+                f"IntaRNA CSV is missing {column}, required by the accessibility floor "
+                f"({floor}). Keep {column} in intarna.output.columns or clear the floor."
+            )
 
-    gene_lengths = _parse_gene_lengths(target_fasta_path)
-    df["Gene_length"] = df["Gene"].map(gene_lengths)
 
-    missing_genes = df["Gene_length"].isna().sum()
-    if missing_genes:
-        bad = df.loc[df["Gene_length"].isna(), "Gene"].unique().tolist()
-        raise ValueError(f"Gene_length missing for {missing_genes} record(s): {bad[:5]}")
+#----- Everything row-independent — rename, validate, gate, floor, annotate — so it can run
+#      per batch and let all but the survivors go. The sort and the per-pair cap need the
+#      whole surviving set and stay in tidy_intarna below -----#
+def _prepare_chunk(chunk, gene_lengths, max_hybrid_energy, floors):
+    chunk = chunk.rename(columns={"id1": "Gene", "id2": "miRNA",
+                                  "start1": "Start1", "end1": "End1",
+                                  "start2": "Start2", "end2": "End2"})
 
-    df["Gene_length"] = df["Gene_length"].astype(int)
+    # Validated on the DISTINCT genes, before any filtering, so a target FASTA that does
+    # not cover the output still fails even when the offending rows would have been gated
+    # away. Row counts are only computed on the error path.
+    genes = chunk["Gene"].unique()
+    unknown = [gene for gene in genes if gene not in gene_lengths]
+    if unknown:
+        count = int(chunk["Gene"].isin(unknown).sum())
+        raise ValueError(f"Gene_length missing for {count} record(s): {unknown[:5]}")
 
-    if (df["Gene_length"] <= 0).any():
-        bad = df.loc[df["Gene_length"] <= 0, "Gene"].unique().tolist()
-        raise ValueError(f"Non-positive Gene_length in target FASTA for: {bad}")
+    nonpositive = [gene for gene in genes if gene_lengths[gene] <= 0]
+    if nonpositive:
+        raise ValueError(f"Non-positive Gene_length in target FASTA for: {nonpositive}")
 
-    # Normalize position to a 0-1 fraction for cross-pipeline comparability with tidy_rnahybrid.
-    df["Position"] = df["Start1"].astype(float) / df["Gene_length"]
-
-    df["E"] = df["E"].astype(float)
-    df["E_hybrid"] = df["E_hybrid"].astype(float)
+    chunk["E"] = chunk["E"].astype(float)
+    chunk["E_hybrid"] = chunk["E_hybrid"].astype(float)
 
     # Gate on hybridization energy — the quantity RNAhybrid's -e filters and the scale the
     # literature's -18 threshold is stated on. --outMaxE cannot express this under acc=C,
     # where it bounds E_hybrid+ED1+ED2 instead, so this is the authoritative gate on both
     # variants. On wo_accessibility it is a no-op: the tool already applied the same bound.
     if max_hybrid_energy is not None:
-        df = df[df["E_hybrid"] <= float(max_hybrid_energy)]
+        chunk = chunk[chunk["E_hybrid"] <= float(max_hybrid_energy)]
+
+    # Before the cap, like the energy gate: capping first collapses each pair to its best
+    # site, so a floor would then ask "was the strongest site accessible?" instead of "has
+    # this pair an accessible site at all?" — up to 3.5x fewer surviving pairs on four
+    # genomes. NaN Pu fails the comparison, so unknown accessibility is never admitted.
+    for column, floor in floors:
+        if floor is not None:
+            chunk = chunk[chunk[column] >= float(floor)]
+
+    # Annotation runs on what survived, not on the ~94% that did not. Position is a 0-1
+    # fraction for cross-arm comparability with tidy_rnahybrid, which anchors the same way.
+    return chunk.assign(
+        Gene_length=lambda d: d["Gene"].map(gene_lengths).astype(int),
+        Position=lambda d: d["Start1"].astype(float) / d["Gene_length"],
+    )
+
+
+#----- Reads IntaRNA's CSV in batches, keeping only gated/floored rows, then ranks and caps on E_hybrid and emits the CSV -----#
+def tidy_intarna(input_path, target_fasta_path, output_path,
+                 max_hybrid_energy=None, max_suboptimal_hits=None,
+                 min_target_unpaired_probability=None,
+                 min_query_unpaired_probability=None):
+    floors = (("Pu1", min_target_unpaired_probability),
+              ("Pu2", min_query_unpaired_probability))
+    read_options = dict(sep=";", dtype={"id1": str, "id2": str},
+                        na_values=INTARNA_NA_VALUES)
+
+    header = pd.read_csv(input_path, nrows=0, **read_options)
+    _require_columns(header.columns, floors)
+
+    gene_lengths = _parse_gene_lengths(target_fasta_path)
+
+    # Batched because these files reach 1.2 GB at the shipped accessibility_search_depth,
+    # and ~94% of every batch dies in the filters above — reading whole cost 2.3 GB to keep
+    # 170 MB. A file with no hits still yields one empty batch, so the concat always has a
+    # frame and the output keeps its schema; a test pins that rather than a dead fallback.
+    prepared = [
+        _prepare_chunk(chunk, gene_lengths, max_hybrid_energy, floors)
+        for chunk in pd.read_csv(input_path, chunksize=READ_CHUNK_ROWS, **read_options)
+    ]
+    df = pd.concat(prepared, ignore_index=True)
 
     # Rank by the gated quantity, then cap. Capping first could discard a qualifying row
     # in favour of a better-total-E one that fails the gate.
@@ -82,6 +142,8 @@ def run_from_snakemake(snakemake):
         output_path=snakemake.output.tidy,
         max_hybrid_energy=snakemake.params.max_hybrid_energy,
         max_suboptimal_hits=snakemake.params.max_suboptimal_hits,
+        min_target_unpaired_probability=snakemake.params.min_target_unpaired_probability,
+        min_query_unpaired_probability=snakemake.params.min_query_unpaired_probability,
     )
 
 if "snakemake" in globals():

@@ -211,8 +211,44 @@ def _unbounded_output_warnings(max_suboptimal_hits, accessibility_on):
     ]
 
 
+#----- The per-side floors actually set, named for a message. Shared by (g) and (h) so the
+#      two can never disagree about what counts as "set" -----#
+def _floors_in_use(cfg):
+    return ", ".join(
+        "intarna." + key
+        for key in ("min_target_unpaired_probability", "min_query_unpaired_probability")
+        if cfg.get(key) is not None
+    )
+
+
+#----- (g) --outMinPu and the per-side floors both bound accessibility, but on different quantities, and setting both compounds them silently -----#
+def _duplicate_pu_floor_warnings(cfg):
+    out_min_pu = (cfg.get("output") or {}).get("min_unpaired_probability")
+    named = _floors_in_use(cfg)
+    if out_min_pu is None or not named:
+        return []
+    return [
+        f"intarna: output.min_unpaired_probability ({out_min_pu}) requires EVERY interacting "
+        f"position to reach it, on both sides, at the tool; {named} floors the whole site's "
+        "Pu1/Pu2 per side in tidy_intarna. Different bars, and they compound — a site must "
+        "clear both."
+    ]
+
+
+#----- (h) The floors are withheld under acc=N, so with accessibility off they are wholly inert while still reading as live config -----#
+def _inert_accessibility_floor_warnings(cfg, accessibility_on):
+    named = _floors_in_use(cfg)
+    if accessibility_on or not named:
+        return []
+    return [
+        f"intarna: {named} set under accessibility_variant: off. IntaRNA computes no "
+        "unpaired probabilities under acc=N, so these floors are ignored entirely. Set "
+        "accessibility_variant to 'on' or 'both' to make them take effect."
+    ]
+
+
 #----- DAG-build-time validation: raises on a config IntaRNA would die on, returns advisory warnings.
-#      Each check is a lettered helper above — (a)/(b)/(f) raise, (c)/(d)/(e) return warnings — so
+#      Each check is a lettered helper above — (a)/(b)/(f) raise, (c)/(d)/(e)/(g)/(h) return warnings — so
 #      adding one means writing a helper and a line here, never growing this body -----#
 def validate_intarna_config(cfg, seed_str, rnahybrid_max_hybrid_energy=None,
                             max_suboptimal_hits=None, accessibility_on=False):
@@ -232,4 +268,6 @@ def validate_intarna_config(cfg, seed_str, rnahybrid_max_hybrid_energy=None,
         _energy_comparability_warnings(cfg, rnahybrid_max_hybrid_energy)
         + _unbounded_output_warnings(max_suboptimal_hits, accessibility_on)
         + _inert_helix_warnings(model, helix)
+        + _duplicate_pu_floor_warnings(cfg)
+        + _inert_accessibility_floor_warnings(cfg, accessibility_on)
     )

@@ -70,6 +70,8 @@ window.RNAHYBRID_NULLABLE_KEYS = ["max_hybrid_energy", "max_internal_loop", "max
 window.INTARNA_BLOCKS = {
   top: [
     ["max_hybrid_energy", "n"],
+    ["min_target_unpaired_probability", "n"],
+    ["min_query_unpaired_probability", "n"],
     ["accessibility_search_depth", "n"],
     ["max_interaction_length", "n"],
     ["max_loop_size", "n"],
@@ -242,6 +244,10 @@ window.INITIAL_CONFIG = {
     model: "X",
     energy_set: "Turner04",
     max_hybrid_energy:          { set: true, value: -12.9 },
+    // Per-side Pu floors, applied downstream in tidy_intarna (not IntaRNA flags) and
+    // inert when the accessibility variant is off.
+    min_target_unpaired_probability: { set: false, value: 0.001 },
+    min_query_unpaired_probability:  { set: false, value: 0.001 },
     accessibility_search_depth: { set: true, value: 20 },
     // Placeholder `value`s mirror IntaRNA's own defaults, so flipping a field on is
     // initially a no-op. Except max_interaction_length, whose default (0) *means* auto.

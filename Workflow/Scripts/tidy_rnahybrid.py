@@ -15,6 +15,16 @@ OUTPUT_COLUMNS = [
 ]
 
 
+#----- Counts rendered target nucleotides preceding the first base pair in RNAhybrid's
+#      alignment window. Only the unmatched line can carry them: every column left of the
+#      first pair is blank in the matched line by that index's own definition -----#
+def _overhang_before_first_pair(unmatched, matched):
+    first_pair = next((i for i, c in enumerate(matched) if c != " "), None)
+    if first_pair is None:
+        return 0
+    return sum(1 for u in unmatched[:first_pair] if u != " ")
+
+
 #----- Parses RNAhybrid's colon-separated table, normalizes Position to a 0-1 fraction of gene length, sorts by Energy -----#
 def tidy_rnahybrid(input_path, output_path):
     df = pd.read_csv(
@@ -34,7 +44,15 @@ def tidy_rnahybrid(input_path, output_path):
         bad = df.loc[df["Gene_length"] <= 0, "Gene"].tolist()
         raise ValueError(f"Non-positive Gene_length in RNAhybrid output for: {bad}")
 
-    df["Position"]    = df["Position"].astype(float) / df["Gene_length"]
+    # RNAhybrid reports the first column of its alignment window — an unpaired 5' dangling
+    # target nucleotide in ~99.9% of hits — while IntaRNA's start1 is the first PAIRED base.
+    # Advance past the overhang so both arms anchor alike; comparing them raw made
+    # intersect.py's Site_offset_nt read a systematic +1 nt on genuinely identical sites.
+    overhang = [
+        _overhang_before_first_pair(u, m)
+        for u, m in zip(df["Target_unmatches"], df["Target_matches"])
+    ]
+    df["Position"]    = (df["Position"].astype(int) + overhang) / df["Gene_length"]
 
     # Ranks only — no gate, no per-pair cap, unlike tidy_intarna. RNAhybrid's -e filters
     # exactly the quantity we gate on and -b caps per pair, both at the tool, so repeating

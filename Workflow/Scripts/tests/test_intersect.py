@@ -102,5 +102,13 @@ def test_site_offset_is_annotated_not_gated(tmp_path):
     ia = _intarna_df(Start1=[270], End1=[290], Position=[0.9])
     merged = _write(tmp_path, _rnahybrid_df(), ia)          # RNAhybrid Position = 0.1
     assert len(merged) == 1                                  # not gated away
-    assert merged.loc[0, "Site_offset_nt"] == 240.0          # |0.9 - 0.1| * 300
+    assert merged.loc[0, "Site_offset_nt"] == 240.0          # (0.9 - 0.1) * 300
     assert "Site_offset_nt" in intersect.CONSENSUS_COLUMNS
+
+
+def test_site_offset_keeps_its_sign(tmp_path):
+    # Sign is the diagnostic: the +1 nt anchor bug showed up as a one-directional offset
+    # that abs() would have hidden. Positive = IntaRNA downstream.
+    ia = _intarna_df(Start1=[15], End1=[35], Position=[0.05])
+    merged = _write(tmp_path, _rnahybrid_df(), ia)          # RNAhybrid Position = 0.1
+    assert merged.loc[0, "Site_offset_nt"] == -15.0         # (0.05 - 0.1) * 300

@@ -252,3 +252,43 @@ def test_accessibility_zero_versus_null_is_not_a_conflict():
 
 def test_accessibility_block_absent_is_allowed():
     assert validate({}, None) == []
+
+
+# --- (g)/(h) per-side Pu floors ---
+# accessibility_on=True with a null cap also fires (e), so the exact-count assertions
+# below pass max_suboptimal_hits=1 to keep (e) out of the list.
+
+def test_duplicate_pu_floor_warning_fires_when_both_mechanisms_are_set():
+    cfg = {"min_target_unpaired_probability": 0.001,
+           "output": {"min_unpaired_probability": 0.01}}
+    warnings = validate(cfg, None, max_suboptimal_hits=1, accessibility_on=True)
+    assert len(warnings) == 1
+    assert "compound" in warnings[0]
+    assert "min_target_unpaired_probability" in warnings[0]
+
+
+def test_duplicate_pu_floor_warning_silent_with_only_the_per_side_floor():
+    cfg = {"min_query_unpaired_probability": 0.001}
+    assert validate(cfg, None, max_suboptimal_hits=1, accessibility_on=True) == []
+
+
+def test_duplicate_pu_floor_warning_silent_with_only_out_min_pu():
+    cfg = {"output": {"min_unpaired_probability": 0.01}}
+    assert validate(cfg, None, max_suboptimal_hits=1, accessibility_on=True) == []
+
+
+def test_inert_floor_warning_fires_when_accessibility_is_off():
+    cfg = {"min_target_unpaired_probability": 0.001}
+    warnings = validate(cfg, None, accessibility_on=False)
+    assert len(warnings) == 1
+    assert "ignored entirely" in warnings[0]
+    assert "accessibility_variant" in warnings[0]
+
+
+def test_inert_floor_warning_silent_when_accessibility_is_on():
+    cfg = {"min_target_unpaired_probability": 0.001}
+    assert validate(cfg, None, max_suboptimal_hits=1, accessibility_on=True) == []
+
+
+def test_inert_floor_warning_silent_when_no_floor_is_set():
+    assert validate({}, None, accessibility_on=False) == []

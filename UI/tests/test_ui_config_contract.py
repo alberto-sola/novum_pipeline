@@ -27,8 +27,12 @@ sys.path.insert(0, str(ROOT / "Workflow" / "Scripts"))
 import _intarna_config  # stdlib-only by contract, so importable from any env
 
 # Every intarna sub-block that is both a UI block and a nested mapping in config.yaml.
-# `top` is excluded: its keys live at the intarna level, not in a block of their own.
+# `top` is excluded here — its keys live at the intarna level, so it has its own pair of
+# tests below rather than a nested mapping to compare against.
 BLOCKS = ["helix", "seed", "accessibility", "output"]
+
+# The intarna-level keys config.js writes by hand, outside INTARNA_BLOCKS.top.
+INTARNA_TOP_LITERALS = ("accessibility_variant", "prediction_mode", "model", "energy_set")
 
 
 def _data_js_source():
@@ -103,6 +107,25 @@ def test_initial_config_has_every_editable_block_key(block):
         f"INITIAL_CONFIG.intarna.{block} is missing keys present in "
         f"INTARNA_BLOCKS.{block}: {missing}"
     )
+
+
+def test_ui_top_block_matches_config_yaml_scalars():
+    # configToObject rebuilds obj.intarna wholesale from INTARNA_TOP_LITERALS plus
+    # INTARNA_BLOCKS.top, and save_config dumps that object over the file — so an
+    # intarna-level key in neither is DELETED the first time the editor saves, silently,
+    # because absent and null mean the same thing everywhere downstream.
+    cfg = yaml.safe_load((ROOT / "Config" / "config.yaml").read_text())
+    scalars = [key for key, value in cfg["intarna"].items()
+               if not isinstance(value, dict) and key not in INTARNA_TOP_LITERALS]
+    assert _block_keys("top") == scalars
+
+
+def test_initial_config_has_every_top_block_key():
+    # Same hydrate guard as the per-block test, for the keys that sit at the intarna level.
+    # Four spaces is that level exactly: nested blocks indent their own keys further.
+    keys = re.findall(r"(?m)^\s{4}(\w+):", _intarna_initial_config())
+    missing = [key for key, kind in _block_entries("top") if kind != "c" and key not in keys]
+    assert not missing, f"INITIAL_CONFIG.intarna is missing: {missing}"
 
 
 def test_per_side_accessibility_keys_are_present():

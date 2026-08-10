@@ -22,11 +22,12 @@ def _intarna_csv(tmp_path, rows):
     return p
 
 
-def _row(gene, mirna, e_hybrid, ed1=0.0, start1=10):
+def _row(gene, mirna, e_hybrid, ed1=0.0, start1=10, pu1=1.0, pu2=1.0):
     return {
         "id1": gene, "id2": mirna,
         "start1": start1, "end1": start1 + 20, "start2": 1, "end2": 21,
         "E": e_hybrid + ed1, "E_hybrid": e_hybrid, "ED1": ed1, "ED2": 0.0,
+        "Pu1": pu1, "Pu2": pu2,
     }
 
 
@@ -101,3 +102,126 @@ def test_gate_may_empty_the_output_without_raising(tmp_path):
     df = _run(tmp_path, [_row("g1", "m1", -5.0)], max_hybrid_energy=-12.9)
     assert len(df) == 0
     assert "E_hybrid" in df.columns                       # schema survives an empty gate
+
+
+def test_target_floor_drops_inaccessible_sites(tmp_path):
+    rows = [_row("g1", "m1", -20.0, pu1=0.5),
+            _row("g1", "m1", -21.0, start1=50, pu1=1e-6)]
+    df = _run(tmp_path, rows, min_target_unpaired_probability=0.001)
+    assert list(df["E_hybrid"]) == [-20.0]
+
+
+def test_target_floor_is_inclusive_at_the_cutoff(tmp_path):
+    # Mirrors test_gate_is_inclusive_at_the_cutoff: a floor of 0.001 admits exactly 0.001.
+    df = _run(tmp_path, [_row("g1", "m1", -20.0, pu1=0.001)],
+              min_target_unpaired_probability=0.001)
+    assert len(df) == 1
+
+
+def test_query_floor_is_independent_of_the_target_floor(tmp_path):
+    # Pu1 and Pu2 sit orders of magnitude apart in real data, so the two floors must never
+    # be collapsed into one shared value.
+    rows = [_row("g1", "m1", -20.0, pu1=1e-9, pu2=0.9),
+            _row("g1", "m1", -21.0, start1=50, pu1=0.9, pu2=1e-9)]
+    df = _run(tmp_path, rows, min_query_unpaired_probability=0.001)
+    assert list(df["E_hybrid"]) == [-20.0]      # kept on Pu2 alone; its Pu1 is ignored
+
+
+def test_floor_without_its_column_is_rejected(tmp_path):
+    # A trimmed intarna.output.columns is legal, but a floor against an absent column
+    # would silently admit every row — the opposite of what was configured.
+    rows = [_row("g1", "m1", -20.0)]
+    del rows[0]["Pu1"]
+    with pytest.raises(ValueError, match="Pu1"):
+        _run(tmp_path, rows, min_target_unpaired_probability=0.001)
+
+
+def test_null_floors_keep_every_row(tmp_path):
+    df = _run(tmp_path, [_row("g1", "m1", -20.0, pu1=1e-12, pu2=1e-12)])
+    assert len(df) == 1
+
+
+def test_floor_reselects_the_site_before_the_cap(tmp_path):
+    # The test that pins the design: strongest site inaccessible, runner-up not. Filtering
+    # before the cap keeps the pair, represented by the runner-up; filtering after — once
+    # each pair has collapsed to its best-E_hybrid row — would drop it entirely.
+    rows = [
+        _row("g1", "m1", -25.0, start1=100, pu1=1e-9),   # strongest, inaccessible
+        _row("g1", "m1", -18.0, start1=400, pu1=0.20),   # weaker, accessible
+    ]
+    df = _run(tmp_path, rows, min_target_unpaired_probability=0.001, max_suboptimal_hits=1)
+    assert len(df) == 1
+    assert df.loc[0, "E_hybrid"] == -18.0
+    assert df.loc[0, "Start1"] == 400
+
+
+# --- batched reading: the file is consumed in chunks, but the result must not know that ---
+
+@pytest.fixture
+def tiny_chunks(monkeypatch):
+    # Two rows per batch, so every multi-row fixture below spans several — the boundary
+    # falls in a different place for each test, which is the point.
+    monkeypatch.setattr(tidy_intarna, "READ_CHUNK_ROWS", 2)
+
+
+def test_cap_is_global_not_per_chunk(tiny_chunks, tmp_path):
+    # The failure batching invites: capping inside each batch would keep one row per batch
+    # and emit 4, and the survivor would be whichever row led its own batch rather than the
+    # best of the file. The cap has to see the whole surviving set.
+    rows = [_row("g1", "m1", e, start1=10 * i) for i, e in enumerate([-15.0, -30.0, -20.0,
+                                                                     -25.0, -18.0, -22.0,
+                                                                     -17.0, -19.0])]
+    df = _run(tmp_path, rows, max_suboptimal_hits=1)
+    assert len(df) == 1
+    assert df.loc[0, "E_hybrid"] == -30.0
+
+
+def test_sort_is_global_not_per_chunk(tiny_chunks, tmp_path):
+    rows = [_row("g1", "m1", e, start1=10 * i) for i, e in enumerate([-15.0, -30.0, -20.0,
+                                                                     -25.0, -18.0])]
+    df = _run(tmp_path, rows)
+    assert list(df["E_hybrid"]) == [-30.0, -25.0, -20.0, -18.0, -15.0]
+
+
+def test_batching_does_not_change_the_result(tiny_chunks, tmp_path):
+    # Same fixture as test_floor_reselects_the_site_before_the_cap, read in batches: the
+    # floor still reselects across a boundary it now straddles.
+    rows = [
+        _row("g1", "m1", -25.0, start1=100, pu1=1e-9),
+        _row("g1", "m1", -18.0, start1=400, pu1=0.20),
+        _row("g2", "m1", -30.0, start1=10, pu1=1e-9),
+    ]
+    df = _run(tmp_path, rows, min_target_unpaired_probability=0.001, max_suboptimal_hits=1)
+    assert list(df["E_hybrid"]) == [-18.0]      # g2 has no accessible site at all
+
+
+def test_unknown_gene_is_rejected_even_when_the_row_would_be_gated_away(tiny_chunks, tmp_path):
+    # Validation runs on the distinct genes BEFORE the filters, so a target FASTA that does
+    # not cover the output fails whether or not the offending rows would have survived.
+    rows = [_row("g1", "m1", -20.0), _row("ghost", "m1", -1.0, start1=50)]
+    with pytest.raises(ValueError, match="ghost"):
+        _run(tmp_path, rows, max_hybrid_energy=-12.9)
+
+
+def test_seed_columns_written_as_NAN_are_read_as_missing(tmp_path):
+    # Under `seed: null` IntaRNA emits the literal uppercase NAN, which pandas does not
+    # treat as NA by default — left alone the five seed columns are strings, costing a
+    # third of the frame and reaching the enhance report as the word "NAN".
+    row = _row("g1", "m1", -20.0)
+    row.update({c: "NAN" for c in ("seedStart1", "seedEnd1", "seedE",
+                                   "seedStart2", "seedEnd2")})
+    df = _run(tmp_path, [row])
+    assert df["seedE"].isna().all()
+
+
+def test_a_file_with_no_hits_still_emits_the_schema(tmp_path):
+    # pandas yields a single EMPTY batch for a header-only file, which is what lets the
+    # concat assume it always has at least one frame. Should an upgrade ever yield nothing
+    # instead, this fails here rather than raising "No objects to concatenate" mid-run.
+    src = tmp_path / "in.csv"
+    pd.DataFrame(columns=list(_row("g1", "m1", -20.0))).to_csv(src, sep=";", index=False)
+    out = tmp_path / "out.csv"
+    tidy_intarna.tidy_intarna(src, _fasta(tmp_path), out)
+    df = pd.read_csv(out)
+    assert len(df) == 0
+    assert "E_hybrid" in df.columns

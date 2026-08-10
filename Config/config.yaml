@@ -1,10 +1,94 @@
 #----- miRNAs (one query FASTA per target sample, joined by key) -----#
 queries:
-  escherichia_coli: Data/Raw/RNAs/escherichia_coli.fa
+  agathobaculum_butyriciproducens: Data/Raw/RNAs/agathobaculum_butyriciproducens.fa
+  anaerobutyricum_hallii: Data/Raw/RNAs/anaerobutyricum_hallii.fa
+  anaerostipes_hadrus: Data/Raw/RNAs/anaerostipes_hadrus.fa
+  bacteroides_fragilis: Data/Raw/RNAs/bacteroides_fragilis.fa
+  bifidobacterium_dentium: Data/Raw/RNAs/bifidobacterium_dentium.fa
+  blautia_faecis: Data/Raw/RNAs/blautia_faecis.fa
+  blautia_glucerasea: Data/Raw/RNAs/blautia_glucerasea.fa
+  blautia_obeum: Data/Raw/RNAs/blautia_obeum.fa
+  blautia_wexlerae: Data/Raw/RNAs/blautia_wexlerae.fa
+  brotolimicola_acetigignens: Data/Raw/RNAs/brotolimicola_acetigignens.fa
+  catenibacillus_scindens: Data/Raw/RNAs/catenibacillus_scindens.fa
+  clostridium_saudiense: Data/Raw/RNAs/clostridium_saudiense.fa
+  dialister_pneumosintes: Data/Raw/RNAs/dialister_pneumosintes.fa
+  dysosmobacter_welbionis: Data/Raw/RNAs/dysosmobacter_welbionis.fa
+  eisenbergiella_tayi: Data/Raw/RNAs/eisenbergiella_tayi.fa
+  faecalibacterium_prausnitzii: Data/Raw/RNAs/faecalibacterium_prausnitzii.fa
+  fusobacterium_nucleatum: Data/Raw/RNAs/fusobacterium_nucleatum.fa
+  gemella_morbillorum: Data/Raw/RNAs/gemella_morbillorum.fa
+  gemella_sanguinis: Data/Raw/RNAs/gemella_sanguinis.fa
+  hydrogenoanaerobacterium_saccharovorans: Data/Raw/RNAs/hydrogenoanaerobacterium_saccharovorans.fa
+  intestinibacter_bartlettii: Data/Raw/RNAs/intestinibacter_bartlettii.fa
+  lawsonibacter_asaccharolyticus: Data/Raw/RNAs/lawsonibacter_asaccharolyticus.fa
+  massilioclostridium_coli: Data/Raw/RNAs/massilioclostridium_coli.fa
+  massilistercora_timonensis: Data/Raw/RNAs/massilistercora_timonensis.fa
+  oscillibacter_valericigenes: Data/Raw/RNAs/oscillibacter_valericigenes.fa
+  parvimonas_micra: Data/Raw/RNAs/parvimonas_micra.fa
+  peptoniphilus_lacrimalis: Data/Raw/RNAs/peptoniphilus_lacrimalis.fa
+  peptostreptococcus_stomatis: Data/Raw/RNAs/peptostreptococcus_stomatis.fa
+  phocaeicola_coprocola: Data/Raw/RNAs/phocaeicola_coprocola.fa
+  phocea_massiliensis: Data/Raw/RNAs/phocea_massiliensis.fa
+  prevotella_marseillensis: Data/Raw/RNAs/prevotella_marseillensis.fa
+  prevotella_timonensis: Data/Raw/RNAs/prevotella_timonensis.fa
+  pseudoflavonifractor_capillosus: Data/Raw/RNAs/pseudoflavonifractor_capillosus.fa
+  romboutsia_timonensis: Data/Raw/RNAs/romboutsia_timonensis.fa
+  roseburia_hominis: Data/Raw/RNAs/roseburia_hominis.fa
+  ruminococcus_bromii: Data/Raw/RNAs/ruminococcus_bromii.fa
+  senegalimassilia_anaerobia: Data/Raw/RNAs/senegalimassilia_anaerobia.fa
+  solobacterium_moorei: Data/Raw/RNAs/solobacterium_moorei.fa
+  streptococcus_mitis: Data/Raw/RNAs/streptococcus_mitis.fa
+  streptococcus_parasanguinis: Data/Raw/RNAs/streptococcus_parasanguinis.fa
+  streptococcus_salivarius: Data/Raw/RNAs/streptococcus_salivarius.fa
+  sutterella_wadsworthensis: Data/Raw/RNAs/sutterella_wadsworthensis.fa
+  veillonella_parvula: Data/Raw/RNAs/veillonella_parvula.fa
 
 #----- Genomes, even more than one -----#
 targets:
-  escherichia_coli: Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_rna_from_genomic.fna
+  agathobaculum_butyriciproducens: Data/Raw/genomes/GCF_040093675.1_ASM4009367v1_cds_rna_from_genomic.fna
+  anaerobutyricum_hallii: Data/Raw/genomes/GCF_018140635.1_ASM1814063v1_cds_rna_from_genomic.fna
+  anaerostipes_hadrus: Data/Raw/genomes/GCF_030864025.1_ASM3086402v1_cds_rna_from_genomic.fna
+  bacteroides_fragilis: Data/Raw/genomes/GCF_000025985.1_ASM2598v1_cds_rna_from_genomic.fna
+  bifidobacterium_dentium: Data/Raw/genomes/GCF_001042595.1_ASM104259v1_cds_rna_from_genomic.fna
+  blautia_faecis: Data/Raw/genomes/GCF_027662325.1_ASM2766232v1_cds_rna_from_genomic.fna
+  blautia_glucerasea: Data/Raw/genomes/GCF_054657835.1_ASM5465783v1_cds_rna_from_genomic.fna
+  blautia_obeum: Data/Raw/genomes/GCF_025147765.1_ASM2514776v1_cds_rna_from_genomic.fna
+  blautia_wexlerae: Data/Raw/genomes/GCF_025148125.1_ASM2514812v1_cds_rna_from_genomic.fna
+  brotolimicola_acetigignens: Data/Raw/genomes/GCF_025567015.1_ASM2556701v1_cds_rna_from_genomic.fna
+  catenibacillus_scindens: Data/Raw/genomes/GCF_014202115.1_ASM1420211v1_cds_rna_from_genomic.fna
+  clostridium_saudiense: Data/Raw/genomes/GCF_000577815.1_JCC_cds_rna_from_genomic.fna
+  dialister_pneumosintes: Data/Raw/genomes/GCF_003570845.1_ASM357084v1_cds_rna_from_genomic.fna
+  dysosmobacter_welbionis: Data/Raw/genomes/GCF_965585535.1_J115_assembly_cds_rna_from_genomic.fna
+  eisenbergiella_tayi: Data/Raw/genomes/GCF_001881565.1_ASM188156v1_cds_rna_from_genomic.fna
+  faecalibacterium_prausnitzii: Data/Raw/genomes/GCF_000154385.1_ASM15438v1_cds_rna_from_genomic.fna
+  fusobacterium_nucleatum: Data/Raw/genomes/GCF_003019295.1_ASM301929v1_cds_rna_from_genomic.fna
+  gemella_morbillorum: Data/Raw/genomes/GCF_900476045.1_50279_D01_cds_rna_from_genomic.fna
+  gemella_sanguinis: Data/Raw/genomes/GCF_053758955.1_ASM5375895v1_cds_rna_from_genomic.fna
+  hydrogenoanaerobacterium_saccharovorans: Data/Raw/genomes/GCF_003814745.1_ASM381474v1_cds_rna_from_genomic.fna
+  intestinibacter_bartlettii: Data/Raw/genomes/GCF_025148965.1_ASM2514896v1_cds_rna_from_genomic.fna
+  lawsonibacter_asaccharolyticus: Data/Raw/genomes/GCF_022453915.1_ASM2245391v1_cds_rna_from_genomic.fna
+  massilioclostridium_coli: Data/Raw/genomes/GCF_900095865.1_PRJEB15310_cds_rna_from_genomic.fna
+  massilistercora_timonensis: Data/Raw/genomes/GCF_048354975.1_ASM4835497v1_cds_rna_from_genomic.fna
+  oscillibacter_valericigenes: Data/Raw/genomes/GCF_021531915.1_ASM2153191v1_cds_rna_from_genomic.fna
+  parvimonas_micra: Data/Raw/genomes/GCF_900637905.1_52756_G01_cds_rna_from_genomic.fna
+  peptoniphilus_lacrimalis: Data/Raw/genomes/GCF_900454715.1_52700_C01_cds_rna_from_genomic.fna
+  peptostreptococcus_stomatis: Data/Raw/genomes/GCF_000147675.1_ASM14767v1_cds_rna_from_genomic.fna
+  phocaeicola_coprocola: Data/Raw/genomes/GCF_041333015.1_ASM4133301v1_cds_rna_from_genomic.fna
+  phocea_massiliensis: Data/Raw/genomes/GCF_900104615.1_PRJEB16353_cds_rna_from_genomic.fna
+  prevotella_marseillensis: Data/Raw/genomes/GCF_900625065.1_PRJEB29221_cds_rna_from_genomic.fna
+  prevotella_timonensis: Data/Raw/genomes/GCF_000455445.1_4401737_cds_rna_from_genomic.fna
+  pseudoflavonifractor_capillosus: Data/Raw/genomes/GCF_000169255.2_ASM16925v2_cds_rna_from_genomic.fna
+  romboutsia_timonensis: Data/Raw/genomes/GCF_900106845.1_PRJEB14233_cds_rna_from_genomic.fna
+  roseburia_hominis: Data/Raw/genomes/GCF_000225345.1_ASM22534v1_cds_rna_from_genomic.fna
+  ruminococcus_bromii: Data/Raw/genomes/GCF_928721825.1_min17_bin57_cds_rna_from_genomic.fna
+  senegalimassilia_anaerobia: Data/Raw/genomes/GCF_000236865.1_ASM23686v1_cds_rna_from_genomic.fna
+  solobacterium_moorei: Data/Raw/genomes/GCF_036323475.1_ASM3632347v1_cds_rna_from_genomic.fna
+  streptococcus_mitis: Data/Raw/genomes/GCF_018603625.2_ASM1860362v2_cds_rna_from_genomic.fna
+  streptococcus_parasanguinis: Data/Raw/genomes/GCF_000164675.2_ASM16467v2_cds_rna_from_genomic.fna
+  streptococcus_salivarius: Data/Raw/genomes/GCF_000253315.1_ASM25331v1_cds_rna_from_genomic.fna
+  sutterella_wadsworthensis: Data/Raw/genomes/GCF_016724805.1_ASM1672480v1_cds_rna_from_genomic.fna
+  veillonella_parvula: Data/Raw/genomes/GCF_900186885.1_48903_D01_cds_rna_from_genomic.fna
 
 #----- Shared by both arms -----#
 threads: 8
@@ -21,7 +105,7 @@ rnacalibrate:
 #----- Parameters for RNAhybrid -----#
 rnahybrid:
   species: 3utr_human
-  max_hybrid_energy: -18              # -e  hybridization MFE; the literature threshold
+  max_hybrid_energy: -18              # -e hybridization MFE; the literature threshold
   max_internal_loop: null
   max_bulge_loop: null
   pvalue_threshold: null
@@ -34,7 +118,10 @@ intarna:
   model: S                            # X seed-extension | S legacy | B helix-block | P ensemble
   energy_set: Turner04                # --energyVRNA  Turner99 | Turner04 | Andronescu07
   max_hybrid_energy: -12.9            # E_hybrid gate = -18 + 5.10 measured offset. NOT seed.max_hybrid_energy.
-  accessibility_search_depth: 20      # --outNumber FLOOR on w_accessibility only (acc=C ranks by total E, the gate is on E_hybrid)
+  min_target_unpaired_probability: 0.001  # Pu1 floor, gene side; applied in tidy_intarna before the per-pair cap
+  min_query_unpaired_probability: null    # Pu2 floor, miRNA side; separate — the sides' Pu differ by orders of magnitude
+                                          # Both inert under accessibility_variant: off (acc=N computes no Pu); warns there
+  accessibility_search_depth: 150     # --outNumber FLOOR on w_accessibility only (acc=C ranks by total E, the gate is on E_hybrid)
   max_interaction_length: 0           # --intLenMax   (null/0 = auto: min of seq length, accW)
   max_loop_size: null                    # --intLoopMax  unpaired nt between paired bases (null = 10)
 
@@ -62,17 +149,19 @@ intarna:
                                       # Per-side overrides below: IntaRNA ABORTS if one is set alongside a
                                       # DIFFERING shared value above. Also, *_max_bp_span must not exceed
                                       # *_window — IntaRNA reports that on the QUERY side either way.
-    query_window: null                # --qAccW  overrides window on the miRNA side
-    query_max_bp_span: null           # --qAccL  overrides max_bp_span
-    target_window: null               # --tAccW  overrides window on the CDS side
-    target_max_bp_span: null          # --tAccL  overrides max_bp_span
+    query_window: 0                   # --qAccW  overrides window on the miRNA side
+    query_max_bp_span: 0              # --qAccL  overrides max_bp_span
+    target_window: 80                 # --tAccW  overrides window on the CDS side
+    target_max_bp_span: 40            # --tAccL  overrides max_bp_span
     forbid_lonely_pairs: false        # --accNoLP
     forbid_gu_at_ends: false          # --accNoGUend
 
   output:
     max_delta_energy: null            # --outDeltaE
     overlap: B                        # --outOverlap N|T|Q|B
-    min_unpaired_probability: null    # --outMinPu
+    min_unpaired_probability: null    # --outMinPu: EVERY interacting position, both sides, at the tool — a
+                                      # different (stricter) bar than the per-site floors above, and changing
+                                      # it re-runs IntaRNA.
     forbid_lonely_pairs: false        # --outNoLP
     forbid_gu_at_ends: false          # --outNoGUend
     columns: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
@@ -89,4 +178,4 @@ plots:
   protein:
 
 #----- Where outputs should be generated -----#
-results_dir: Data/Results/
+results_dir: Data/Results/negatively_correlated/
