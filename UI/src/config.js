@@ -53,6 +53,7 @@ window.configToObject = function configToObject(cfg) {
     k: cfg.rnacalibrate.k,
     max_target_length: cfg.rnacalibrate.max_target_length,
     randomize_targets: cfg.rnacalibrate.randomize_targets,
+    rng_seed: _nullableValue(cfg.rnacalibrate.rng_seed, false),
   };
 
   const distForced = window.isDistributionForced(cfg);
@@ -158,6 +159,7 @@ window.hydrateConfig = function hydrateConfig(raw) {
     if (rc.k != null) cfg.rnacalibrate.k = rc.k;
     if (rc.max_target_length != null) cfg.rnacalibrate.max_target_length = rc.max_target_length;
     if (rc.randomize_targets != null) cfg.rnacalibrate.randomize_targets = rc.randomize_targets;
+    cfg.rnacalibrate.rng_seed = _toNullableScalar(rc.rng_seed, cfg.rnacalibrate.rng_seed.value);
   }
 
   if (raw.rnahybrid) {

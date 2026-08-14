@@ -23,10 +23,19 @@ INTARNA_MAX_OUTNUMBER = 1000
 # total E while the gate is on E_hybrid.
 INTARNA_DEFAULT_ACCESSIBILITY_SEARCH_DEPTH = 20
 
-# Measured median of (IntaRNA E_hybrid - RNAhybrid mfe) over matched, unfiltered acc=N hits
-# on 600 E. coli CDS (n=1122): additive, slope +0.0019 against mfe, sd 1.06. IntaRNA's
-# E_hybrid carries duplex initiation (~+4.1 under Turner04) plus terminal-AU/dangling-end
-# terms; RNAhybrid's mfe carries neither.
+# Median of (IntaRNA E_hybrid - RNAhybrid mfe) over matched, UNFILTERED acc=N hits — that
+# protocol is load-bearing, not incidental. 600 E. coli CDS (n=1122): additive, slope
+# +0.0019, sd 1.06. Re-measured 2026-08-12 on this project's genomes (n=2160, 3 x 6 miRNAs):
+# +5.70, slope +0.0060, sd 1.12, per-genome 5.6/5.7/5.8 — the real spread is per-miRNA
+# (5.2-6.1). E_hybrid carries duplex initiation (~+4.1 under Turner04) plus
+# terminal-AU/dangling-end terms; mfe carries neither.
+# Do NOT re-derive it from w_accessibility output (~+6.0): under acc=C IntaRNA relocates the
+# site in ~63% of pairs to buy accessibility, giving up a median +2.84 kcal/mol, so its
+# E_hybrid is not the same duplex's.
+# It equalizes the two GATES under acc=N ONLY. On identical pairs `Energy <= -18` passes
+# 94.8% and `acc=N E_hybrid <= -12.9` passes 90.6%, but `acc=C` passes 68.0% — the
+# accessibility penalty doing its job, so never loosen intarna.max_hybrid_energy to
+# compensate. Nothing in the config records that w_accessibility gates far above this bar.
 # See docs/superpowers/specs/2026-07-23-cross-arm-energy-gate-design.md.
 INTARNA_RNAHYBRID_ENERGY_OFFSET = 5.10
 

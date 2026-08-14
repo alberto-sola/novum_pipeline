@@ -218,6 +218,7 @@ rule rnacalibrate:
         k=rnacalibrate_config.get("k", 10000),
         max_target_length=max_target_length,
         randomize_targets=rnacalibrate_config.get("randomize_targets", False),
+        rng_seed=rnacalibrate_config.get("rng_seed"),
         max_internal_loop=rnahybrid_config.get("max_internal_loop"),
         max_bulge_loop=rnahybrid_config.get("max_bulge_loop"),
         seed=shared_seed

@@ -20,6 +20,7 @@ Data/Raw/genomes/*
 Data/Raw/miRNAs/*
 Data/Raw/RNAs/*
 Data/Results/*
+Data/Analysis*
 
 data-prep/config-for-server.yaml
 data-prep/*.txt

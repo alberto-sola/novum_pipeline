@@ -288,6 +288,8 @@ When calibration runs, `{sample}/w_calibration/rnacalibrate.json` holds one `(xi
 
 `rnacalibrate.randomize_targets` maps to RNAcalibrate's `-s` flag. With `-s` (`true`, the default), p-values are calibrated against random sequences generated from each target's dinucleotide distribution — a proper null model. With `false`, the real target sequences are used directly as the random database, which is usually **not** what you want. Keep it `true` unless you have a specific reason to calibrate against the targets themselves.
 
+`rnacalibrate.rng_seed` pins the RNG that `-s` draws from, so two runs over identical inputs (same query, same target, same params) produce byte-identical `(xi, theta)` fits — RNAcalibrate itself exposes no seed flag, so the pin is injected from outside via `libfaketime`. `null` means "don't pin": RNAcalibrate seeds from the wall clock and the fit is not reproducible run to run. The shipped `Config/config.yaml` sets `rng_seed: 1`, so calibration is pinned and reproducible by default — set it to `null` yourself to run unpinned. The seed only does something when `randomize_targets` is `true`, since `-s` is the RNG's only consumer — set alongside `randomize_targets: false` it has no effect, and the pipeline warns on stderr rather than failing.
+
 ### Accessibility (IntaRNA arm)
 
 `intarna.accessibility_variant` is the IntaRNA-side analogue of `calibration_variant`:

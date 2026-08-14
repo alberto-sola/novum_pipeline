@@ -7,3 +7,4 @@ dependencies:
   - python=3.11
   - rnahybrid=2.1
   - parallel=20240722
+  - libfaketime=0.9.8

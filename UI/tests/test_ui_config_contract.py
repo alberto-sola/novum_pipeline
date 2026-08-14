@@ -1,6 +1,6 @@
 """Guards the UI's hand-maintained mirrors of the Python/YAML config surface.
 
-Two invariants:
+Three invariants:
 
 1. INTARNA_BLOCKS key order is the order safe_dump(sort_keys=False) writes back to
    Config/config.yaml, so the two must not drift — and every key rendered from a block must
@@ -8,13 +8,21 @@ Two invariants:
 2. The JS constants whose comments claim to mirror _intarna_config.py really do. There is no
    shared runtime (plain <script> tags, no Node build), so the duplication is unavoidable;
    its drifting silently is not.
+3. The rnacalibrate block round-trips through the REAL hydrateConfig -> configToObject pair.
+   F1 broke this: the emit line, the hydrate line, and INITIAL_CONFIG's default can each go
+   missing independently, and only executing the real JS catches all three.
 
-data.js is parsed by bracket-matching rather than a JS engine: it is plain `window.X = {...}`
-assignments and the repo carries no Node dependency.
+Most of this file bracket-matches data.js/config.js rather than running a JS engine — they
+are plain `window.X = {...}` assignments and the repo has no Node *build* dependency. The
+round-trip tests are the exception: they shell out to `node` (see _js_roundtrip.js), because
+comparing source text cannot catch a behavioural break.
 """
 
 from __future__ import annotations
+import json
 import re
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -25,6 +33,9 @@ ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 sys.path.insert(0, str(ROOT / "Workflow" / "Scripts"))
 
 import _intarna_config  # stdlib-only by contract, so importable from any env
+
+NODE = shutil.which("node")
+JS_ROUNDTRIP_HARNESS = Path(__file__).resolve().parent / "_js_roundtrip.js"
 
 # Every intarna sub-block that is both a UI block and a nested mapping in config.yaml.
 # `top` is excluded here — its keys live at the intarna level, so it has its own pair of
@@ -37,6 +48,10 @@ INTARNA_TOP_LITERALS = ("accessibility_variant", "prediction_mode", "model", "en
 
 def _data_js_source():
     return (ROOT / "UI" / "src" / "data.js").read_text()
+
+
+def _config_js_source():
+    return (ROOT / "UI" / "src" / "config.js").read_text()
 
 
 #----- Text between the bracket at `pos` and its match, by nesting depth -----#
@@ -118,6 +133,55 @@ def test_ui_top_block_matches_config_yaml_scalars():
     scalars = [key for key, value in cfg["intarna"].items()
                if not isinstance(value, dict) and key not in INTARNA_TOP_LITERALS]
     assert _block_keys("top") == scalars
+
+
+def test_ui_rnacalibrate_block_matches_config_yaml_scalars():
+    # The rnacalibrate analogue of test_ui_top_block_matches_config_yaml_scalars above;
+    # config.js hand-lists `obj.rnacalibrate` (there is no RNACALIBRATE_BLOCKS table).
+    # This is exactly how `rng_seed` went missing (F1), after which the next UI-launched
+    # run went unpinned with no error or warning.
+    source = _config_js_source()
+    match = re.search(r"obj\.rnacalibrate\s*=\s*\{", source)
+    assert match, "could not locate obj.rnacalibrate in config.js"
+    body = _body_at(source, match.end() - 1, "{", "}")
+    js_keys = re.findall(r"(?m)^\s*(\w+):", body)
+
+    cfg = yaml.safe_load((ROOT / "Config" / "config.yaml").read_text())
+    assert js_keys == list(cfg["rnacalibrate"].keys())
+
+
+def _run_js_roundtrip(raw):
+    # Hydrates then re-emits `raw` through the real hydrateConfig -> configToObject pair
+    # (see _js_roundtrip.js). Returns the harness's {"hydrated": ..., "obj": ...} dict.
+    result = subprocess.run(
+        [NODE, str(JS_ROUNDTRIP_HARNESS),
+         str(ROOT / "UI" / "src" / "data.js"), str(ROOT / "UI" / "src" / "config.js")],
+        input=json.dumps({"raw": raw}), capture_output=True, text=True,
+    )
+    assert result.returncode == 0, (
+        f"node round-trip harness exited {result.returncode}; stderr:\n{result.stderr}"
+    )
+    return json.loads(result.stdout)
+
+
+@pytest.mark.skipif(NODE is None, reason="node not found on PATH")
+@pytest.mark.parametrize("rng_seed", [1, 0, None])
+def test_rnacalibrate_block_round_trips_through_the_real_js(rng_seed):
+    # Catches the three breaks the emit-direction test above cannot: a missing hydrate line
+    # (F1 verbatim — the disk value falls back to the INITIAL_CONFIG default and re-saves as
+    # it), emitting the raw {set, value} object unwrapped, and the key vanishing from
+    # INITIAL_CONFIG (hydrateConfig throws, blanking the UI).
+    # Asserting the whole block costs nothing but only extends cover to keys whose shipped
+    # value DIFFERS from its default — calibration_variant and rng_seed, verified by
+    # mutation. Where they coincide (k, max_target_length, randomize_targets) a dropped
+    # hydrate line stays invisible; closing that needs the per-key table config.js already
+    # uses for intarna.
+    # All three params matter: null means "don't pin" not "unset", 0 guards falsy-collapse,
+    # and null alone cannot detect a deleted hydrate line (its fallback emits null too).
+    cfg = yaml.safe_load((ROOT / "Config" / "config.yaml").read_text())
+    cfg["rnacalibrate"]["rng_seed"] = rng_seed
+    out = _run_js_roundtrip(cfg)
+    assert out["obj"]["rnacalibrate"] == cfg["rnacalibrate"]
 
 
 def test_initial_config_has_every_top_block_key():

@@ -228,7 +228,8 @@ window.INITIAL_CONFIG = {
     calibration_variant: "on",
     k: 10000,
     max_target_length: 50000,
-    randomize_targets: true
+    randomize_targets: true,
+    rng_seed: { set: false, value: 1 }   // null = don't pin the clock
   },
   rnahybrid: {
     species: "3utr_human",
