@@ -311,7 +311,7 @@ def test_verify_faketime_sleeps_between_first_and_second_probe_then_verifies(mon
     monkeypatch.setattr(rc.subprocess, "run", fake_run)
     monkeypatch.setattr(rc.time, "sleep", lambda seconds: calls.append(("sleep", seconds)))
 
-    rc.verify_faketime("RNAcalibrate", "q.fa", "t.fna", 50000, LENGTH_ARG, 1,
+    rc.verify_faketime("RNAcalibrate", "q.fa", "t.fna", 10000, 50000, LENGTH_ARG, 1,
                        "/opt/lib/libfaketime.so.1", "linux")
 
     # Same seed twice (A, B) around the sleep, then a different seed (C) with no sleep
@@ -320,27 +320,57 @@ def test_verify_faketime_sleeps_between_first_and_second_probe_then_verifies(mon
     assert calls[1][1] >= 1.0
 
 
-def test_verify_faketime_retries_at_larger_k_when_blind_at_k5(monkeypatch):
-    # k=5 can't discriminate (every probe returns the same output regardless of seed);
-    # k=200 (PROBE_K_RETRY) does. Worst case is 3 probes + 1 sleep per k level.
+@pytest.mark.parametrize("k, expected", [
+    (10000, [5, 200, 10000]),   # the shipped case: both cheap rungs, then the real k
+    (200, [5, 200]),            # k equal to a rung is not probed twice
+    (100, [5, 100]),            # a rung at or above k is dropped, never probed above the run
+    (5, [5]),
+    (2, [2]),                   # k below every rung leaves only k itself
+])
+def test_probe_ladder_tops_out_at_the_configured_k(k, expected):
+    # A rung below the fit's convergence threshold returns a constant `-nan`, which reads as
+    # "the seed has no effect"; the run's own k is the only rung guaranteed to be in the
+    # regime the calibration itself uses, so it is always last and always present.
+    assert rc.probe_ladder(k) == expected
+
+
+@pytest.mark.parametrize("blind_at, rungs", [
+    ([rc.PROBE_K], 2),                      # rescued by k=200, as 27 of 43 samples are
+    ([rc.PROBE_K, rc.PROBE_K_RETRY], 3),    # only the configured k can settle it
+])
+def test_verify_faketime_escalates_until_a_rung_discriminates(monkeypatch, blind_at, rungs):
     calls = []
 
     def fake_run(command, **kwargs):
-        probe_k = command[2]
+        probe_k = int(command[2])
         calls.append(("run", probe_k))
-        if probe_k == str(rc.PROBE_K):
+        if probe_k in blind_at:
             return _completed("indistinguishable")
         return _completed(kwargs["env"]["FAKETIME"])
 
     monkeypatch.setattr(rc.subprocess, "run", fake_run)
     monkeypatch.setattr(rc.time, "sleep", lambda seconds: calls.append(("sleep", seconds)))
 
-    rc.verify_faketime("RNAcalibrate", "q.fa", "t.fna", 50000, LENGTH_ARG, 1,
+    rc.verify_faketime("RNAcalibrate", "q.fa", "t.fna", 10000, 50000, LENGTH_ARG, 1,
                        "/opt/lib/libfaketime.so.1", "linux")
 
-    assert [c[0] for c in calls] == [
-        "run", "sleep", "run", "run", "run", "sleep", "run", "run",
-    ]
+    # 3 probes + 1 sleep per rung, and the last rung is the one that discriminated.
+    assert [c[0] for c in calls] == ["run", "sleep", "run", "run"] * rungs
+    assert calls[-1][1] == rc.probe_ladder(10000)[rungs - 1]
+
+
+def test_verify_faketime_blind_at_every_rung_names_the_configured_k(monkeypatch):
+    # The message must not name PROBE_K_RETRY: blind at k=200 is routine and recoverable,
+    # while blind at the run's own k is the verdict that actually refuses to proceed.
+    monkeypatch.setattr(rc.subprocess, "run",
+                        lambda command, **kwargs: _completed("indistinguishable"))
+    monkeypatch.setattr(rc.time, "sleep", lambda seconds: None)
+
+    with pytest.raises(RuntimeError) as excinfo:
+        rc.verify_faketime("RNAcalibrate", "q.fa", "t.fna", 10000, 50000, LENGTH_ARG, 1,
+                           "/opt/lib/libfaketime.so.1", "linux")
+
+    assert "k=10000" in str(excinfo.value)
 
 
 # ---- error messages carry the full command, not just command[:2] ----
@@ -352,7 +382,7 @@ def test_verify_faketime_probe_error_includes_the_full_command(monkeypatch):
     monkeypatch.setattr(rc.subprocess, "run", fake_run)
 
     with pytest.raises(RuntimeError) as excinfo:
-        rc.verify_faketime("RNAcalibrate", "q.fa", "t.fna", 50000, LENGTH_ARG, 1,
+        rc.verify_faketime("RNAcalibrate", "q.fa", "t.fna", 10000, 50000, LENGTH_ARG, 1,
                            "/opt/lib/libfaketime.so.1", "linux")
 
     message = str(excinfo.value)

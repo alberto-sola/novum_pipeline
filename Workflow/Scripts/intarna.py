@@ -126,7 +126,8 @@ def _add_output_flags(cmd, out, max_suboptimal_hits=None, out_max_energy=None):
 
 
 #----- Assembles the IntaRNA command line for one (query, target); `acc` is the resolved --acc mode (N=none, C=constrained) from the Snakefile -----#
-def build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hits, out_max_energy, derived_seed):
+def build_command(cfg, acc, query, target, out_path, threads,
+                  max_suboptimal_hits, out_max_energy, derived_seed):
     cmd = [
         which_required("IntaRNA"),
         "-q", query,
@@ -155,15 +156,23 @@ def build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hit
     # Accessibility (only meaningful when --acc=C, but harmless to pass always)
     _add_accessibility_flags(cmd, cfg.get("accessibility") or {})
 
-    _add_output_flags(cmd, cfg.get("output") or {}, max_suboptimal_hits=max_suboptimal_hits, out_max_energy=out_max_energy)
+    _add_output_flags(cmd, cfg.get("output") or {},
+                      max_suboptimal_hits=max_suboptimal_hits, out_max_energy=out_max_energy)
 
     return cmd
 
 
-#----- Top-level driver: builds the command and runs IntaRNA once per (sample × accessibility variant) -----#
-def run_intarna(query, target, out_path, acc, cfg, threads, max_suboptimal_hits, out_max_energy, derived_seed):
+#----- Top-level driver: builds the command and runs IntaRNA once per (sample × accessibility
+#      variant). Keyword call-through: query and target are both plain paths, so a positional
+#      call across this boundary could silently swap the miRNA and the genome -----#
+def run_intarna(query, target, out_path, acc, cfg, threads,
+                max_suboptimal_hits, out_max_energy, derived_seed):
     ensure_parent(out_path)
-    cmd = build_command(cfg, acc, query, target, out_path, threads, max_suboptimal_hits, out_max_energy, derived_seed)
+    cmd = build_command(
+        cfg=cfg, acc=acc, query=query, target=target, out_path=out_path, threads=threads,
+        max_suboptimal_hits=max_suboptimal_hits, out_max_energy=out_max_energy,
+        derived_seed=derived_seed,
+    )
     subprocess.run(cmd, check=True)
 
 

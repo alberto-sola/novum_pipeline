@@ -1,10 +1,11 @@
 import pandas as pd
 
 from _common import iter_fasta_records, parse_header_id, ensure_parent
+from _length import add_length_corrected, corrected_name
 
 
 OUTPUT_COLUMNS = [
-    "miRNA", "Gene", "E", "E_hybrid", "ED1", "ED2", "Pu1", "Pu2",
+    "miRNA", "Gene", "E", "E_hybrid", corrected_name("E_hybrid"), "ED1", "ED2", "Pu1", "Pu2",
     "Gene_length", "Start1", "End1", "Start2", "End2", "Position",
     "subseqDP", "hybridDP",
     "seedStart1", "seedEnd1", "seedE", "seedStart2", "seedEnd2",
@@ -15,10 +16,8 @@ OUTPUT_COLUMNS = [
 # rather than silently produce an ungated file.
 REQUIRED_COLS = {"id1", "id2", "start1", "end1", "start2", "end2", "E", "E_hybrid"}
 
-# Rows per read batch. Sized against the largest real input (6.3M rows, 1.17 GB): at
-# ~423 B/row a batch costs ~100 MB, already below the surviving set's own footprint —
-# the one term chunking cannot remove — so shrinking further buys iterations, not memory.
-# Throughput is flat from 100k to 1M rows/batch, which makes this purely a memory knob.
+# Rows per read batch: ~100 MB, already below the surviving set's own footprint (the one term
+# chunking cannot remove), and throughput is flat from 100k to 1M rows — a pure memory knob.
 READ_CHUNK_ROWS = 250_000
 
 # IntaRNA writes uppercase NAN in the seed columns under --noSeed (top-level seed: null),
@@ -36,7 +35,7 @@ def _parse_gene_lengths(fasta_path):
 #----- Column guard, run once against the header rather than per batch. Pu1/Pu2 stay out
 #      of REQUIRED_COLS: trimming intarna.output.columns is legitimate. But a floor
 #      against a column that is not there would silently admit every row -----#
-def _require_columns(columns, floors):
+def _require_intarna_columns(columns, floors):
     missing = REQUIRED_COLS - set(columns)
     if missing:
         raise ValueError(f"IntaRNA CSV is missing required columns: {sorted(missing)}")
@@ -70,9 +69,6 @@ def _prepare_chunk(chunk, gene_lengths, max_hybrid_energy, floors):
     if nonpositive:
         raise ValueError(f"Non-positive Gene_length in target FASTA for: {nonpositive}")
 
-    chunk["E"] = chunk["E"].astype(float)
-    chunk["E_hybrid"] = chunk["E_hybrid"].astype(float)
-
     # Gate on hybridization energy — the quantity RNAhybrid's -e filters and the scale the
     # literature's -18 threshold is stated on. --outMaxE cannot express this under acc=C,
     # where it bounds E_hybrid+ED1+ED2 instead, so this is the authoritative gate on both
@@ -103,18 +99,19 @@ def tidy_intarna(input_path, target_fasta_path, output_path,
                  min_query_unpaired_probability=None):
     floors = (("Pu1", min_target_unpaired_probability),
               ("Pu2", min_query_unpaired_probability))
-    read_options = dict(sep=";", dtype={"id1": str, "id2": str},
+    # E/E_hybrid typed by the C parser rather than cast afterwards: an astype() would run on
+    # the whole batch, ~94% of which the gate below is about to discard.
+    read_options = dict(sep=";", dtype={"id1": str, "id2": str, "E": float, "E_hybrid": float},
                         na_values=INTARNA_NA_VALUES)
 
     header = pd.read_csv(input_path, nrows=0, **read_options)
-    _require_columns(header.columns, floors)
+    _require_intarna_columns(header.columns, floors)
 
     gene_lengths = _parse_gene_lengths(target_fasta_path)
 
-    # Batched because these files reach 1.2 GB at the shipped accessibility_search_depth,
-    # and ~94% of every batch dies in the filters above — reading whole cost 2.3 GB to keep
-    # 170 MB. A file with no hits still yields one empty batch, so the concat always has a
-    # frame and the output keeps its schema; a test pins that rather than a dead fallback.
+    # Batched: ~94% of every batch dies in the filters above, so only survivors accumulate.
+    # A file with no hits still yields one empty batch, so the concat always has a frame and
+    # the output keeps its schema; a test pins that rather than a dead fallback.
     prepared = [
         _prepare_chunk(chunk, gene_lengths, max_hybrid_energy, floors)
         for chunk in pd.read_csv(input_path, chunksize=READ_CHUNK_ROWS, **read_options)
@@ -127,6 +124,11 @@ def tidy_intarna(input_path, target_fasta_path, output_path,
 
     if max_suboptimal_hits is not None:
         df = df.groupby(["miRNA", "Gene"], sort=False).head(int(max_suboptimal_hits))
+
+    # After the cap, not before: the correction ranks a pair's genes against each other, so a
+    # gene should weigh as close to once as the cap allows. Column only, never a gate — see
+    # _length.py.
+    df = add_length_corrected(df, "E_hybrid")
 
     present_cols = [c for c in OUTPUT_COLUMNS if c in df.columns]
     df = df[present_cols]

@@ -4,14 +4,31 @@ import sys
 #----- Handle to the config file -----#
 configfile: "Config/config.yaml"
 
-#----- Populate Snakefile variables with the config file -----#
+#----- IntaRNA config schema + validation, imported before anything reads the config so a bad
+#      config fails at DAG-build time, before the hour-long RNAhybrid arm starts.
+#      _intarna_config is stdlib-only by contract: it is imported here into the Snakemake
+#      DRIVER env, which ships none of the arms' scientific deps. Never import a script that
+#      ends in run_from_snakemake() instead -----#
+sys.path.insert(0, os.path.join(workflow.basedir, "Workflow", "Scripts"))
+from _intarna_config import (
+    ACCESSIBILITY_PU_FLOOR_KEYS,
+    INTARNA_DEFAULT_ACCESSIBILITY_SEARCH_DEPTH,
+    opt,
+    reject_removed_keys,
+    tool_config,
+    validate_intarna_config,
+)
+
+#----- Populate Snakefile variables with the config file. opt() wherever a default exists:
+#      an explicit YAML null reaches .get as None and would flow on as the string "None".
+#      Plain .get() only where null is itself meaningful — "all hits", --noSeed, ungated -----#
 targets             = config["targets"]
 rnacalibrate_config = config.get("rnacalibrate", {}) or {}
 rnahybrid_config    = config.get("rnahybrid", {}) or {}
 intarna_config      = config.get("intarna", {}) or {}
-results_dir         = config.get("results_dir", "Data/Results").rstrip("/")
-max_target_length   = rnacalibrate_config.get("max_target_length", 50000)
-shared_threads             = int(config.get("threads", 1))
+results_dir         = opt(config, "results_dir", "Data/Results").rstrip("/")
+max_target_length   = opt(rnacalibrate_config, "max_target_length", 50000)
+shared_threads             = int(opt(config, "threads", 1))
 shared_max_suboptimal_hits = config.get("max_suboptimal_hits")
 shared_seed                = config.get("seed")
 rnahybrid_max_hybrid_energy = rnahybrid_config.get("max_hybrid_energy")
@@ -39,6 +56,17 @@ def _resolve_queries(cfg, target_keys):
     return {sample: legacy for sample in target_keys}
 
 queries = _resolve_queries(config, targets.keys())
+
+
+#----- The miRNA FASTA for this sample, named once instead of a `lambda wc:` respelled at
+#      every input slot below -----#
+def sample_query(wc):
+    return queries[wc.sample]
+
+
+#----- The CDS FASTA for this sample -----#
+def sample_target(wc):
+    return targets[wc.sample]
 
 #----- Optional plotting configuration -----#
 plots_config  = config.get("plots", {}) or {}
@@ -76,23 +104,11 @@ variants = variants_for(rnacalibrate_config, "calibration_variant",
 intarna_variants = variants_for(intarna_config, "accessibility_variant",
                                 "intarna.accessibility_variant", ACCESSIBILITY_LITERALS)
 
-#----- IntaRNA config validation at DAG-build time, so a bad config fails before the
-#      hour-long RNAhybrid arm starts. _intarna_config is stdlib-only by contract: it is
-#      imported here into the Snakemake DRIVER env, which ships none of the arms'
-#      scientific deps. Never import a script that ends in run_from_snakemake() instead. -----#
-sys.path.insert(0, os.path.join(workflow.basedir, "Workflow", "Scripts"))
-from _intarna_config import (
-    INTARNA_DEFAULT_ACCESSIBILITY_SEARCH_DEPTH,
-    opt,
-    reject_removed_keys,
-    validate_intarna_config,
-)
-
-# Fatal before anything else: a removed key left in a config is inert but looks live.
+#----- Fatal before anything else: a removed key left in a config is inert but looks live -----#
 reject_removed_keys(config)
 
-# One validation call, one emit site: every fatal and every warning lives in the
-# driver-importable module, where each is unit-tested.
+#----- One validation call, one emit site: every fatal and every warning lives in the
+#      driver-importable module, where each is unit-tested -----#
 for _warning in validate_intarna_config(
     intarna_config, shared_seed,
     rnahybrid_max_hybrid_energy=rnahybrid_max_hybrid_energy,
@@ -101,8 +117,8 @@ for _warning in validate_intarna_config(
 ):
     logger.warning(_warning)
 
-# opt(), not .get(default): an explicit `accessibility_search_depth:` null returns None
-# from .get and would blow up inside the max() in intarna_outnumber.
+#----- A floor on --outNumber for the accessibility arm; opt() because an explicit null would
+#      otherwise reach the max() in intarna_outnumber -----#
 intarna_search_depth = opt(intarna_config, "accessibility_search_depth",
                            INTARNA_DEFAULT_ACCESSIBILITY_SEARCH_DEPTH)
 
@@ -115,8 +131,9 @@ INTARNA_VARIANT_RE   = "|".join(ACCESSIBILITY_LITERALS)
 RNACALIBRATE_JSON = SAMPLE_DIR + "/" + W_CALIBRATION + "/rnacalibrate.json"
 
 
-#----- Every {variant} wildcard is one of the four arm literals; each rule then narrows to
-#      its own arm's two through the per-rule wildcard_constraints below -----#
+#----- Every {variant} wildcard is one of the four arm literals. A safety net for rules added
+#      later: each rule below already narrows to its own arm's two, so nothing currently
+#      resolves through this union -----#
 wildcard_constraints:
     variant = f"{RNAHYBRID_VARIANT_RE}|{INTARNA_VARIANT_RE}"
 
@@ -163,13 +180,14 @@ def intarna_outnumber(wc):
 
 #----- Per-side Pu floors: the mirror of intarna_outmaxe. That one withholds under acc=C;
 #      these withhold under acc=N, which computes no Pu at all — `accessibility_variant:
-#      both` must not carry a floor into the wo_ arm and empty it -----#
-def intarna_min_pu_target(wc):
-    return intarna_config.get("min_target_unpaired_probability") if _accessibility_on(wc) else None
+#      both` must not carry a floor into the wo_ arm and empty it. One factory over the
+#      shared key table, so the two sides cannot drift from each other or from warning (h) -----#
+def _pu_floor_resolver(key):
+    return lambda wc: intarna_config.get(key) if _accessibility_on(wc) else None
 
-
-def intarna_min_pu_query(wc):
-    return intarna_config.get("min_query_unpaired_probability") if _accessibility_on(wc) else None
+intarna_min_pu_target, intarna_min_pu_query = (
+    _pu_floor_resolver(key) for key in ACCESSIBILITY_PU_FLOOR_KEYS
+)
 
 
 #----- Consensus arm-variant selection: prefer the w_* variant of each arm, fall back to
@@ -208,12 +226,17 @@ rule all:
 #----- Dynamically calibrates the statistics based on the target sequence -----#
 rule rnacalibrate:
     input:
-        query=lambda wc: queries[wc.sample],
-        target=lambda wc: targets[wc.sample]
+        query=sample_query,
+        target=sample_target
     output:
         calibration=RNACALIBRATE_JSON
     conda:
         "Workflow/Envs/rnahybrid.yaml"
+    threads:
+        # The per-miRNA invocations are independent (each is position 1 in its own RNG
+        # stream), so the split runs concurrently — this rule was the pipeline's single
+        # largest serial cost.
+        shared_threads
     params:
         k=rnacalibrate_config.get("k", 10000),
         max_target_length=max_target_length,
@@ -230,8 +253,8 @@ rule rnahybrid:
     wildcard_constraints:
         variant = RNAHYBRID_VARIANT_RE
     input:
-        query=lambda wc: queries[wc.sample],
-        target=lambda wc: targets[wc.sample],
+        query=sample_query,
+        target=sample_target,
         calibration=calibration_input
     output:
         compact=f"{SAMPLE_VARIANT_DIR}/rnahybrid_output.tsv"
@@ -271,7 +294,7 @@ rule annotate_rnahybrid:
         variant = RNAHYBRID_VARIANT_RE
     input:
         tidy=f"{SAMPLE_VARIANT_DIR}/tidy_output.csv",
-        target=lambda wc: targets[wc.sample]
+        target=sample_target
     output:
         annotated=f"{SAMPLE_VARIANT_DIR}/rnahybrid_annotated.csv"
     conda:
@@ -299,8 +322,8 @@ rule intarna:
     wildcard_constraints:
         variant = INTARNA_VARIANT_RE
     input:
-        query=lambda wc: queries[wc.sample],
-        target=lambda wc: targets[wc.sample]
+        query=sample_query,
+        target=sample_target
     output:
         csv=f"{SAMPLE_VARIANT_DIR}/intarna_output.csv"
     conda:
@@ -308,7 +331,10 @@ rule intarna:
     threads:
         shared_threads
     params:
-        intarna             = intarna_config,
+        # tool_config(), not the whole block: params are a rerun trigger, so handing this rule
+        # the downstream-only keys (the tidy gate, the per-side Pu floors) would make retuning
+        # a cheap tidy_intarna knob invalidate every intarna_output.csv.
+        intarna             = tool_config(intarna_config),
         acc                 = intarna_acc_mode,
         max_suboptimal_hits = intarna_outnumber,
         out_max_energy      = intarna_outmaxe,
@@ -322,15 +348,14 @@ rule tidy_intarna:
         variant = INTARNA_VARIANT_RE
     input:
         csv=f"{SAMPLE_VARIANT_DIR}/intarna_output.csv",
-        target=lambda wc: targets[wc.sample]
+        target=sample_target
     output:
         tidy=f"{SAMPLE_VARIANT_DIR}/intarna_tidy.csv"
     resources:
-        # Measured peak RSS on the largest real input (1.09 GB, 6.3M rows): 405 MB with a
-        # Pu floor set, 873 MB with only the energy gate — tidy_intarna.py reads in batches
-        # so this scales with the SURVIVORS, not the file. `max_suboptimal_hits: null`
-        # removes the per-pair cap and can push it well past this. Advisory: it binds only
-        # under `--resources mem_mb=N` or a cluster profile, not plain `--cores all`.
+        # Measured peak RSS on the largest real input: 405 MB with a Pu floor, 873 MB with
+        # only the energy gate — it scales with the SURVIVORS, not the file, and
+        # `max_suboptimal_hits: null` can push it well past this. Advisory: binds only under
+        # `--resources mem_mb=N` or a cluster profile, not plain `--cores all`.
         mem_mb = 1200
     conda:
         # postprocess, not intarna: this rule needs pandas and never invokes the binary,
@@ -354,7 +379,7 @@ rule annotate_intarna:
         variant = INTARNA_VARIANT_RE
     input:
         tidy=f"{SAMPLE_VARIANT_DIR}/intarna_tidy.csv",
-        target=lambda wc: targets[wc.sample]
+        target=sample_target
     output:
         annotated=f"{SAMPLE_VARIANT_DIR}/intarna_annotated.csv"
     conda:
@@ -380,8 +405,8 @@ rule enhance_intarna:
 #----- Intersect the two arms' annotated tables into the consensus (both-tools) set -----#
 rule intersect:
     input:
-        rnahybrid=SAMPLE_DIR + "/" + CONSENSUS_RNAHYBRID_VARIANT + "/rnahybrid_annotated.csv",
-        intarna=SAMPLE_DIR + "/" + CONSENSUS_INTARNA_VARIANT + "/intarna_annotated.csv"
+        rnahybrid=f"{SAMPLE_DIR}/{CONSENSUS_RNAHYBRID_VARIANT}/rnahybrid_annotated.csv",
+        intarna=f"{SAMPLE_DIR}/{CONSENSUS_INTARNA_VARIANT}/intarna_annotated.csv"
     output:
         annotated=f"{SAMPLE_DIR}/consensus/consensus_annotated.csv"
     conda:
@@ -404,17 +429,16 @@ rule enhance_consensus:
 rule build_plots:
     input:
         annotated=expand(
-            results_dir + "/{{sample}}/{variant}/rnahybrid_annotated.csv",
+            f"{SAMPLE_VARIANT_DIR}/rnahybrid_annotated.csv",
             variant=variants,
+            allow_missing=True,
         )
     output:
         pdf=f"{SAMPLE_DIR}/plots_{plots_slug}.pdf"
     conda:
         "Workflow/Envs/plots.yaml"
     params:
-        # opt(), not .get(default): the shipped config writes `locus:`/`gene:`/`protein:` as
-        # bare nulls, which .get would pass straight through — leaving these defaults inert
-        # and the R side's own %||% fallbacks doing the work.
+        # opt() because the shipped config writes `locus:`/`gene:`/`protein:` as bare nulls.
         type=plots_type,
         basesize=opt(plots_config, "basesize", 12),
         pvalue_threshold=opt(plots_config, "pvalue_threshold", []),

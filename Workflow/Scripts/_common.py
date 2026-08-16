@@ -43,9 +43,24 @@ def iter_fasta_records(path):
         yield header, "".join(seq_parts)
 
 
+#----- Yields each FASTA header (the text after '>') without accumulating sequences, for the
+#      callers that only need record identity or a record count -----#
+def iter_fasta_headers(path):
+    with open(path) as handle:
+        for line in handle:
+            if line.startswith(">"):
+                yield line[1:].strip()
+
+
 #----- The FASTA join key: the identifier before the first " [" attribute block -----#
 def parse_header_id(header):
     return header.split(" [", 1)[0]
+
+
+#----- The per-miRNA key: the first whitespace-delimited token of the header. Spelled once
+#      because RNAcalibrate prints it in column 1 and rnahybrid.py must split files to match -----#
+def query_key(header):
+    return header.split()[0]
 
 
 #----- Ensures the parent directory of `path` exists; returns `path` as a Path for chaining -----#

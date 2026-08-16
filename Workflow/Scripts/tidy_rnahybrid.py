@@ -1,6 +1,7 @@
 import pandas as pd
 
 from _common import ensure_parent
+from _length import add_length_corrected, corrected_name
 
 
 COLUMNS = [
@@ -10,7 +11,7 @@ COLUMNS = [
 ]
 
 OUTPUT_COLUMNS = [
-    "miRNA", "Gene", "Energy", "P_value", "Gene_length", "Position",
+    "miRNA", "Gene", "Energy", corrected_name("Energy"), "P_value", "Gene_length", "Position",
     "miRNA_unmatches", "miRNA_matches", "Target_matches", "Target_unmatches",
 ]
 
@@ -54,10 +55,14 @@ def tidy_rnahybrid(input_path, output_path):
     ]
     df["Position"]    = (df["Position"].astype(int) + overhang) / df["Gene_length"]
 
-    # Ranks only — no gate, no per-pair cap, unlike tidy_intarna. RNAhybrid's -e filters
-    # exactly the quantity we gate on and -b caps per pair, both at the tool, so repeating
-    # either here would be redundant. IntaRNA has no flag that bounds E_hybrid (--outMaxE
-    # bounds the total), which is why that arm has to do both downstream.
+    # Longer genes score better by chance, so Energy alone ranks a pair's candidate genes
+    # substantially by length. Added as a column, never as a gate — see _length.py for the
+    # measurements and for why RNAhybrid's own -p is the wrong correction.
+    df = add_length_corrected(df, "Energy")
+
+    # Ranks only — no gate, no per-pair cap, unlike tidy_intarna: RNAhybrid's -e and -b
+    # already did both at the tool. Sort stays on raw Energy (the correction is monotone
+    # within a gene, so it never reorders one gene's own sites).
     df = df.sort_values("Energy", kind="stable")[OUTPUT_COLUMNS]
 
     df.to_csv(ensure_parent(output_path), index=False)

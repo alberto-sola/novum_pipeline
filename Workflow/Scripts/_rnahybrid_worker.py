@@ -4,7 +4,6 @@ spaces or shell metacharacters can never break the command line.
 
 The output directory is passed via the RNAHYBRID_OUT_DIR environment variable
 (never on the command line) so a spaced results path is not word-split by the shell."""
-from __future__ import annotations
 
 import argparse
 import os
@@ -32,7 +31,8 @@ OUTPUT_GLOB_BROADCAST  = "output_*.tsv"
 
 
 #----- Builds the single RNAhybrid command; -d (calibrated) wins over -s (species) -----#
-def build_rnahybrid_command(rnahybrid, query, target, max_target_length, species=None, distribution=None, extra_args=()):
+def build_rnahybrid_command(rnahybrid, query, target, max_target_length,
+                            species=None, distribution=None, extra_args=()):
     cmd = [rnahybrid, "-q", query, "-t", target, "-c", "-m", str(max_target_length)]
     if distribution is not None:
         cmd += ["-d", distribution]
@@ -42,6 +42,7 @@ def build_rnahybrid_command(rnahybrid, query, target, max_target_length, species
     return cmd
 
 
+#----- CLI entry point GNU Parallel invokes once per job: parse argv, run the single RNAhybrid call, write its stdout to the derived output file -----#
 def main(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--query", required=True)

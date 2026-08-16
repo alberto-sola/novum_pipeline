@@ -9,8 +9,9 @@ keep peak memory flat on large hit tables. Imports pandas, so it is only pulled
 in by the postprocess-env scripts.
 """
 
-from pathlib import Path
 import pandas as pd
+
+from _common import ensure_parent
 
 
 LABEL_TARGET = "target 5' "
@@ -33,9 +34,15 @@ def require_columns(annotated, columns, label):
         raise ValueError(f"{label} missing required column(s): {', '.join(missing)}")
 
 
-#----- Resolves `columns` to (name, itertuples index) pairs, skipping any that are absent. Hoists the lookup out of the per-row loop: `row` is a positional tuple, so a renderer that resolved names per row would pay for it on every record -----#
+#----- Column name → itertuples position. `row` is a positional tuple, so every lookup below
+#      resolves names once here rather than per record -----#
+def _index_of(annotated):
+    return {col: idx for idx, col in enumerate(annotated.columns)}
+
+
+#----- Resolves `columns` to (name, itertuples index) pairs, skipping any that are absent -----#
 def column_pairs(annotated, columns):
-    index_of = {col: idx for idx, col in enumerate(annotated.columns)}
+    index_of = _index_of(annotated)
     return [(column, index_of[column]) for column in columns if column in index_of]
 
 
@@ -45,17 +52,18 @@ def write_pairs(fh, pairs, row):
         fh.write(f"{column}: {fmt(row[idx])}\n")
 
 
-#----- Per-record report driver: writes the metadata block (every column not in `skip_cols`) for each row, then defers the rest of the record to `render_record(fh, row, index_of)` -----#
+#----- Per-record report driver: metadata block (every column not in `skip_cols`), then the
+#      arm's own sections via `render_record(fh, row, index_of)`, then the record separator.
+#      Owning the separator here is what keeps the three enhance_* scripts to their sections -----#
 def stream_records(annotated, output_path, skip_cols, render_record):
-    index_of = {col: idx for idx, col in enumerate(annotated.columns)}
+    index_of = _index_of(annotated)
     metadata_pairs = [(col, idx) for col, idx in index_of.items() if col not in skip_cols]
 
-    output_path = Path(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as fh:
+    with ensure_parent(output_path).open("w", encoding="utf-8") as fh:
         for row in annotated.itertuples(index=False, name=None):
             write_pairs(fh, metadata_pairs, row)
             render_record(fh, row, index_of)
+            fh.write(f"\n{SEPARATOR}\n\n")
 
 
 # Duplex-string columns each renderer consumes. Kept beside the renderers so all
@@ -64,8 +72,12 @@ RNAHYBRID_DUPLEX_COLUMNS = ["Target_unmatches", "Target_matches", "miRNA_matches
 INTARNA_DUPLEX_COLUMNS   = ["subseqDP", "hybridDP"]
 
 
-#----- Writes RNAhybrid's 4-line ASCII duplex (target 5'->3' on top, miRNA 3'->5' below) -----#
-def render_rnahybrid_duplex(fh, target_unmatches, target_matches, mirna_matches, mirna_unmatches):
+#----- Writes RNAhybrid's 4-line ASCII duplex (target 5'->3' on top, miRNA 3'->5' below).
+#      Takes the whole row and reads its own columns, so no caller respells them in order -----#
+def render_rnahybrid_duplex(fh, row, index_of):
+    target_unmatches, target_matches, mirna_matches, mirna_unmatches = (
+        row[index_of[column]] for column in RNAHYBRID_DUPLEX_COLUMNS
+    )
     fh.write(f"{LABEL_TARGET}{fmt(target_unmatches)}{MARK_3PRIME}\n")
     fh.write(f"{LABEL_INDENT}{fmt(target_matches)}\n")
     fh.write(f"{LABEL_INDENT}{fmt(mirna_matches)}\n")
@@ -73,7 +85,8 @@ def render_rnahybrid_duplex(fh, target_unmatches, target_matches, mirna_matches,
 
 
 #----- Writes IntaRNA's 3-line dot-bracket duplex from subseqDP/hybridDP (miRNA shown reversed) -----#
-def render_intarna_duplex(fh, subseq_dp, hybrid_dp):
+def render_intarna_duplex(fh, row, index_of):
+    subseq_dp, hybrid_dp = (row[index_of[column]] for column in INTARNA_DUPLEX_COLUMNS)
     # IntaRNA writes both fields as "target&query"; partition yields ("text", "", "") when
     # the separator is absent, so a malformed field degrades to an empty query strand.
     target_seq, _, query_seq = str(subseq_dp).partition("&")

@@ -6,10 +6,11 @@ import subprocess
 import sys
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from pathlib import Path
 
-from _common import which_required, iter_fasta_records, ensure_parent
+from _common import which_required, iter_fasta_records, iter_fasta_headers, query_key, ensure_parent
 
 
 #----- Mean and population stdev of the target FASTA's record lengths (the input to RNAcalibrate's `-l`) -----#
@@ -44,17 +45,20 @@ def _normalise_sequence(sequence):
     return sequence.strip().upper().replace("T", "U")
 
 
+#----- The one hash of a sequence. sha256, never built-in hash() — that one is salted per
+#      process by PYTHONHASHSEED, which would make the seed below irreproducible -----#
+def _sequence_digest(sequence):
+    return hashlib.sha256(_normalise_sequence(sequence).encode())
+
+
 #----- Per-miRNA RNG seed: stable across processes and machines, so calibration is reproducible -----#
-#      NOTE: sha256, never built-in hash() — that is salted per process by PYTHONHASHSEED.
 def derive_seed(base_seed, sequence):
-    normalised = _normalise_sequence(sequence)
-    digest = hashlib.sha256(normalised.encode()).digest()
-    return (base_seed + int.from_bytes(digest[:4], "big")) % 2**31
+    return (base_seed + int.from_bytes(_sequence_digest(sequence).digest()[:4], "big")) % 2**31
 
 
 #----- Provenance digest of one sequence; shares derive_seed's normalisation -----#
 def sequence_sha256(sequence):
-    return hashlib.sha256(_normalise_sequence(sequence).encode()).hexdigest()
+    return _sequence_digest(sequence).hexdigest()
 
 
 #----- Provenance digest of a whole input file -----#
@@ -63,25 +67,22 @@ def sha256_file(path):
         return hashlib.file_digest(handle, "sha256").hexdigest()
 
 
-#----- Record count for provenance -----#
+#----- Record count for provenance; headers only, so no sequence is accumulated to be discarded -----#
 def count_fasta_records(path):
-    return sum(1 for _header, _seq in iter_fasta_records(path))
+    return sum(1 for _header in iter_fasta_headers(path))
+
+
+#----- Identity of one input file: distinguishes "same input" from "same path" -----#
+def _file_provenance(path):
+    return {"path": str(path), "sha256": sha256_file(path), "n_records": count_fasta_records(path)}
 
 
 #----- Provenance: distinguishes "same input" from "same path", which `command` alone cannot -----#
 def build_inputs_block(query, target, k, max_target_length, length_arg, forced_helix,
                        max_internal_loop, max_bulge_loop, rng_seed):
     return {
-        "query": {
-            "path": str(query),
-            "sha256": sha256_file(query),
-            "n_records": count_fasta_records(query),
-        },
-        "target": {
-            "path": str(target),
-            "sha256": sha256_file(target),
-            "n_records": count_fasta_records(target),
-        },
+        "query": _file_provenance(query),
+        "target": _file_provenance(target),
         "params": {
             "k": k,
             "max_target_length": max_target_length,
@@ -95,8 +96,7 @@ def build_inputs_block(query, target, k, max_target_length, length_arg, forced_h
 
 
 #----- libfaketime pins RNAcalibrate's clock; the binary exposes no seed flag, so the seed
-#      must be injected from outside the process. macOS differs in BOTH the variable name
-#      and the library filename. -----#
+#      must be injected from outside the process. macOS differs in BOTH the variable name and the library filename. -----#
 FAKETIME_LIBRARIES = {
     "linux": "libfaketime.so.1",
     "darwin": "libfaketime.1.dylib",
@@ -145,9 +145,18 @@ def build_faketime_env(seed, library_path, platform_name, base_env):
     return env
 
 
-#----- Probe sizes: k=5 costs ~0.15 s; the retry exists only for a genome where k=5 cannot discriminate -----#
+#----- Cheap probe rungs. Below the fit's convergence threshold RNAcalibrate returns
+#      `-nan -nan`, a CONSTANT indistinguishable from "the seed has no effect" — measured,
+#      hsa-miR-2861 (19 nt, 89% GC) is NaN at every seed until k~1500 — so neither rung can
+#      be the last one, and probe_ladder always ends at the run's own k -----#
 PROBE_K = 5
 PROBE_K_RETRY = 200
+
+
+#----- Cheap rungs only while they are cheaper than the real run; k itself is always last, so
+#      the verdict is never decided in a regime the run never enters -----#
+def probe_ladder(k):
+    return [rung for rung in (PROBE_K, PROBE_K_RETRY) if rung < k] + [k]
 
 
 #----- Pinning only means anything when `-s` is on, because that is the sole RNG consumer -----#
@@ -155,8 +164,7 @@ def pinning_enabled(rng_seed, randomize_targets):
     return rng_seed is not None and bool(randomize_targets)
 
 
-#----- Three-outcome verdict. The third run carries the weight: two identical outputs are
-#      equally consistent with "pinned" and "probe too small to tell". -----#
+#----- Three-outcome verdict. The third run carries the weight: two identical outputs are equally consistent with "pinned" and "probe too small to tell". -----#
 def classify_probe(first, repeat, other):
     if first != repeat:
         return "blocked"
@@ -168,9 +176,14 @@ def classify_probe(first, repeat, other):
 #----- Refuses to proceed unless the clock is demonstrably pinned AND controlling the output.
 #      Always probes with randomize_targets=True: `-s` is the only consumer of the RNG, so a
 #      probe without it would be deterministic at every seed and report a false "blind".
-#      The caller must therefore only invoke this when randomize_targets is on. -----#
-def verify_faketime(executable, query, target, max_target_length, length_arg, seed,
+#      The caller must therefore only invoke this when randomize_targets is on.
+#      COST: probes run over the whole query FASTA, so the k rung is ~one full calibration
+#      each. Cheap in practice (k=5 settles it unless every miRNA is degenerate there), but
+#      the worst case is ~3x a real run — deliberate, since a single-record probe is far
+#      likelier to report a false "blind" on a miRNA that is NaN at low k. -----#
+def verify_faketime(executable, query, target, k, max_target_length, length_arg, seed,
                     library_path, platform_name):
+    #----- One probe run at a given seed and k, returning its raw stdout to compare -----#
     def probe(probe_seed, probe_k):
         command = build_command(
             executable=executable, query=query, target=target, k=probe_k,
@@ -179,8 +192,7 @@ def verify_faketime(executable, query, target, max_target_length, length_arg, se
         )
         env = build_faketime_env(probe_seed, library_path, platform_name, os.environ)
         try:
-            return subprocess.run(command, check=True, capture_output=True, text=True,
-                                  env=env).stdout
+            return subprocess.run(command, check=True, capture_output=True, text=True, env=env).stdout
         except subprocess.CalledProcessError as exc:
             raise RuntimeError(
                 f"RNG seed pinning probe failed to run on {platform_name}: "
@@ -189,7 +201,8 @@ def verify_faketime(executable, query, target, max_target_length, length_arg, se
                 "accepting non-reproducible calibration."
             ) from exc
 
-    for probe_k in (PROBE_K, PROBE_K_RETRY):
+    ladder = probe_ladder(k)
+    for probe_k in ladder:
         first = probe(seed, probe_k)
         # An unpinned clock reads the wall clock at 1s resolution, so back-to-back probes
         # (~0.15s apart) are byte-identical whether or not libfaketime is doing anything.
@@ -212,14 +225,16 @@ def verify_faketime(executable, query, target, max_target_length, length_arg, se
 
     raise RuntimeError(
         f"Could not verify RNG seed pinning on {platform_name}: output was identical at seeds {seed} and "
-        f"{seed + 1} even at k={PROBE_K_RETRY}, so the probe cannot tell whether the seed "
+        f"{seed + 1} even at k={ladder[-1]}, the k this run itself uses, so the probe cannot tell whether the seed "
         "controls the result. Refusing to claim reproducibility. Set rnacalibrate.rng_seed to null to run unpinned, "
         "accepting non-reproducible calibration."
     )
 
 
 #----- Assembles the RNAcalibrate command line; optional flags (max_internal_loop, max_bulge_loop, seed, randomize) are appended only if set -----#
-def build_command(executable, query, target, k, max_target_length, length_arg, randomize_targets=False, max_internal_loop=None, max_bulge_loop=None, seed=None):
+def build_command(executable, query, target, k, max_target_length, length_arg,
+                  randomize_targets=False, max_internal_loop=None, max_bulge_loop=None,
+                  seed=None):
     command = [
         executable,
         "-k",
@@ -245,6 +260,12 @@ def build_command(executable, query, target, k, max_target_length, length_arg, r
     return command
 
 
+#----- A degenerate (-nan) fit, as opposed to malformed or absent output. Its own class so the
+#      caller can attach seed/k advice by TYPE — rewording a message must not delete it -----#
+class DegenerateFitError(RuntimeError):
+    pass
+
+
 #----- Parses the four-column RNAcalibrate stdout into one xi/theta record per query miRNA -----#
 def parse_rnacalibrate_output(stdout):
     per_query = []
@@ -266,7 +287,7 @@ def parse_rnacalibrate_output(stdout):
         # NaN sneaks in when RNAcalibrate's sample is degenerate; refuse to
         # let it poison the downstream RNAhybrid -d argument.
         if math.isnan(xi) or math.isnan(theta):
-            raise RuntimeError(f"RNAcalibrate produced NaN parameters: {raw_line}")
+            raise DegenerateFitError(f"RNAcalibrate produced NaN parameters: {raw_line}")
 
         per_query.append({
             "query": fields[0],
@@ -279,11 +300,6 @@ def parse_rnacalibrate_output(stdout):
         raise RuntimeError("RNAcalibrate did not produce any calibration rows.")
 
     return {"per_query": per_query}
-
-
-#----- The per_query key RNAcalibrate prints in column 1: the first whitespace token of the header -----#
-def query_key(header):
-    return header.split()[0]
 
 
 #----- Duplicate IDs would silently collapse in rnahybrid.py's load_per_query_distributions -----#
@@ -311,13 +327,64 @@ def expect_single_row(parsed, mirna):
     return rows[0]
 
 
+#----- One miRNA's fit: its own single-record -q file, so it is always position 1 in
+#      RNAcalibrate's RNG stream, and its own derived seed. Nothing here reads another
+#      miRNA's state — that independence is what lets the driver run these concurrently -----#
+def _calibrate_one(index, header, sequence, tmpdir, make_command,
+                   rng_seed, library_path, platform_name, pin_clock):
+    mirna = query_key(header)
+    # Indexed, not named after the miRNA: two distinct IDs may carry the same sequence, and
+    # concurrent jobs must never share a path.
+    single_record = Path(tmpdir) / f"query_{index:05d}.fa"
+    single_record.write_text(f">{header}\n{sequence}\n")
+    command = make_command(query=str(single_record))
+
+    derived_seed = None
+    env = None
+    if pin_clock:
+        derived_seed = derive_seed(rng_seed, sequence)
+        env = build_faketime_env(derived_seed, library_path, platform_name, os.environ)
+
+    try:
+        completed = subprocess.run(command, check=True, capture_output=True, text=True, env=env)
+    except subprocess.CalledProcessError as exc:
+        raise RuntimeError(
+            f"RNAcalibrate failed for miRNA {mirna}: "
+            f"{' '.join(command)} exited with code {exc.returncode}. "
+            f"Error output: {exc.stderr}."
+        ) from exc
+
+    context = f"[miRNA {mirna}, derived_seed={derived_seed}]"
+    try:
+        parsed = parse_rnacalibrate_output(completed.stdout)
+    except DegenerateFitError as exc:
+        # Caught by TYPE, not by matching the message: a degenerate fit at a pinned seed is
+        # reproducible, so re-running will not clear it.
+        raise DegenerateFitError(
+            f"{exc} {context}. A degenerate fit at a pinned seed is reproducible, so "
+            "re-running will not clear it — change rnacalibrate.rng_seed or raise "
+            "rnacalibrate.k."
+        ) from exc
+    except (RuntimeError, ValueError) as exc:
+        # Malformed or absent output — the pinning/k advice above would misdirect here.
+        raise RuntimeError(f"{exc} {context}.") from exc
+
+    entry = expect_single_row(parsed, mirna)
+    entry["sequence_sha256"] = sequence_sha256(sequence)
+    entry["derived_seed"] = derived_seed
+    return entry
+
+
 #----- Top-level driver: one RNAcalibrate invocation PER miRNA. NOT an optimisation —
 #      RNAcalibrate consumes ONE RNG stream across every query in a -q file, so a miRNA's
 #      xi/theta depends on how many records precede it (measured, purely ordinal). Batching
 #      these back into one call reintroduces that dependence and makes results
-#      non-comparable across differing query sets. Costs ~0.9% (measured, k=2000). -----#
+#      non-comparable across differing query sets. Costs ~0.9% (measured, k=2000).
+#      The invocations are independent, so they run on `threads` cores at once; pool.map
+#      preserves input order, keeping per_query in query-FASTA order -----#
 def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize_targets=False,
-                     max_internal_loop=None, max_bulge_loop=None, seed=None, rng_seed=None):
+                     max_internal_loop=None, max_bulge_loop=None, seed=None, rng_seed=None,
+                     threads=1):
     executable = which_required("RNAcalibrate", "rnacalibrate")
     stats = compute_target_length_stats(target)
     length_arg = build_length_arg(stats)
@@ -337,7 +404,7 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
     library_path = None
     if pin_clock:
         library_path = resolve_faketime_library(platform_name)
-        verify_faketime(executable, query, target, max_target_length, length_arg,
+        verify_faketime(executable, query, target, k, max_target_length, length_arg,
                         rng_seed, library_path, platform_name)
 
     # One binding for every argv the run produces, so the per-miRNA invocations and the
@@ -349,50 +416,18 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
         max_internal_loop=max_internal_loop, max_bulge_loop=max_bulge_loop, seed=seed,
     )
 
-    per_query = []
     with tempfile.TemporaryDirectory() as tmpdir:
-        single_record = Path(tmpdir) / "query.fa"
-
-        for header, sequence in iter_query_records(query):
-            mirna = query_key(header)
-            single_record.write_text(f">{header}\n{sequence}\n")
-            command = make_command(query=str(single_record))
-
-            derived_seed = None
-            env = None
-            if pin_clock:
-                derived_seed = derive_seed(rng_seed, sequence)
-                env = build_faketime_env(derived_seed, library_path, platform_name, os.environ)
-
-            try:
-                completed = subprocess.run(command, check=True, capture_output=True,
-                                           text=True, env=env)
-            except subprocess.CalledProcessError as exc:
-                raise RuntimeError(
-                    f"RNAcalibrate failed for miRNA {mirna}: "
-                    f"{' '.join(command)} exited with code {exc.returncode}. "
-                    f"Error output: {exc.stderr}."
-                ) from exc
-
-            try:
-                parsed = parse_rnacalibrate_output(completed.stdout)
-            except (RuntimeError, ValueError) as exc:
-                # NaN is a degenerate FIT (reproducible at this seed, needs a config change);
-                # wrong-column-count / no-rows / non-numeric fields mean malformed or absent
-                # output, so the pinning/k advice below would misdirect for those.
-                message = f"{exc} [miRNA {mirna}, derived_seed={derived_seed}]."
-                if "NaN" in str(exc):
-                    message += (
-                        " A degenerate fit at a pinned seed is reproducible, so re-running "
-                        "will not clear it — change rnacalibrate.rng_seed or raise "
-                        "rnacalibrate.k."
-                    )
-                raise RuntimeError(message) from exc
-
-            entry = expect_single_row(parsed, mirna)
-            entry["sequence_sha256"] = sequence_sha256(sequence)
-            entry["derived_seed"] = derived_seed
-            per_query.append(entry)
+        # Materialised before dispatch so the duplicate-ID and empty-file guards in
+        # iter_query_records still raise up front, not inside a worker.
+        records = list(iter_query_records(query))
+        calibrate = partial(
+            _calibrate_one, tmpdir=tmpdir, make_command=make_command, rng_seed=rng_seed,
+            library_path=library_path, platform_name=platform_name, pin_clock=pin_clock,
+        )
+        with ThreadPoolExecutor(max_workers=max(1, threads)) as pool:
+            per_query = list(pool.map(
+                lambda job: calibrate(job[0], *job[1]), enumerate(records)
+            ))
 
     ensure_parent(output_file).write_text(json.dumps(
         {
@@ -427,6 +462,7 @@ def run_from_snakemake(snakemake):
         max_bulge_loop=snakemake.params.max_bulge_loop,
         seed=snakemake.params.seed,
         rng_seed=snakemake.params.rng_seed,
+        threads=snakemake.threads,
     )
 
 if "snakemake" in globals():

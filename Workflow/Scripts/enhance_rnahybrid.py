@@ -1,8 +1,7 @@
 import pandas as pd
 
 from _report import (
-    require_columns, stream_records, render_rnahybrid_duplex,
-    RNAHYBRID_DUPLEX_COLUMNS, SEPARATOR,
+    require_columns, stream_records, render_rnahybrid_duplex, RNAHYBRID_DUPLEX_COLUMNS,
 )
 
 
@@ -12,16 +11,10 @@ def enhance_results(annotated_csv_path, output_path):
 
     require_columns(annotated, RNAHYBRID_DUPLEX_COLUMNS, "annotated CSV")
 
+    #----- The arm's own section: a blank line, then the alignment. stream_records adds the separator -----#
     def render_record(fh, row, index_of):
         fh.write("\n")
-        render_rnahybrid_duplex(
-            fh,
-            row[index_of["Target_unmatches"]],
-            row[index_of["Target_matches"]],
-            row[index_of["miRNA_matches"]],
-            row[index_of["miRNA_unmatches"]],
-        )
-        fh.write(f"\n{SEPARATOR}\n\n")
+        render_rnahybrid_duplex(fh, row, index_of)
 
     stream_records(annotated, output_path, set(RNAHYBRID_DUPLEX_COLUMNS), render_record)
 

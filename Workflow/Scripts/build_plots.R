@@ -54,6 +54,7 @@ if (nrow(protein_pairs) > 0L && !"protein_name" %in% names(merged)) {
   stop("build_plots protein: input CSV has no `protein_name` column.")
 }
 
+#----- Keeps the rows matching a (target, miRNA) pair list; an empty list selects nothing -----#
 join_filter <- function(df, pairs, by_col) {
   if (nrow(pairs) == 0L) return(df[0, , drop = FALSE])
   df |>
@@ -124,6 +125,7 @@ highlight_vlines <- function() {
     scale_color_manual(name = "Validated hits", values = hit_colors, labels = hit_labels)
   )
 }
+#----- Red points marking the validated hits; NULL when none were requested -----#
 highlight_points <- function(data, ...) {
   if (!has_validated) return(NULL)
   list(
@@ -138,6 +140,7 @@ calibration_colors <- c(uncalibrated = "#e41a1c", calibrated = "#377eb8")
 calibration_labels <- c(uncalibrated = "Without Calibration", calibrated = "With Calibration")
 facet_labels       <- as_labeller(calibration_labels)
 
+#----- Applies the configured p-value cutoff, or passes the frame through when none is set -----#
 apply_pvalue_cut <- function(df) {
   if (has_pvalue_cut) df |> filter(P_value <= pvalue_cutoff) else df
 }
@@ -149,6 +152,7 @@ cut_title <- function(plain, cut_fmt) {
 
 
 #----- Plot builders -----#
+#----- P-value density per miRNA, one facet per Calibration variant -----#
 plot_pvalue_distribution <- function() {
   dens <- merged |>
     group_by(Calibration) |>
@@ -168,6 +172,7 @@ plot_pvalue_distribution <- function() {
     theme_bw(base_size = basesize)
 }
 
+#----- P-value against relative position along the gene -----#
 plot_position_pvalue <- function() {
   ggplot(merged, aes(x = Position, y = -log10(P_value))) +
     geom_point(
@@ -185,6 +190,7 @@ plot_position_pvalue <- function() {
     facet_wrap(~Calibration, labeller = facet_labels)
 }
 
+#----- Hybridization energy against relative position, with a trend fit -----#
 plot_position_energy <- function() {
   pick <- if (any(merged$Calibration == "calibrated")) "calibrated" else "uncalibrated"
   base_data <- merged |>
@@ -207,6 +213,7 @@ plot_position_energy <- function() {
     theme_bw(base_size = basesize)
 }
 
+#----- Volcano: hybridization energy against p-value -----#
 plot_volcano <- function() {
   ggplot(merged, aes(x = Energy, y = -log10(P_value))) +
     geom_point(
@@ -222,6 +229,7 @@ plot_volcano <- function() {
     theme_bw(base_size = basesize)
 }
 
+#----- Empirical CDF of p-values, comparing the Calibration variants -----#
 plot_pvalue_ecdf <- function() {
   data <- merged |> mutate(facet_label = "p-value ECDF vs Uniform")
   ggplot(data, aes(x = P_value, color = Calibration)) +
@@ -236,6 +244,7 @@ plot_pvalue_ecdf <- function() {
     theme_bw(base_size = basesize)
 }
 
+#----- Per-hit calibrated-vs-uncalibrated p-value shift; NULL unless both variants ran -----#
 plot_calibration_delta <- function() {
   variants_present <- as.character(unique(merged$Calibration))
   if (!all(c("uncalibrated", "calibrated") %in% variants_present)) {
@@ -271,6 +280,7 @@ plot_calibration_delta <- function() {
     theme_bw(base_size = basesize)
 }
 
+#----- Top-N hits per miRNA, ranked within each Calibration variant -----#
 plot_per_mirna <- function() {
   top_mirnas <- merged |>
     count(miRNA, sort = TRUE) |>
@@ -293,6 +303,7 @@ plot_per_mirna <- function() {
     theme(legend.position = "none", axis.text.x = element_text(angle = 30, hjust = 1))
 }
 
+#----- Density of hit positions along the gene -----#
 plot_position_density <- function() {
   if (has_pvalue_cut) {
     data <- merged |>
@@ -325,7 +336,7 @@ plot_position_density <- function() {
 # RNAhybrid prints miRNA 3'->5' left-to-right, so the rightmost miRNA-bearing
 # column is nt 1 (5' end). Walking leftward over miRNA-present columns
 # (matches OR unmatches non-space) enumerates nt 2, 3, ..., 8 and skips
-# target-bulge columns where the miRNA strand is empty.
+# target-bulge columns where the miRNA strand is empty. -----#
 classify_seed_row <- function(m_matches, m_unmatches, t_matches, t_unmatches) {
   mm <- strsplit(m_matches,   "", fixed = TRUE)[[1]]
   mu <- strsplit(m_unmatches, "", fixed = TRUE)[[1]]
@@ -355,6 +366,7 @@ classify_seed_row <- function(m_matches, m_unmatches, t_matches, t_unmatches) {
   "6mer"
 }
 
+#----- Canonical-seed class composition per miRNA -----#
 plot_seed_class <- function() {
   seed_levels <- c("8mer", "7mer-m8", "7mer-A1", "6mer", "none")
   data <- merged |>

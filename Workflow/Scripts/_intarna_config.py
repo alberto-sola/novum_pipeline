@@ -24,19 +24,12 @@ INTARNA_MAX_OUTNUMBER = 1000
 INTARNA_DEFAULT_ACCESSIBILITY_SEARCH_DEPTH = 20
 
 # Median of (IntaRNA E_hybrid - RNAhybrid mfe) over matched, UNFILTERED acc=N hits — that
-# protocol is load-bearing, not incidental. 600 E. coli CDS (n=1122): additive, slope
-# +0.0019, sd 1.06. Re-measured 2026-08-12 on this project's genomes (n=2160, 3 x 6 miRNAs):
-# +5.70, slope +0.0060, sd 1.12, per-genome 5.6/5.7/5.8 — the real spread is per-miRNA
-# (5.2-6.1). E_hybrid carries duplex initiation (~+4.1 under Turner04) plus
-# terminal-AU/dangling-end terms; mfe carries neither.
-# Do NOT re-derive it from w_accessibility output (~+6.0): under acc=C IntaRNA relocates the
-# site in ~63% of pairs to buy accessibility, giving up a median +2.84 kcal/mol, so its
-# E_hybrid is not the same duplex's.
-# It equalizes the two GATES under acc=N ONLY. On identical pairs `Energy <= -18` passes
-# 94.8% and `acc=N E_hybrid <= -12.9` passes 90.6%, but `acc=C` passes 68.0% — the
-# accessibility penalty doing its job, so never loosen intarna.max_hybrid_energy to
-# compensate. Nothing in the config records that w_accessibility gates far above this bar.
-# See docs/superpowers/specs/2026-07-23-cross-arm-energy-gate-design.md.
+# protocol is load-bearing, not incidental (re-measured 2026-08-12: +5.70, inside tolerance).
+# It equalizes the two GATES under acc=N ONLY, so never loosen intarna.max_hybrid_energy to
+# compensate for the stricter acc=C pass rate, and do NOT re-derive it from w_accessibility
+# output (~+6.0) — under acc=C IntaRNA relocates the site in ~63% of pairs, so its E_hybrid
+# is not the same duplex's. Measurements and pass rates:
+# docs/superpowers/specs/2026-07-23-cross-arm-energy-gate-design.md, CLAUDE.md "Per-arm energy gates".
 INTARNA_RNAHYBRID_ENERGY_OFFSET = 5.10
 
 # Drift past this trips warning (d). A usability threshold, not a confidence bound — the
@@ -58,6 +51,23 @@ REMOVED_TOP_LEVEL_KEYS = {
         "      max_hybrid_energy: -12.9    # -18 + 5.10 measured convention offset"
     ),
 }
+
+
+#----- The only `intarna:` keys build_command reads. Everything else in the block steers a
+#      DOWNSTREAM rule (the tidy gate, the per-side Pu floors) or the DAG itself, and
+#      Snakemake reruns on any change to a rule's params — so handing rule intarna the whole
+#      block makes a tidy_intarna knob invalidate the hour-long arm. Filter through
+#      tool_config() instead; a key added here must be one build_command actually consumes -----#
+INTARNA_TOOL_KEYS = (
+    "prediction_mode", "model", "energy_set", "max_interaction_length", "max_loop_size",
+    "seed", "helix", "accessibility", "output",
+)
+
+
+#----- The tool-flag subset of the `intarna:` block, for rule intarna's params -----#
+def tool_config(cfg):
+    cfg = cfg or {}
+    return {key: cfg[key] for key in INTARNA_TOOL_KEYS if key in cfg}
 
 
 #----- Raises on a top-level key nothing reads any more. Called from the Snakefile at DAG-build time, before any rule runs -----#
@@ -220,13 +230,16 @@ def _unbounded_output_warnings(max_suboptimal_hits, accessibility_on):
     ]
 
 
+# The per-side Pu floors, target side first. Single source of the key pair: the Snakefile
+# builds one resolver per entry, and (g)/(h) below name them from it.
+ACCESSIBILITY_PU_FLOOR_KEYS = ("min_target_unpaired_probability", "min_query_unpaired_probability")
+
+
 #----- The per-side floors actually set, named for a message. Shared by (g) and (h) so the
 #      two can never disagree about what counts as "set" -----#
 def _floors_in_use(cfg):
     return ", ".join(
-        "intarna." + key
-        for key in ("min_target_unpaired_probability", "min_query_unpaired_probability")
-        if cfg.get(key) is not None
+        "intarna." + key for key in ACCESSIBILITY_PU_FLOOR_KEYS if cfg.get(key) is not None
     )
 
 

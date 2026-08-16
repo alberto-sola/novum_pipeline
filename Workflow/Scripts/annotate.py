@@ -2,28 +2,44 @@ import re
 import sys
 import pandas as pd
 
-from _common import iter_fasta_records, parse_header_id, ensure_parent
+from _common import iter_fasta_headers, parse_header_id, ensure_parent
 
 
 # Extracts key/value pairs from FASTA headers like:
 # [gene=thrL] [locus_tag=b0001] [protein=thr operon leader peptide]
 FIELD_RE = re.compile(r"\[([^=\]]+)=([^\]]*)\]")
 
+# Output column → the FASTA attribute keys feeding it, first non-empty wins. intersect.py
+# imports ANNOTATION_COLUMNS so the consensus schema cannot drift from what this rule emits.
+ANNOTATION_FIELDS = (
+    ("gene_name",    ("gene",)),
+    ("locus_tag",    ("locus_tag",)),
+    ("protein_name", ("protein", "product")),
+    ("protein_id",   ("protein_id",)),
+)
+ANNOTATION_COLUMNS = [column for column, _keys in ANNOTATION_FIELDS]
+
+
+#----- First key holding a non-empty value, falling back to the last key's raw value (so an
+#      empty `[gene=]` still reads as "" rather than becoming None) -----#
+def _first_set(fields, keys):
+    for key in keys[:-1]:
+        if fields.get(key):
+            return fields[key]
+    return fields.get(keys[-1])
+
 
 #----- Pulls gene/locus/protein metadata out of FASTA headers and returns one deduped row per Gene -----#
 def parse_fasta_annotations(fasta_path):
     records = []
 
-    for header, _sequence in iter_fasta_records(fasta_path):
-        gene_id = parse_header_id(header)
+    # Headers only: the sequences are never read here, so streaming them would build and
+    # discard a multi-MB string per genome on every annotate job.
+    for header in iter_fasta_headers(fasta_path):
         fields = dict(FIELD_RE.findall(header))
-
         records.append({
-            "Gene": gene_id,
-            "gene_name": fields.get("gene"),
-            "locus_tag": fields.get("locus_tag"),
-            "protein_name": fields.get("protein") or fields.get("product"),
-            "protein_id": fields.get("protein_id"),
+            "Gene": parse_header_id(header),
+            **{column: _first_set(fields, keys) for column, keys in ANNOTATION_FIELDS},
         })
 
     annotations = pd.DataFrame(records)
@@ -51,13 +67,8 @@ def annotate_results(tidy_csv_path, fasta_path, output_path, insert_after):
     annotated = tidy.merge(annotations, on="Gene", how="left")
 
     fasta_columns = [column for column in annotations.columns if column != "Gene"]
-    ordered_columns = []
-    for column in tidy.columns:
-        ordered_columns.append(column)
-        if column == insert_after:
-            ordered_columns.extend(fasta_columns)
-
-    annotated = annotated[ordered_columns]
+    cut = tidy.columns.get_loc(insert_after) + 1
+    annotated = annotated[[*tidy.columns[:cut], *fasta_columns, *tidy.columns[cut:]]]
 
     annotated.to_csv(ensure_parent(output_path), index=False)
 
