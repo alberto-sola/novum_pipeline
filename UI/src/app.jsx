@@ -2,7 +2,7 @@
 
 const { useState, useEffect, useRef } = React;
 
-// Pipeline lifecycle:
+//----- Pipeline lifecycle:
 //   idle      → no run in flight
 //   running   → snakemake is alive
 //   succeeded → terminal · exit 0
@@ -11,8 +11,9 @@ const { useState, useEffect, useRef } = React;
 //
 // Terminal states stay until the user dismisses the overlay; we then call
 // `acknowledge_pipeline` so the backend resets to idle. Without that
-// handshake a fast finish could be missed between two polls.
+// handshake a fast finish could be missed between two polls. -----//
 
+//----- Root component: owns the config, the theme, and the pipeline state machine -----//
 function App() {
   const [cfg, setCfg] = useState(() => JSON.parse(JSON.stringify(window.INITIAL_CONFIG)));
   const [theme, setTheme] = useState(() => localStorage.getItem("np:theme") || "light");
@@ -46,12 +47,14 @@ function App() {
     return () => window.removeEventListener("pywebviewready", load);
   }, []);
 
+  //----- One toast at a time; a new one replaces whatever is on screen -----//
   const showToast = (msg, tone = "neutral") => {
     clearTimeout(toastTimer.current);
     setToast({ msg, tone });
     toastTimer.current = setTimeout(() => setToast(null), 3200);
   };
 
+  //----- Write config.yaml without launching anything -----//
   const save = async () => {
     if (saving) return;
     const api = window.pywebview?.api;
@@ -69,6 +72,7 @@ function App() {
     }
   };
 
+  //----- Save, then launch snakemake and switch the overlay on -----//
   const run = async () => {
     if (pipelineState === "running") return;
     const api = window.pywebview?.api;
@@ -95,11 +99,13 @@ function App() {
     }
   };
 
+  //----- SIGTERM the run; the poll below picks up the terminal state -----//
   const cancel = async () => {
     const api = window.pywebview?.api;
     if (api?.cancel_pipeline) await api.cancel_pipeline();
   };
 
+  //----- Acknowledge the terminal state so the backend returns to idle -----//
   const dismissOverlay = async () => {
     const api = window.pywebview?.api;
     if (api?.acknowledge_pipeline) await api.acknowledge_pipeline();
@@ -137,10 +143,10 @@ function App() {
 
   return (
     <div className="desk">
-      <div className="window" style={{ height: "calc(100vh / var(--ui-zoom))" }}>
-        <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", minHeight: 0, position: "relative" }}>
+      <div className="window">
+        <div className="window-body">
           <div className="no-scrollbar" style={{ flex: 1, overflowY: "auto" }}>
-            <div style={{ padding: 24, display: "flex", flexDirection: "column", gap: 18, margin: "0 auto", width: "100%" }}>
+            <div className="card-stack">
               <ErrorBoundary>
                 <Hero cfg={cfg} />
                 <QueriesSection cfg={cfg} setCfg={setCfg} />
@@ -183,5 +189,6 @@ function App() {
   );
 }
 
+//----- Mount -----//
 const root = ReactDOM.createRoot(document.getElementById("root"));
 root.render(<App />);

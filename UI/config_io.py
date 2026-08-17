@@ -10,6 +10,13 @@ from pathlib import Path
 
 import yaml
 
+# libyaml's C parser is ~12x faster on this config and is what the conda env ships; the
+# pure-Python classes are only a fallback for an interpreter built without it.
+try:
+    from yaml import CSafeLoader as _Loader, CSafeDumper as _Dumper
+except ImportError:                                  # pragma: no cover - env without libyaml
+    from yaml import SafeLoader as _Loader, SafeDumper as _Dumper
+
 
 #----- Parse the on-disk config into a plain dict; never raises to the UI -----#
 def load_config(path):
@@ -19,7 +26,7 @@ def load_config(path):
     except OSError:
         return {}
     try:
-        data = yaml.safe_load(text)
+        data = yaml.load(text, Loader=_Loader)
     except yaml.YAMLError as exc:
         return {"__error__": str(exc)}
     return data if isinstance(data, dict) else {}
@@ -28,7 +35,8 @@ def load_config(path):
 #----- Emit `config` as YAML with safe quoting, written atomically (temp + os.replace) -----#
 def save_config(path, config):
     p = Path(path)
-    text = yaml.safe_dump(config, sort_keys=False, default_flow_style=False, allow_unicode=True)
+    text = yaml.dump(config, Dumper=_Dumper, sort_keys=False,
+                     default_flow_style=False, allow_unicode=True)
     p.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=str(p.parent), suffix=".tmp")
     try:

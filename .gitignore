@@ -18,7 +18,7 @@ docs
 # Data
 Data/Raw/genomes/*
 Data/Raw/miRNAs/*
-Data/Raw/RNAs/*
+Data/Raw/RNAs*/*
 Data/Results/*
 Data/Analysis*
 

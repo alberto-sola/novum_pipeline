@@ -1,9 +1,13 @@
 // Novum Pipeline — shared form components (React, Babel)
+//
+// Published on `window` at the foot of this file: each <script type="text/babel"> is
+// transpiled into its own scope, so nothing here is visible to sections.jsx until listed.
 
 const { useState, useRef, useEffect, useMemo } = React;
 
-// --- primitives ---------------------------------------------------
+//----- primitives — the small controls every section builds from -----//
 
+//----- iOS-style boolean switch, used wherever a field is on/off rather than valued -----//
 function Toggle({ on, onChange, ariaLabel, disabled = false }) {
   return (
     <button
@@ -17,11 +21,12 @@ function Toggle({ on, onChange, ariaLabel, disabled = false }) {
   );
 }
 
-// Grey labeled subcard. `right` lets a Toggle/badge sit on the label row,
-// mirroring NullableField's top-row treatment.
-function Subcard({ label, hint, right, children }) {
+//----- Grey labeled subcard. `right` lets a Toggle/badge sit on the label row, mirroring
+//      NullableField's top-row treatment; `locked` carries the same hatched fill that
+//      NullableField uses for a field another setting has taken over -----//
+function Subcard({ label, hint, right, locked = false, children }) {
   return (
-    <div className="subcard">
+    <div className={`subcard ${locked ? "locked" : ""}`}>
       <div className="subcard-label">
         <span>{label}{hint && <em> · {hint}</em>}</span>
         {right}
@@ -31,20 +36,20 @@ function Subcard({ label, hint, right, children }) {
   );
 }
 
-// Subcard whose body is a flex-wrap row of PillToggles or similar pills.
-// Used for the three IntaRNA "Constraints" blocks and any future pill row.
+//----- Subcard whose body is a flex-wrap row of PillToggles. Used for the three IntaRNA
+//      "Constraints" blocks and the Plots type selector -----//
 function PillGroup({ label, hint, children }) {
   return (
     <Subcard label={label} hint={hint}>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      <div className="pill-row">
         {children}
       </div>
     </Subcard>
   );
 }
 
-// Pill-style boolean toggle — same visual language as the Plots "Plot types"
-// selector. Used for IntaRNA constraint groups (seed / accessibility / output).
+//----- Pill-style boolean toggle — the flag vocabulary shared by the IntaRNA constraint
+//      groups (seed / accessibility / output) and the Plots type selector -----//
 function PillToggle({ on, onChange, label }) {
   return (
     <button
@@ -63,9 +68,9 @@ function PillToggle({ on, onChange, label }) {
   );
 }
 
-// Single-select segmented control. A radiogroup (not a tablist: there are no
-// tabpanels) with roving tabindex and arrow-key navigation, so it's one tab
-// stop and screen readers announce the selected option correctly.
+//----- Single-select segmented control, used for the two variant switches. A radiogroup
+//      (not a tablist: there are no tabpanels) with roving tabindex and arrow-key
+//      navigation, so it is one tab stop and reads correctly to a screen reader -----//
 function SegmentedControl({ options, value, onChange, ariaLabel }) {
   const ref = useRef(null);
   const idx = Math.max(0, options.findIndex((o) => o.value === value));
@@ -101,11 +106,11 @@ function SegmentedControl({ options, value, onChange, ariaLabel }) {
   );
 }
 
-// Wraps a parameter group that goes inert for the current variant (calibration
-// off, seed enforcement off, accessibility Off, plots disabled). The native
-// <fieldset disabled> removes every nested control from the tab order and the
-// a11y tree for free; `.group-fieldset` strips the browser chrome and carries
-// the dim. `className` is the inner layout class the group used standalone.
+//----- Wraps a parameter group that goes inert for the current variant (calibration off,
+//      seed enforcement off, accessibility Off, plots disabled). The native
+//      <fieldset disabled> removes every nested control from the tab order and the a11y
+//      tree for free; `.group-fieldset` strips the browser chrome and carries the dim.
+//      `className` is the inner layout class the group used standalone -----//
 function DisableGroup({ disabled, className = "", children }) {
   return (
     <fieldset className="group-fieldset" disabled={disabled}>
@@ -114,26 +119,16 @@ function DisableGroup({ disabled, className = "", children }) {
   );
 }
 
-// Inline advisory beside a group header. "muted" = inert but harmless;
-// "warn" = the config will actually misbehave (mirrors a backend validator).
+//----- Inline advisory beside a group header. "muted" = inert but harmless; "warn" = the
+//      config will actually misbehave (mirrors a backend validator) -----//
 function InlineNote({ tone = "muted", children }) {
-  return (
-    <span style={{
-      fontSize: 11,
-      marginLeft: 8,
-      fontStyle: "italic",
-      color: tone === "warn" ? "var(--warn)" : "var(--fg-4)",
-    }}>
-      {children}
-    </span>
-  );
+  return <span className={`hint italic inline ${tone === "warn" ? "warn" : ""}`}>{children}</span>;
 }
 
-// Focus management for the run overlay and YAML drawer. On open: remember the
-// previously focused element, move focus inside, trap Tab, and (when onEscape
-// is supplied) close on Escape. On close: restore focus to where it was. Esc
-// behaviour is read through a ref so callers can gate it (e.g. no dismiss while
-// the pipeline is still running) without re-running the trap.
+//----- Focus management for the run overlay and YAML drawer. On open: remember the focused
+//      element, move focus inside, trap Tab and (when onEscape is given) close on Escape.
+//      On close: restore focus. Esc is read through a ref so callers can gate it — no
+//      dismiss while the pipeline runs — without re-running the trap -----//
 function useDialog(ref, open, { onEscape } = {}) {
   const prevFocus = useRef(null);
   const escRef = useRef(onEscape);
@@ -176,8 +171,8 @@ function useDialog(ref, open, { onEscape } = {}) {
   }, [open]);
 }
 
-// Catches render errors anywhere in its subtree. Without this, a thrown
-// exception unmounts the whole App and the user sees a blank window.
+//----- Catches render errors anywhere in its subtree. Without this, one thrown exception
+//      unmounts the whole App and the user is left looking at a blank window -----//
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -217,12 +212,13 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// Browser-preview fallback when no native file picker is available — used by
-// PathInput (single path) and KeyedFileRow's free-form mode.
-function promptBrowse(current, placeholder, label = "Select…") {
+//----- Browser-preview fallback where no native file picker exists — used by PathInput and
+//      by KeyedFileRow's free-form mode -----//
+function promptBrowse(current, placeholder, label) {
   return prompt(`${label} (simulated)`, current || placeholder || "");
 }
 
+//----- Single free-text path plus a Browse button (the results directory) -----//
 function PathInput({ value, onChange, placeholder }) {
   return (
     <div className="field-row">
@@ -248,9 +244,9 @@ function PathInput({ value, onChange, placeholder }) {
   );
 }
 
-// Plain helper (no React state) — the add/update/remove closures every list-edit
-// section needs. `minLength` keeps a section from emptying itself below a sentinel
-// (queries/targets require one row).
+//----- Plain helper (no React state) — the add/update/remove closures every list-edit
+//      section needs. `minLength` keeps a section from emptying itself below a sentinel
+//      (queries and targets require one row) -----//
 function makeListEditor(items, setItems, makeItem, minLength = 0) {
   return {
     add: () => setItems([...items, makeItem()]),
@@ -268,10 +264,7 @@ function makeListEditor(items, setItems, makeItem, minLength = 0) {
   };
 }
 
-// A miRNA typed without a value is *orphaned*: configToObject drops rows with a blank
-// value, so it would vanish on save. Flag the row rather than discard it silently.
-const PAIR_ROW = { display: "grid", gridTemplateColumns: "180px 1fr auto", gap: 8 };
-
+//----- Editor for the three plots pair-lists: a required value plus an optional miRNA -----//
 function PairListEditor({ heading, noun, valueHeader, valuePlaceholder, items, editor }) {
   return (
     <div>
@@ -280,16 +273,18 @@ function PairListEditor({ heading, noun, valueHeader, valuePlaceholder, items, e
         <div className="spacer" />
         <button className="btn sm" onClick={editor.add}><PlusIcon /> Add {noun}</button>
       </div>
-      <div className="eyebrow" style={{ ...PAIR_ROW, padding: "0 2px", marginBottom: 6 }}>
+      <div className="eyebrow pair-row head">
         <span>{valueHeader}</span>
         <span>miRNA <span style={{ textTransform: "none", fontWeight: 400 }}>· optional</span></span>
         <span></span>
       </div>
       <div className="stack xs">
         {items.map((it, i) => {
+          // A miRNA typed without a value is *orphaned*: configToObject drops rows with a
+          // blank value, so it would vanish on save. Flag it rather than discard it silently.
           const orphanMirna = !!(it.mirna && it.mirna.trim() && !(it.value && it.value.trim()));
           return (
-            <div key={it.id} style={PAIR_ROW}>
+            <div key={it.id} className="pair-row">
               <input
                 className="input mono"
                 value={it.value}
@@ -318,74 +313,60 @@ function PairListEditor({ heading, noun, valueHeader, valuePlaceholder, items, e
   );
 }
 
-// --- launcher bridge ---------------------------------------------
+//----- launcher bridge -----//
 
-// Calls a Python API method exposed by UI/launcher.py (via PyWebView's js_api).
-// Returns { items, hasApi }:
-//   items === null  → still loading (waiting for pywebviewready)
-//   items === []    → API returned an empty list, OR preview mode (no API)
-//   items === [...] → API returned files
-//   hasApi          → true when window.pywebview.api[method] exists
+//----- Calls a Python API method exposed by UI/launcher.py (via PyWebView's js_api). The
+//      single return value carries the whole contract, so no caller can re-derive it a
+//      second way:
+//        undefined → no bridge yet (browser preview) · null → bridge found, fetch in flight
+//        []        → the API returned nothing        · [...] → files
+//      KeyedFileRow reads exactly these sentinels; don't repurpose one without it -----//
 function useApiList(method) {
-  const [items, setItems] = useState(null);
-  const [hasApi, setHasApi] = useState(false);
+  const [items, setItems] = useState(undefined);
 
   useEffect(() => {
     let cancelled = false;
     const fetchOnce = () => {
-      const api = window.pywebview && window.pywebview.api;
-      if (!api || typeof api[method] !== "function") return false;
-      setHasApi(true);
-      Promise.resolve(api[method]()).then((data) => {
-        if (!cancelled) setItems(Array.isArray(data) ? data : []);
-      }).catch(() => {
-        if (!cancelled) setItems([]);
-      });
+      const api = window.pywebview?.api;
+      if (typeof api?.[method] !== "function") return false;
+      setItems(null);
+      Promise.resolve(api[method]())
+        .then((data) => { if (!cancelled) setItems(Array.isArray(data) ? data : []); })
+        .catch(() => { if (!cancelled) setItems([]); });
       return true;
     };
 
-    if (fetchOnce()) {
-      return () => { cancelled = true; };
-    }
+    if (fetchOnce()) return () => { cancelled = true; };
 
+    // No bridge yet: stay `undefined` (the preview form) until pywebviewready fires.
     const onReady = () => fetchOnce();
     window.addEventListener("pywebviewready", onReady);
-
-    // Browser-preview safety net: if the bridge never appears, fall back.
-    const timeoutId = setTimeout(() => {
-      if (!cancelled && !window.pywebview) {
-        setItems([]);
-        setHasApi(false);
-      }
-    }, 600);
-
-    return () => {
-      cancelled = true;
-      clearTimeout(timeoutId);
-      window.removeEventListener("pywebviewready", onReady);
-    };
+    return () => { cancelled = true; window.removeEventListener("pywebviewready", onReady); };
   }, [method]);
 
-  return { items, hasApi };
+  return items;
 }
 
-// --- keyed file/path row -----------------------------------------
+//----- keyed file/path row -----//
 
-// One row used by both Queries and Targets. When `items` is provided
-// (an array, possibly empty, or null while loading) it renders the
-// launcher-driven dropdown picker; otherwise it falls back to a free-form
-// path input + simulated browse for browser previews.
+//----- The keyed-row grid, shared by a section's column header and its data rows so the
+//      headings can never drift out of line with their columns. The extra track carries the
+//      free-form Browse button, which only the no-bridge preview form shows -----//
+const keyedRowClass = (usePicker) => `keyed-row${usePicker ? "" : " with-browse"}`;
+
+//----- One row used by both Queries and Targets. With `items` an array (possibly empty) or
+//      null it renders the launcher-driven dropdown; `undefined` falls back to a free-form
+//      path input + simulated browse, for browser previews with no bridge -----//
 function KeyedFileRow({
   keyVal, pathVal, onKey, onPath, onRemove, canRemove,
   placeholderKey, placeholderPath, items, emptyHint,
 }) {
   const usePicker = items !== undefined;
-  const cols = usePicker ? "180px 1fr auto" : "180px 1fr auto auto";
   const loading = items === null;
   const empty = usePicker && !loading && items.length === 0;
 
   return (
-    <div style={{ display: "grid", gridTemplateColumns: cols, gap: 8, alignItems: "center" }}>
+    <div className={keyedRowClass(usePicker)}>
       <input
         className="input mono"
         value={keyVal}
@@ -445,8 +426,9 @@ function KeyedFileRow({
   );
 }
 
-// --- icons --------------------------------------------------------
+//----- icons -----//
 
+//----- Inline SVG icons, sized to sit inside a .btn beside its label -----//
 function FolderIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden>
@@ -467,8 +449,11 @@ function CheckIcon({ size = 14 }) { return <svg width={size} height={size} viewB
 function XIcon({ size = 14 }) { return <svg width={size} height={size} viewBox="0 0 16 16" fill="none" aria-hidden><path d="M4 4l8 8M12 4l-8 8" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"/></svg>; }
 function StopIcon() { return <svg width="11" height="11" viewBox="0 0 12 12" aria-hidden><rect x="2.5" y="2.5" width="7" height="7" rx="1" fill="currentColor"/></svg>; }
 
-// --- nullable numeric input --------------------------------------
+//----- nullable numeric input -----//
 
+//----- A config field that can be null. The toggle collapses it to null ("AUTO"), and a
+//      `forcedNull` field is one another setting has taken over — shown locked, not blank,
+//      so the value the user typed survives the round trip -----//
 function NullableField({
   name, doc, value, onChange,
   kind = "number",        // "number" | "integer" | "pair"
@@ -490,13 +475,65 @@ function NullableField({
     const n = parseInt(s, 10);
     return Number.isFinite(n) ? clamp(n) : "";
   };
+  // Four outcomes, read top to bottom rather than as one nested ternary in the JSX.
+  let body;
+  if (forcedNull) {
+    body = <div className="ghost-input">{forcedNullHint || "null · provided elsewhere"}</div>;
+  } else if (!on) {
+    body = <div className="ghost-input">{nullHint || "null · loose"}</div>;
+  } else if (kind === "pair") {
+    // `.pair-input` is a 3-column grid, so the separator must stay the middle child.
+    body = (
+      <div className="pair-input">
+        {["a", "b"].map((side, i) => (
+          <React.Fragment key={side}>
+            {i === 1 && <span className="pair-sep">,</span>}
+            <input
+              className="input mono"
+              type="number"
+              step="1"
+              inputMode="numeric"
+              min={min}
+              max={max}
+              placeholder={pairLabels?.[i]}
+              value={value[side] ?? ""}
+              onChange={(e) => onChange({ ...value, [side]: toInt(e.target.value) })}
+            />
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  } else {
+    body = (
+      <input
+        className="input mono"
+        type="number"
+        inputMode={kind === "integer" ? "numeric" : "decimal"}
+        step={kind === "integer" ? "1" : "any"}
+        min={min}
+        max={max}
+        value={value.value}
+        onChange={(e) => {
+          const raw = e.target.value;
+          if (raw === "") return onChange({ ...value, value: "" });
+          if (kind === "integer") return onChange({ ...value, value: toInt(raw) });
+          const n = Number(raw);
+          // Ignore partial input like "1e" or ".": NaN would otherwise
+          // serialize as the literal `NaN` in YAML.
+          if (!Number.isFinite(n)) return;
+          onChange({ ...value, value: clamp(n) });
+        }}
+      />
+    );
+  }
+
   return (
     <div className={`nullable ${on ? "on" : ""} ${forcedNull ? "locked" : ""}`}>
       <div className="top">
         <div className="name">
           {name}{doc && <em> · {doc}</em>}
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div className="tag-row">
           <span className="auto-tag">
             {forcedNull ? "LOCKED · null" : (on ? "SET" : (autoTag || "AUTO (null)"))}
           </span>
@@ -508,74 +545,19 @@ function NullableField({
           />
         </div>
       </div>
-      {forcedNull ? (
-        <div className="ghost-input">{forcedNullHint || "null · provided elsewhere"}</div>
-      ) : on ? (
-        kind === "pair" ? (
-          <div className="pair-input">
-            <input
-              className="input mono"
-              type="number"
-              step="1"
-              inputMode="numeric"
-              min={min}
-              max={max}
-              placeholder={pairLabels?.[0]}
-              value={value.a ?? ""}
-              onChange={(e) => onChange({ ...value, a: toInt(e.target.value) })}
-            />
-            <span className="pair-sep">,</span>
-            <input
-              className="input mono"
-              type="number"
-              step="1"
-              inputMode="numeric"
-              min={min}
-              max={max}
-              placeholder={pairLabels?.[1]}
-              value={value.b ?? ""}
-              onChange={(e) => onChange({ ...value, b: toInt(e.target.value) })}
-            />
-          </div>
-        ) : (
-          <input
-            className="input mono"
-            type="number"
-            inputMode={kind === "integer" ? "numeric" : "decimal"}
-            step={kind === "integer" ? "1" : "any"}
-            min={min}
-            max={max}
-            value={value.value}
-            onChange={(e) => {
-              const raw = e.target.value;
-              if (raw === "") return onChange({ ...value, value: "" });
-              if (kind === "integer") return onChange({ ...value, value: toInt(raw) });
-              const n = Number(raw);
-              // Ignore partial input like "1e" or ".": NaN would otherwise
-              // serialize as the literal `NaN` in YAML.
-              if (!Number.isFinite(n)) return;
-              onChange({ ...value, value: clamp(n) });
-            }}
-          />
-        )
-      ) : (
-        <div className="ghost-input">{nullHint || "null · loose"}</div>
-      )}
+      {body}
     </div>
   );
 }
 
-// --- feedback / status -------------------------------------------
+//----- feedback / status -----//
 
-// Dual-orbit spinner. `state` swaps the live spin for a tick or cross
-// when the run terminates; `size` toggles the in-button "sm" variant.
+//----- Dual-orbit spinner. `state` swaps the live spin for a tick or a cross when the run
+//      terminates; `size` toggles the in-button "sm" variant -----//
 function Spinner({ state = "running", size = "md" }) {
-  const cls = [
-    "spinner",
-    size === "sm" ? "sm" : size === "lg" ? "lg" : "",
-    state === "success" ? "done success" : "",
-    state === "failure" ? "done failure" : "",
-  ].filter(Boolean).join(" ");
+  const cls = ["spinner", size === "md" ? "" : size,
+               state === "success" ? "done success" : "",
+               state === "failure" ? "done failure" : ""].filter(Boolean).join(" ");
   return (
     <div className={cls} role="status" aria-live="polite" aria-label="Working">
       {size !== "sm" && <span className="seed" />}
@@ -589,19 +571,23 @@ function Spinner({ state = "running", size = "md" }) {
   );
 }
 
-// Bottom-right status pill. `tone` ∈ "neutral" | "success" | "danger"
-// (neutral matches the dark-pill default).
+//----- Bottom-right status pill. `tone` ∈ "neutral" | "success" | "danger" -----//
 function Toast({ tone = "neutral", children }) {
-  const cls = `toast ${tone === "success" ? "success" : tone === "danger" ? "danger" : ""}`;
+  const cls = `toast ${tone === "neutral" ? "" : tone}`;
   return <div className={cls}>{children}</div>;
 }
 
-// Run scope, phrased one way everywhere: "3 queries × 2 targets · 16 threads".
-// Used by the actions-bar ready state and the run overlay subhead.
+//----- "1 query" / "3 queries" — the single home of these plural rules, shared by the run
+//      scope below and each keyed section's row count -----//
+function countOf(n, one, many) {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+//----- Run scope, phrased one way everywhere: "3 queries × 2 targets · 16 threads". Used by
+//      the actions-bar ready state and the run overlay subhead -----//
 function formatScope(queries, targets, threads) {
-  const q = `${queries} quer${queries === 1 ? "y" : "ies"}`;
-  const t = `${targets} target${targets === 1 ? "" : "s"}`;
-  return `${q} × ${t} · ${threads} threads`;
+  return `${countOf(queries, "query", "queries")} × ${countOf(targets, "target", "targets")}`
+       + ` · ${threads} threads`;
 }
 
 // Mono mm:ss (or h:mm:ss for >1h runs) formatter — defensive against
@@ -615,8 +601,7 @@ function formatElapsed(seconds) {
   return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${pad(m)}:${pad(ss)}`;
 }
 
-// In-bar live indicator used while a run (or save) is mid-flight. The
-// `tone` knob lets us reuse this shell post-run to mirror final state.
+//----- In-bar live indicator shown while a run (or a save) is mid-flight -----//
 function ActivityRail({ label, elapsed, tone = "live" }) {
   const cls = `activity-rail ${tone === "live" ? "" : tone} ${tone === "saving" ? "solid" : ""}`;
   return (
@@ -628,6 +613,34 @@ function ActivityRail({ label, elapsed, tone = "live" }) {
   );
 }
 
+//----- The four overlay faces. Hoisted out of the component: the copy is static, and the
+//      overlay re-renders on every poll tick for the whole life of a run -----//
+const RUN_VIEWS = {
+  running: {
+    glyph: "running",
+    headline: "Hybridization in progress",
+    sub: ({ queries, targets, threads }) =>
+      `Running snakemake · ${formatScope(queries, targets, threads)}`,
+  },
+  succeeded: {
+    glyph: "success",
+    headline: "Pipeline complete",
+    sub: () => "Snakemake finished cleanly. Outputs are in your results directory.",
+  },
+  failed: {
+    glyph: "failure",
+    headline: "Pipeline failed",
+    sub: ({ code }) => `Snakemake exited with code ${code}. The end of the run log is below.`,
+  },
+  cancelled: {
+    glyph: "failure",
+    headline: "Pipeline cancelled",
+    sub: () => "The run was stopped before it finished.",
+  },
+};
+
+//----- Modal shown for the life of a run: live spinner, then the terminal state and, on a
+//      non-clean exit, the tail of the run log -----//
 function RunOverlay({ open, status, onCancel, onClose, threads, queries, targets }) {
   const state = status?.state || "running";
   const elapsed = status?.elapsed || 0;
@@ -646,29 +659,7 @@ function RunOverlay({ open, status, onCancel, onClose, threads, queries, targets
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logTail]);
 
-  const VIEWS = {
-    running: {
-      glyph: "running",
-      headline: "Hybridization in progress",
-      sub: `Running snakemake · ${formatScope(queries, targets, threads)}`,
-    },
-    succeeded: {
-      glyph: "success",
-      headline: "Pipeline complete",
-      sub: "Snakemake finished cleanly. Outputs are in your results directory.",
-    },
-    failed: {
-      glyph: "failure",
-      headline: "Pipeline failed",
-      sub: `Snakemake exited with code ${code}. The end of the run log is below.`,
-    },
-    cancelled: {
-      glyph: "failure",
-      headline: "Pipeline cancelled",
-      sub: "The run was stopped before it finished.",
-    },
-  };
-  const view = VIEWS[state] || VIEWS.running;
+  const view = RUN_VIEWS[state] || RUN_VIEWS.running;
 
   return (
     <div className={`run-overlay ${open ? "open" : ""}`} aria-hidden={!open}>
@@ -677,7 +668,7 @@ function RunOverlay({ open, status, onCancel, onClose, threads, queries, targets
           <Spinner state={view.glyph} size={running ? "lg" : "md"} />
         </div>
         <div className="ttl">{view.headline}</div>
-        <div className="sub">{view.sub}</div>
+        <div className="sub">{view.sub({ queries, targets, threads, code })}</div>
         <div className="meta">
           <span>elapsed <span className="v">{formatElapsed(elapsed)}</span></span>
           {status?.pid && <span>pid <span className="v">{status.pid}</span></span>}
@@ -707,8 +698,9 @@ function RunOverlay({ open, status, onCancel, onClose, threads, queries, targets
   );
 }
 
-// --- layout --- //
+//----- layout -----//
 
+//----- Page header, with the "optional params set" meter -----//
 function Hero({ cfg }) {
   const { set, total } = window.countOptionalParams(cfg);
   return (
@@ -725,9 +717,9 @@ function Hero({ cfg }) {
   );
 }
 
-// Sticky footer holding the readiness summary and primary actions.
-// `pipelineState`/`elapsed` come from the parent state machine and
-// drive the activity rail when the pipeline is alive.
+//----- Sticky footer: readiness summary on the left, primary actions on the right.
+//      `pipelineState`/`elapsed` come from the parent state machine and drive the activity
+//      rail while the pipeline is alive -----//
 function ActionsBar({
   cfg, onSave, onRun, onToggleYAML, theme, onTheme,
   pipelineState, elapsed, saving,
@@ -786,7 +778,7 @@ function ActionsBar({
       >
         {theme === "dark" ? <SunIcon /> : <MoonIcon />}
       </button>
-      <div style={{ flex: 1 }} />
+      <div className="spacer" />
       <div style={{ display: "flex", gap: 8 }}>
         <button className="btn" onClick={onToggleYAML}>
           <span className="accent-dot" />
@@ -810,7 +802,7 @@ function ActionsBar({
   );
 }
 
-// Slide-up YAML drawer with syntax highlighting and copy/save actions.
+//----- Slide-up YAML drawer with syntax highlighting and copy/save actions -----//
 function YAMLDrawer({ open, onClose, cfg, onSave }) {
   // The drawer stays mounted (CSS-toggled), so gate the serialize/highlight work
   // on `open` — otherwise every keystroke that mutates `cfg` rebuilds the YAML
@@ -855,14 +847,15 @@ function YAMLDrawer({ open, onClose, cfg, onSave }) {
   );
 }
 
-// export to window for other scripts
+//----- Publish to window for the other scripts. Each <script type="text/babel"> is
+//      transpiled into its OWN scope, so nothing here is global until it is listed -----//
 Object.assign(window, {
   Toggle, Subcard, PillGroup, PillToggle, SegmentedControl, DisableGroup, InlineNote, ErrorBoundary,
-  PathInput, KeyedFileRow, PairListEditor,
+  PathInput, KeyedFileRow, PairListEditor, keyedRowClass,
   FolderIcon, PlusIcon, TrashIcon, CodeIcon, PlayIcon, SaveIcon, SunIcon, MoonIcon, CopyIcon,
   CheckIcon, XIcon, StopIcon,
   NullableField, useApiList, makeListEditor, promptBrowse,
   Spinner, Toast, ActivityRail, RunOverlay,
   Hero, ActionsBar, YAMLDrawer,
-  formatElapsed, formatScope,
+  formatElapsed, formatScope, countOf,
 });

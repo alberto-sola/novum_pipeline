@@ -1,4 +1,6 @@
 // Novum Pipeline — reference data
+
+//----- Dropdown option lists. Only `value` reaches config.yaml; `label` is display-only -----//
 window.SPECIES_OPTIONS = [
   { value: "3utr_human", label: "Human (3′UTR)" },
   { value: "3utr_fly",   label: "Fly (3′UTR)" },
@@ -49,7 +51,29 @@ window.PLOT_TYPES = [
   { value: "seed_class",          label: "seed class" }
 ];
 
-// The three plots pair-lists — same (value, optional miRNA) editor, different nouns.
+window.PLOT_TYPE_VALUES = window.PLOT_TYPES.map((p) => p.value);
+
+//----- React list keys. A counter, not the clock alone: two rows added inside the same
+//      millisecond would otherwise share an id and React would reuse the wrong row -----//
+let _idSeq = 0;
+window.mintId = (prefix) => `${prefix}${(_idSeq++).toString(36)}${Date.now().toString(36)}`;
+
+//----- Queries and Targets are one keyed picker over two directories; only the nouns and
+//      the directory strings differ. `footerNote` is appended after the row count -----//
+window.KEYED_FILE_SECTIONS = [
+  { key: "queries", num: "1", title: "Queries", noun: "query", many: "queries",
+    sub: "One query FASTA per sample (joined by key)", api: "list_queries",
+    pickerHead: "Query FASTA · Data/Raw/RNAs/", pathHead: "Query FASTA path",
+    placeholderPath: "Data/Raw/RNAs/validated_*.fa", emptyHint: "No files in Data/Raw/RNAs/",
+    footerNote: " · keys must match target keys" },
+  { key: "targets", num: "2", title: "Targets", noun: "target", many: "targets",
+    sub: "One or more (CDS, RNAs, full genomes)", api: "list_targets",
+    pickerHead: "Target genome · Data/Raw/genomes/", pathHead: "Target genome path",
+    placeholderPath: "Data/Raw/genomes/*.fna", emptyHint: "No files in Data/Raw/genomes/",
+    footerNote: "" },
+];
+
+//----- The three plots pair-lists — same (value, optional miRNA) editor, different nouns -----//
 window.PLOT_PAIR_LISTS = [
   { key: "locus",   heading: "Locus tags", noun: "locus",   valueHeader: "Locus tag",
     valuePlaceholder: "locus tag (required), e.g. FE838_RS16060" },
@@ -59,14 +83,35 @@ window.PLOT_PAIR_LISTS = [
     valuePlaceholder: "protein name (required)" },
 ];
 
-// Nullable-field key lists per card. Drives what section renderers (and the Hero
-// "set params" counter) render, vs. what's merely present in INITIAL_CONFIG.
-window.SHARED_NULLABLE_KEYS    = ["max_suboptimal_hits", "seed"];
-window.RNAHYBRID_NULLABLE_KEYS = ["max_hybrid_energy", "max_internal_loop", "max_bulge_loop", "pvalue_threshold", "distribution"];
+//----- Ordered field specs, one per config section. kind: "n" nullable {set,…} field
+//      (scalar or pair — the shape is read off the default), "p" plain value, "v" variant
+//      string (YAML 1.1 turns bare on/off into booleans), "c" constant. Key ORDER is the
+//      order written to config.yaml (safe_dump(sort_keys=False)) — keep it matching
+//      Config/config.yaml. Both directions of config.js walk these, so a key listed here
+//      can never be emitted without being hydrated back, or vice versa -----//
+window.CONFIG_BLOCKS = {
+  shared: [
+    ["max_suboptimal_hits", "n"],
+    ["seed", "n"],
+  ],
+  rnacalibrate: [
+    ["calibration_variant", "v"],
+    ["k", "p"],
+    ["max_target_length", "p"],
+    ["randomize_targets", "p"],
+    ["rng_seed", "n"],
+  ],
+  rnahybrid: [
+    ["species", "p"],
+    ["max_hybrid_energy", "n"],
+    ["max_internal_loop", "n"],
+    ["max_bulge_loop", "n"],
+    ["pvalue_threshold", "n"],
+    ["distribution", "n"],
+  ],
+};
 
-// Ordered field specs for the `intarna:` sub-blocks. kind: "n" nullable {set,value}
-// field, "p" plain value, "c" constant. Key ORDER here is the order written to
-// config.yaml (safe_dump(sort_keys=False)) — keep it matching Config/config.yaml.
+//----- The `intarna:` sub-blocks, same entry shape as CONFIG_BLOCKS above -----//
 window.INTARNA_BLOCKS = {
   top: [
     ["max_hybrid_energy", "n"],
@@ -100,32 +145,46 @@ window.INTARNA_BLOCKS = {
   ],
 };
 
-const nullableKeys = (block) =>
-  window.INTARNA_BLOCKS[block].filter(([, kind]) => kind === "n").map(([k]) => k);
+//----- The nullable keys of a spec, for the section renderers and the Hero "set params"
+//      counter. Derived, never hand-listed: a key can't be in one list and not the other -----//
+const nullableKeys = (spec) => spec.filter(([, kind]) => kind === "n").map(([k]) => k);
 
-window.INTARNA_TOP_NULLABLE_KEYS    = nullableKeys("top");
-window.INTARNA_HELIX_NULLABLE_KEYS  = nullableKeys("helix");
-window.INTARNA_SEED_NULLABLE_KEYS   = nullableKeys("seed");
-window.INTARNA_ACC_NULLABLE_KEYS    = nullableKeys("accessibility");
-window.INTARNA_OUTPUT_NULLABLE_KEYS = nullableKeys("output");
+// On window: read across files (yaml.js's blank-line rule, config.js's emit loop).
+window.SHARED_NULLABLE_KEYS    = nullableKeys(window.CONFIG_BLOCKS.shared);
+window.RNAHYBRID_NULLABLE_KEYS = nullableKeys(window.CONFIG_BLOCKS.rnahybrid);
 
-// `distribution` is supplied by RNAcalibrate whenever calibration is part of the run,
-// so the RNAhybrid form forces it null in any variant other than "off".
+// Local: only countOptionalParams and helixInertKeys below read these.
+const INTARNA_TOP_NULLABLE_KEYS    = nullableKeys(window.INTARNA_BLOCKS.top);
+const INTARNA_HELIX_NULLABLE_KEYS  = nullableKeys(window.INTARNA_BLOCKS.helix);
+const INTARNA_SEED_NULLABLE_KEYS   = nullableKeys(window.INTARNA_BLOCKS.seed);
+const INTARNA_ACC_NULLABLE_KEYS    = nullableKeys(window.INTARNA_BLOCKS.accessibility);
+const INTARNA_OUTPUT_NULLABLE_KEYS = nullableKeys(window.INTARNA_BLOCKS.output);
+
+//----- `distribution` is supplied by RNAcalibrate whenever calibration is part of the run,
+//      so the RNAhybrid form forces it null in any variant other than "off" -----//
 window.isDistributionForced = (cfg) => cfg.rnacalibrate.calibration_variant !== "off";
 
-// IntaRNA seed sub-fields only affect a run when a shared seed is set (intarna.py:
-// _add_seed_flags). Via resolveNullable, not `.set`: a toggled-on-but-blank seed saves as
-// null, and would otherwise enable sub-fields for a run getting --noSeed.
+//----- IntaRNA seed sub-fields only affect a run when a shared seed is set (intarna.py:
+//      _add_seed_flags). Via resolveNullable, not `.set`: a toggled-on-but-blank seed saves
+//      as null, and would otherwise enable sub-fields for a run getting --noSeed -----//
 window.isSeedEnforced = (cfg) => window.resolveNullable(cfg.seed, false).v != null;
 
-// Helix parameters only reach IntaRNA under model B; under X/S/P they are inert.
-// Mirrors _intarna_config.py:INTARNA_DEFAULT_HELIX_MAX_BP.
+//----- Helix parameters only reach IntaRNA under model B; under X/S/P they are inert.
+//      Mirrors _intarna_config.py:INTARNA_DEFAULT_HELIX_MAX_BP -----//
 window.INTARNA_DEFAULT_HELIX_MAX_BP = 10;
 window.isHelixActive = (cfg) => cfg.intarna.model === "B";
 
-// Mirrors _intarna_config.py check (a): under model B the seed must fit inside one helix.
-// Returns the offending numbers, else null. Both fields go through resolveNullable so a
-// set-but-blank input collapses to null here exactly as it does on save.
+//----- The accessibility block (and the per-side Pu floors) only bite when the variant is on -----//
+window.isAccessibilityActive = (cfg) => cfg.intarna.accessibility_variant !== "off";
+
+//----- IntaRNA's own per-side accessibility defaults, named once: INITIAL_CONFIG's
+//      placeholders, the "Global" pill's reset and the AUTO (…) tags all read them here -----//
+window.INTARNA_DEFAULT_ACC_WINDOW = 150;
+window.INTARNA_DEFAULT_ACC_BP_SPAN = 100;
+
+//----- Mirrors _intarna_config.py check (a): under model B the seed must fit inside one
+//      helix. Returns the offending numbers, else null. Both fields go through
+//      resolveNullable so a set-but-blank input collapses to null exactly as it does on save -----//
 window.helixSeedConflict = (cfg) => {
   if (!window.isHelixActive(cfg)) return null;
   const seed = window.resolveNullable(cfg.seed, false).v;
@@ -137,25 +196,25 @@ window.helixSeedConflict = (cfg) => {
   return seedBP > maxBP ? { seedBP, maxBP } : null;
 };
 
-// Mirrors check (c). Inert values are still serialized — a model toggle must not destroy
-// the user's tuning — so the form names them instead of dropping them.
+//----- Mirrors check (c). Inert values are still serialized — a model toggle must not
+//      destroy the user's tuning — so the form names them instead of dropping them -----//
 window.helixInertKeys = (cfg) => {
   if (window.isHelixActive(cfg)) return [];
-  const keys = window.INTARNA_HELIX_NULLABLE_KEYS.filter((k) => cfg.intarna.helix[k].set);
+  const keys = INTARNA_HELIX_NULLABLE_KEYS.filter((k) => cfg.intarna.helix[k].set);
   return cfg.intarna.helix.full_energy ? keys.concat("full_energy") : keys;
 };
 
-// The two accessibility sides — same window/span editor, different nouns and flags, in the
-// shape of PLOT_PAIR_LISTS above. Field keys derive as `${side}_window` /
-// `${side}_max_bp_span`, matching INTARNA_BLOCKS.accessibility and Config/config.yaml.
+//----- The two accessibility sides — same window/span editor, different nouns and flags, in
+//      the shape of PLOT_PAIR_LISTS above. Field keys derive as `${side}_window` /
+//      `${side}_max_bp_span`, matching INTARNA_BLOCKS.accessibility and Config/config.yaml -----//
 window.ACCESSIBILITY_SIDES = [
   { side: "query",  label: "Query (miRNA)", name: "Query",  wFlag: "--qAccW", lFlag: "--qAccL" },
   { side: "target", label: "Target (CDS)",  name: "Target", wFlag: "--tAccW", lFlag: "--tAccL" },
 ];
 
-// Mirrors _intarna_config.py:ACCESSIBILITY_WINDOW_CONFLICTS — IntaRNA aborts if a shared
-// accessibility key is set beside a DIFFERING per-side one; equal or unset is fine.
-// UI/tests/test_ui_config_contract.py asserts this table equals the Python one.
+//----- Mirrors _intarna_config.py:ACCESSIBILITY_WINDOW_CONFLICTS — IntaRNA aborts if a
+//      shared accessibility key is set beside a DIFFERING per-side one; equal or unset is
+//      fine. test_ui_config_contract.py asserts this table equals the Python one -----//
 window.ACCESSIBILITY_WINDOW_CONFLICTS = [
   ["window", "query_window"],
   ["window", "target_window"],
@@ -163,6 +222,7 @@ window.ACCESSIBILITY_WINDOW_CONFLICTS = [
   ["max_bp_span", "target_max_bp_span"],
 ];
 
+//----- The conflicting (shared, per-side) pairs in the current config, for the live note -----//
 window.accessibilityConflicts = (cfg) => {
   const acc = cfg.intarna.accessibility;
   const conflicts = [];
@@ -175,9 +235,9 @@ window.accessibilityConflicts = (cfg) => {
   return conflicts;
 };
 
-// Count optional (nullable) params the user has set, against the number in play. Inert
-// groups (no shared seed, accessibility Off) and the locked distribution field are excluded
-// from both sides, so the ratio only reflects params that can affect this run.
+//----- Count optional (nullable) params the user has set, against the number in play. Inert
+//      groups (no shared seed, accessibility Off) and the locked distribution field are
+//      excluded from BOTH sides, so the ratio only counts params that can affect this run -----//
 window.countOptionalParams = (cfg) => {
   let set = 0, total = 0;
   const tally = (obj, keys, { active = true, locked = () => false } = {}) => {
@@ -194,29 +254,29 @@ window.countOptionalParams = (cfg) => {
     locked: (k) => k === "distribution" && window.isDistributionForced(cfg),
   });
 
-  tally(cfg.intarna, window.INTARNA_TOP_NULLABLE_KEYS);
-  tally(cfg.intarna.seed, window.INTARNA_SEED_NULLABLE_KEYS, {
+  tally(cfg.intarna, INTARNA_TOP_NULLABLE_KEYS);
+  tally(cfg.intarna.seed, INTARNA_SEED_NULLABLE_KEYS, {
     active: window.isSeedEnforced(cfg),
   });
-  tally(cfg.intarna.helix, window.INTARNA_HELIX_NULLABLE_KEYS, {
+  tally(cfg.intarna.helix, INTARNA_HELIX_NULLABLE_KEYS, {
     active: window.isHelixActive(cfg),
   });
-  tally(cfg.intarna.accessibility, window.INTARNA_ACC_NULLABLE_KEYS, {
-    active: cfg.intarna.accessibility_variant !== "off",
+  tally(cfg.intarna.accessibility, INTARNA_ACC_NULLABLE_KEYS, {
+    active: window.isAccessibilityActive(cfg),
   });
-  tally(cfg.intarna.output, window.INTARNA_OUTPUT_NULLABLE_KEYS);
+  tally(cfg.intarna.output, INTARNA_OUTPUT_NULLABLE_KEYS);
 
   return { set, total };
 };
 
-// Default --outCsvCols string. The form never exposes `intarna.output.columns`; the YAML
-// writer emits this constant.
+//----- Default --outCsvCols string. The form never exposes `intarna.output.columns`, so the
+//      writer emits this constant over whatever is on disk (kind "c") -----//
 window.INTARNA_OUTPUT_COLUMNS_DEFAULT =
   "id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2";
 
-// canonical initial state — queries/targets populated from the launcher's dropdowns.
-// Plots are toggled by the size of `plots.types`: an empty list serializes to
-// `type: null` (skip), any selection emits the full plot block.
+//----- Canonical initial state; every field absent from a loaded config keeps its value
+//      here. Plots toggle on the size of `plots.types`: an empty list serializes to
+//      `type: null` (skip), any selection emits the full plot block -----//
 window.INITIAL_CONFIG = {
   queries: [],
   targets: [],
@@ -273,12 +333,12 @@ window.INITIAL_CONFIG = {
       report_best_only: false
     },
     accessibility: {
-      window:      { set: false, value: 150 },
-      max_bp_span: { set: false, value: 100 },
-      query_window:       { set: false, value: 150 },
-      query_max_bp_span:  { set: false, value: 100 },
-      target_window:      { set: false, value: 150 },
-      target_max_bp_span: { set: false, value: 100 },
+      window:      { set: false, value: window.INTARNA_DEFAULT_ACC_WINDOW },
+      max_bp_span: { set: false, value: window.INTARNA_DEFAULT_ACC_BP_SPAN },
+      query_window:       { set: false, value: window.INTARNA_DEFAULT_ACC_WINDOW },
+      query_max_bp_span:  { set: false, value: window.INTARNA_DEFAULT_ACC_BP_SPAN },
+      target_window:      { set: false, value: window.INTARNA_DEFAULT_ACC_WINDOW },
+      target_max_bp_span: { set: false, value: window.INTARNA_DEFAULT_ACC_BP_SPAN },
       forbid_lonely_pairs: false,
       forbid_gu_at_ends: false
     },

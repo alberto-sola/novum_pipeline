@@ -3,10 +3,7 @@
 // Renders `configToObject(cfg)` — the same object api.save_config dumps — so the
 // preview cannot drift from what Save writes. This file knows no schema.
 
-// Top-level keys open a blank-line-separated block, except the shared scalars,
-// which ride along with `threads`.
-const YAML_NO_BREAK_BEFORE = new Set(["queries"]);
-
+//----- YAML scalar class, for both the highlighter and the plain-text writer -----//
 const kindOf = (v) =>
   v === null || v === undefined ? "null"
   : typeof v === "boolean" ? "bool"
@@ -15,8 +12,8 @@ const kindOf = (v) =>
 
 const isMap = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 
-// `indent === 0` is top level, where scalars are `kv` and maps are `k`; deeper,
-// everything is a `nested` line.
+//----- Appends the line records for one key. `indent === 0` is top level, where scalars are
+//      `kv` and maps are `k`; deeper, everything is a `nested` line -----//
 function dump(lines, key, value, indent) {
   const top = indent === 0;
 
@@ -49,24 +46,26 @@ function dump(lines, key, value, indent) {
     : { t: "nested", indent, k: key, v: value, kind: kindOf(value) });
 }
 
+//----- Every top-level key opens a blank-line-separated block, except the shared scalars,
+//      which ride along with `threads`. (`queries` needs no exception: it is written first,
+//      so `lines.length` is still 0 when it is reached.) -----//
 window.buildYAML = function buildYAML(cfg) {
   const lines = [];
   const shared = new Set(window.SHARED_NULLABLE_KEYS);
   Object.entries(window.configToObject(cfg)).forEach(([key, value]) => {
-    if (lines.length && !YAML_NO_BREAK_BEFORE.has(key) && !shared.has(key)) {
-      lines.push({ t: "blank" });
-    }
+    if (lines.length && !shared.has(key)) lines.push({ t: "blank" });
     dump(lines, key, value, 0);
   });
   return lines;
 };
 
-// --- rendering -----------------------------------------------------------
-// The drawer wants syntax-highlighting spans, the clipboard wants plain text.
+//----- rendering — the drawer wants highlighted spans, the clipboard wants plain text -----//
 
 const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 const indent = (n) => " ".repeat(n);
 
+//----- Turns line records into text. `key`/`val` decide the markup, so the highlighted and
+//      the plain forms below share this one layout pass and cannot disagree -----//
 function renderLines(lines, key, val) {
   return lines.map((L) => {
     if (L.t === "blank") return "";
@@ -83,6 +82,7 @@ function renderLines(lines, key, val) {
   }).join("\n");
 }
 
+//----- Syntax-highlighted HTML for the drawer panel -----//
 window.renderYAML = function renderYAML(lines) {
   return renderLines(
     lines,
@@ -97,6 +97,7 @@ window.renderYAML = function renderYAML(lines) {
   );
 };
 
+//----- Plain text for the clipboard -----//
 window.renderYAMLPlain = function renderYAMLPlain(lines) {
   return renderLines(
     lines,

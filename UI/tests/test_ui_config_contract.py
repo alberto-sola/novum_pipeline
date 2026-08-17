@@ -85,15 +85,15 @@ def _intarna_initial_config():
     return _nested_body(_assignment_body("INITIAL_CONFIG", "{", "}"), "intarna", "{", "}")
 
 
-def _block_entries(name):
-    body = _nested_body(_assignment_body("INTARNA_BLOCKS", "{", "}"), name, "[", "]")
-    # Kind letter is \w, not [npc]: an entry with a drifted kind must still be picked up, or
+def _block_entries(name, table="INTARNA_BLOCKS"):
+    body = _nested_body(_assignment_body(table, "{", "}"), name, "[", "]")
+    # Kind letter is \w, not [npvc]: an entry with a drifted kind must still be picked up, or
     # the order assertion could pass against a block that has actually diverged.
     return re.findall(r'\["([a-z_]+)",\s*"(\w+)"\]', body)
 
 
-def _block_keys(name):
-    return [key for key, _kind in _block_entries(name)]
+def _block_keys(name, table="INTARNA_BLOCKS"):
+    return [key for key, _kind in _block_entries(name, table)]
 
 
 def _initial_config_keys(name):
@@ -135,19 +135,25 @@ def test_ui_top_block_matches_config_yaml_scalars():
     assert _block_keys("top") == scalars
 
 
-def test_ui_rnacalibrate_block_matches_config_yaml_scalars():
-    # The rnacalibrate analogue of test_ui_top_block_matches_config_yaml_scalars above;
-    # config.js hand-lists `obj.rnacalibrate` (there is no RNACALIBRATE_BLOCKS table).
-    # This is exactly how `rng_seed` went missing (F1), after which the next UI-launched
-    # run went unpinned with no error or warning.
-    source = _config_js_source()
-    match = re.search(r"obj\.rnacalibrate\s*=\s*\{", source)
-    assert match, "could not locate obj.rnacalibrate in config.js"
-    body = _body_at(source, match.end() - 1, "{", "}")
-    js_keys = re.findall(r"(?m)^\s*(\w+):", body)
-
+@pytest.mark.parametrize("block", ["rnacalibrate", "rnahybrid"])
+def test_config_block_matches_config_yaml(block):
+    # These sections used to be hand-listed key-by-key in BOTH directions of config.js, so a
+    # key present on disk but missing from the emit list was DELETED on the first save —
+    # exactly how `rng_seed` went missing (F1), after which the next UI-launched run went
+    # unpinned with no error or warning. They are table-driven now, so one assertion per
+    # section covers both directions: config.js walks CONFIG_BLOCKS to emit AND to hydrate.
     cfg = yaml.safe_load((ROOT / "Config" / "config.yaml").read_text())
-    assert js_keys == list(cfg["rnacalibrate"].keys())
+    assert _block_keys(block, "CONFIG_BLOCKS") == list(cfg[block].keys())
+
+
+def test_shared_block_matches_config_yaml_top_level():
+    # `shared` emits at the top level rather than into a mapping of its own, so assert the
+    # keys sit contiguously and in order where configToObject writes them (after `threads`).
+    cfg = yaml.safe_load((ROOT / "Config" / "config.yaml").read_text())
+    top = list(cfg.keys())
+    keys = _block_keys("shared", "CONFIG_BLOCKS")
+    start = top.index(keys[0])
+    assert top[start:start + len(keys)] == keys
 
 
 def _run_js_roundtrip(raw):
@@ -171,17 +177,35 @@ def test_rnacalibrate_block_round_trips_through_the_real_js(rng_seed):
     # (F1 verbatim — the disk value falls back to the INITIAL_CONFIG default and re-saves as
     # it), emitting the raw {set, value} object unwrapped, and the key vanishing from
     # INITIAL_CONFIG (hydrateConfig throws, blanking the UI).
-    # Asserting the whole block costs nothing but only extends cover to keys whose shipped
-    # value DIFFERS from its default — calibration_variant and rng_seed, verified by
-    # mutation. Where they coincide (k, max_target_length, randomize_targets) a dropped
-    # hydrate line stays invisible; closing that needs the per-key table config.js already
-    # uses for intarna.
     # All three params matter: null means "don't pin" not "unset", 0 guards falsy-collapse,
     # and null alone cannot detect a deleted hydrate line (its fallback emits null too).
     cfg = yaml.safe_load((ROOT / "Config" / "config.yaml").read_text())
     cfg["rnacalibrate"]["rng_seed"] = rng_seed
     out = _run_js_roundtrip(cfg)
     assert out["obj"]["rnacalibrate"] == cfg["rnacalibrate"]
+
+
+# Every key shifted OFF its INITIAL_CONFIG default. A round trip that only used shipped
+# values would pass even with the hydrate side deleted, because the default it falls back
+# to is the value being compared — the blind spot that made F1 survive its own test.
+OFF_DEFAULT = {
+    "rnacalibrate": {"calibration_variant": "both", "k": 4321, "max_target_length": 12345,
+                     "randomize_targets": False, "rng_seed": 99},
+    "rnahybrid": {"species": "3utr_fly", "max_hybrid_energy": -21.5, "max_internal_loop": 7,
+                  "max_bulge_loop": 6, "pvalue_threshold": 0.02, "distribution": "3,4"},
+}
+
+
+@pytest.mark.skipif(NODE is None, reason="node not found on PATH")
+@pytest.mark.parametrize("block", sorted(OFF_DEFAULT))
+def test_config_blocks_round_trip_off_default_values(block):
+    cfg = yaml.safe_load((ROOT / "Config" / "config.yaml").read_text())
+    # rnahybrid.distribution is forced null while calibration runs, so read it with
+    # calibration off — otherwise the writer legitimately drops the value under test.
+    cfg["rnacalibrate"]["calibration_variant"] = "off"
+    cfg[block].update(OFF_DEFAULT[block])
+    out = _run_js_roundtrip(cfg)
+    assert out["obj"][block] == cfg[block]
 
 
 def test_initial_config_has_every_top_block_key():
@@ -226,6 +250,17 @@ def test_js_energy_sets_mirror_python():
     body = _assignment_body("INTARNA_ENERGY_SETS")
     js_sets = tuple(re.findall(r'value:\s*"(\w+)"', body))
     assert js_sets == _intarna_config.INTARNA_ENERGY_SETS
+
+
+def test_js_output_columns_default_matches_config_yaml():
+    # config.js emits this constant for `intarna.output.columns` on every save and never
+    # hydrates the on-disk value back (kind "c"), so the UI silently REWRITES whatever is in
+    # the file. Downstream readers — tidy_intarna's required columns, enhance_intarna's seed
+    # columns — depend on that list, so the two must agree or the first save breaks the arm.
+    match = re.search(r'INTARNA_OUTPUT_COLUMNS_DEFAULT\s*=\s*\n?\s*"([^"]+)"', _data_js_source())
+    assert match, "could not locate INTARNA_OUTPUT_COLUMNS_DEFAULT in data.js"
+    cfg = yaml.safe_load((ROOT / "Config" / "config.yaml").read_text())
+    assert match.group(1) == cfg["intarna"]["output"]["columns"]
 
 
 def test_js_default_helix_max_bp_mirrors_python():

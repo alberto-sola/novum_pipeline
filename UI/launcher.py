@@ -3,9 +3,6 @@
 Loads ``UI/Novum Pipeline.html`` in a native window and bridges it to the local
 filesystem via an ``API`` instance exposed as ``window.pywebview.api`` on the JS
 side (file pickers, config save, and the pipeline run/poll/cancel lifecycle).
-
-We force the Qt backend (``webview.start(gui="qt")``) so no system GTK/WebKit2 is
-needed — PyQt5 + PyQtWebEngine pull a self-contained Chromium into the conda env.
 See the README for env setup; run with ``python UI/launcher.py``.
 
 ``run_pipeline`` records the live ``Popen`` so the UI can poll ``pipeline_status``
@@ -44,52 +41,50 @@ HTML_PATH = ROOT / "UI" / "Novum Pipeline.html"
 LOG_PATH = ROOT / "Data" / "Results" / ".pipeline.log"
 
 
-#----- Lists files in `directory` as {name, path} dicts the React file pickers consume -----#
-def _list_dir(directory: Path, prefix: str) -> list[dict]:
+#----- Lists files in `directory` as {name, path} dicts the React file pickers consume. The
+#      path is spelled relative to ROOT, in POSIX form, because it is what lands in
+#      config.yaml — deriving it here keeps it from drifting from `directory` -----#
+def _list_dir(directory: Path) -> list[dict]:
     if not directory.is_dir():
         return []
-    entries = []
-    for entry in sorted(directory.iterdir(), key=lambda p: p.name):
-        if entry.is_file():
-            entries.append({"name": entry.name, "path": f"{prefix}/{entry.name}"})
-    return entries
+    prefix = directory.relative_to(ROOT).as_posix()
+    return [{"name": entry.name, "path": f"{prefix}/{entry.name}"}
+            for entry in sorted(directory.iterdir(), key=lambda p: p.name)
+            if entry.is_file()]
 
 
+#----- The object exposed to JS as `window.pywebview.api`. Every public method here is
+#      callable from the React side; `_lock` serialises the run-state mutations, which the
+#      1 Hz status poll and the user's Cancel can otherwise reach concurrently -----#
 class API:
     def __init__(self) -> None:
         self._lock = Lock()
         self._log_fh = None
-        self._reset_run_state()
+        self._set_run(None)
 
-    #----- _reset_run_state also drops the process handle (idle); _arm_run_state keeps it
-    #      and starts the clock for a fresh run. -----#
-    def _clear_run_latches(self) -> None:
+    #----- The whole run state, set in one place: idle when `proc` is None, otherwise a
+    #      fresh run with the clock started. `_finished_at` doubles as the "already
+    #      harvested this exit" latch, and the exit code is read off the Popen -----#
+    def _set_run(self, proc: "subprocess.Popen | None") -> None:
+        self._proc = proc
+        self._started_at: float | None = time.time() if proc else None
         self._finished_at: float | None = None
-        self._returncode: int | None = None
         self._cancelled = False
-
-    def _reset_run_state(self) -> None:
-        self._proc: subprocess.Popen | None = None
-        self._started_at: float | None = None
-        self._clear_run_latches()
-
-    def _arm_run_state(self) -> None:
-        self._started_at = time.time()
-        self._clear_run_latches()
 
     #----- file pickers used by the React form -----#
 
     def list_queries(self) -> list[dict]:
-        return _list_dir(QUERIES_DIR, "Data/Raw/RNAs")
+        return _list_dir(QUERIES_DIR)
 
     def list_targets(self) -> list[dict]:
-        return _list_dir(TARGETS_DIR, "Data/Raw/genomes")
+        return _list_dir(TARGETS_DIR)
 
     #----- config save -----#
 
     def load_config(self) -> dict:
         return _load_config(CONFIG_PATH)
 
+    #----- Write config.yaml, turning an OS error into a result the UI can show -----#
     def save_config(self, config: dict) -> dict:
         try:
             return _save_config(CONFIG_PATH, config)
@@ -97,9 +92,12 @@ class API:
             return {"ok": False, "error": str(exc)}
 
     #----- pipeline lifecycle -----#
+
+    #----- A run is live only while a process exists AND has not exited -----#
     def _is_running(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
+    #----- Flush and drop the log handle; safe to call more than once -----#
     def _close_log(self) -> None:
         if self._log_fh is not None:
             try:
@@ -108,13 +106,12 @@ class API:
             finally:
                 self._log_fh = None
 
+    #----- Last `max_lines` of the run log, so a failure can be read in-app instead of
+    #      sending the user back to the launcher terminal. Only the final `max_bytes` are
+    #      read, so a long run's log is never slurped whole; the leading partial line is
+    #      dropped by the line slice -----#
     @staticmethod
     def _read_log_tail(max_lines: int = 80, max_bytes: int = 65536) -> str:
-        """Last ``max_lines`` lines of the run log, so a failure can be read
-        in-app instead of sending the user back to the launcher terminal.
-
-        Reads only the final ``max_bytes`` so a long run's log is never slurped
-        whole; the leading partial line is dropped by the line slice."""
         try:
             with LOG_PATH.open("rb") as fh:
                 fh.seek(0, os.SEEK_END)
@@ -124,6 +121,7 @@ class API:
             return ""
         return "\n".join(tail.splitlines()[-max_lines:])
 
+    #----- Saves the config, then launches snakemake against it -----#
     def run_pipeline(self, config: dict) -> dict:
         with self._lock:
             if self._is_running():
@@ -138,7 +136,9 @@ class API:
             try:
                 LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
                 self._log_fh = LOG_PATH.open("w", buffering=1)
-                self._proc = subprocess.Popen(
+                # Adopted only once Popen succeeds, so a failed launch cannot leave the
+                # previous run's handle in place for the next status poll to report.
+                proc = subprocess.Popen(
                     ["snakemake", "--use-conda", "--cores", "all"],
                     cwd=str(ROOT),
                     stdout=self._log_fh,
@@ -147,13 +147,15 @@ class API:
             except FileNotFoundError as exc:
                 self._close_log()
                 return {"ok": False, "error": f"snakemake not found on PATH ({exc})"}
-            self._arm_run_state()
+            self._set_run(proc)
             return {
                 "ok": True,
-                "pid": self._proc.pid,
+                "pid": proc.pid,
                 "log_path": str(LOG_PATH),
             }
 
+    #----- Polled ~1/s by the UI while a run is alive; terminal states stay sticky until
+    #      acknowledge_pipeline, so a fast finish cannot slip between two polls -----#
     def pipeline_status(self) -> dict:
         with self._lock:
             if self._proc is None:
@@ -163,27 +165,20 @@ class API:
                 return {
                     "state": "running",
                     "pid": self._proc.pid,
-                    "elapsed": time.time() - (self._started_at or time.time()),
+                    "elapsed": time.time() - self._started_at,
                 }
 
-            if self._returncode is None:
-                self._returncode = self._proc.returncode
+            if self._finished_at is None:          # first poll after the process exited
                 self._finished_at = time.time()
                 self._close_log()
 
-            if self._cancelled:
-                state = "cancelled"
-            elif self._returncode == 0:
-                state = "succeeded"
-            else:
-                state = "failed"
-
-            duration = (self._finished_at or 0) - (self._started_at or 0)
+            code = self._proc.returncode
+            state = "cancelled" if self._cancelled else "succeeded" if code == 0 else "failed"
             result = {
                 "state": state,
                 "pid": self._proc.pid,
-                "returncode": self._returncode,
-                "elapsed": duration,
+                "returncode": code,
+                "elapsed": self._finished_at - self._started_at,
                 "log_path": str(LOG_PATH),
             }
             # Surface the trace in-app for non-clean exits; success stays terse.
@@ -191,6 +186,8 @@ class API:
                 result["log_tail"] = self._read_log_tail()
             return result
 
+    #----- SIGTERM the run; `_cancelled` is what makes the exit read as "cancelled" rather
+    #      than "failed" when the status is next polled -----#
     def cancel_pipeline(self) -> dict:
         with self._lock:
             if not self._is_running():
@@ -202,24 +199,22 @@ class API:
                 return {"ok": False, "error": str(exc)}
             return {"ok": True, "pid": self._proc.pid}
 
+    #----- Drops the sticky terminal status so the UI returns to idle -----#
     def acknowledge_pipeline(self) -> dict:
-        """Reset the post-run latch so the UI returns to idle.
-
-        The terminal status (succeeded/failed/cancelled) is sticky until the
-        UI explicitly acknowledges it — that way a fast finish cannot be
-        missed between two polls.
-        """
         with self._lock:
             if self._is_running():
                 return {"ok": False, "error": "Pipeline still running"}
-            self._reset_run_state()
+            self._set_run(None)
             return {"ok": True}
 
 
 #----- Builds the PyWebView window, wires the min-width snap-back, and starts the Qt loop -----#
 def main() -> None:
-    # Width has a floor (cards break below ~960); height is left unconstrained
-    # so the user can collapse the window vertically as far as they want.
+    # Width has a floor (the cards break below it); height is left unconstrained so the
+    # user can collapse the window vertically as far as they want.
+    # DERIVED, not independent: the cards break at ~768 CSS px, and `html { zoom }` scales
+    # CSS px to device px, so this floor is 768 x --ui-zoom (tokens.css). Retune it if you
+    # change --ui-zoom, or the window will stop shrinking at the wrong width.
     min_w = 960
     window = webview.create_window(
         "Novum Pipeline",
@@ -270,9 +265,14 @@ def main() -> None:
     # Force the Qt backend on Linux: the GTK backend needs system PyGObject
     # (`python3-gi`), which conda envs don't see. PyQt5 + QtWebEngineWidgets
     # ship via pip into the env and Just Work.
+    # private_mode=False: pywebview's default builds an off-the-record QWebEngineProfile,
+    # which drops localStorage between launches — so the theme toggle (app.jsx writes
+    # `np:theme`) could never actually persist. A named profile also pins the local server
+    # to a fixed port, letting the HTTP and V8 code caches survive a restart and take some
+    # of the in-browser Babel compile off startup.
     # Flip ``debug=True`` for the rare React debugging session — it both opens
     # DevTools at startup and adds the right-click → Inspect Element entry.
-    webview.start(gui="qt", debug=False)
+    webview.start(gui="qt", debug=False, private_mode=False)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-/* Novum Pipeline — design tokens */
+/*----- Novum Pipeline — design tokens -----*/
 :root {
   /* type */
   --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -88,7 +88,7 @@
 html { zoom: var(--ui-zoom); }
 html, body { margin: 0; padding: 0; overflow: hidden; }
 
-/* hide scrollbar but keep scroll behavior */
+/*----- hide scrollbar but keep scroll behavior -----*/
 .no-scrollbar { scrollbar-width: none; -ms-overflow-style: none; }
 .no-scrollbar::-webkit-scrollbar { width: 0; height: 0; display: none; }
 body {
@@ -99,7 +99,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* desktop window */
+/*----- desktop window -----*/
 .desk {
   min-height: calc(100vh / var(--ui-zoom));
   display: flex;
@@ -108,6 +108,8 @@ body {
 
 .window {
   width: 100%;
+  /* Viewport-sized despite `html { zoom }` — see --ui-zoom. */
+  height: calc(100vh / var(--ui-zoom));
   background: var(--surface);
   overflow: hidden;
   display: flex;
@@ -115,18 +117,28 @@ body {
   position: relative;
 }
 [data-theme="dark"] .window { background: var(--bg); }
-/* forms */
-.field { display: flex; flex-direction: column; gap: 6px; }
-.field-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--fg-2);
-  letter-spacing: 0.01em;
+/*----- app shell — the scrolling column of section cards inside .window -----*/
+.window-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
 }
+.card-stack {
+  width: 100%;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+/*----- a wrapping row of pills (a Constraints group, the plot-type selector) -----*/
+.pill-row { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/*----- forms -----*/
 .field-row { display: flex; gap: 8px; align-items: stretch; }
 
 .input, .select {
@@ -197,7 +209,7 @@ body {
 button:focus { outline: none; }
 button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-/* section card */
+/*----- section card -----*/
 .card {
   background: var(--surface);
   border: 1px solid var(--line);
@@ -233,14 +245,22 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 .card-body { padding: 20px; }
 
-/* grid */
+/*----- grid -----*/
 .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 18px; }
 .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px 18px; }
+
+/* Keyed rows: [key] [file] [browse?] [remove], and the plots pair rows [value] [miRNA]
+   [remove]. Each section's column header uses the same grid as its data rows via `.head`,
+   so a heading cannot drift out of line with the column it names. */
+.keyed-row, .pair-row { display: grid; grid-template-columns: 180px 1fr auto; gap: 8px; }
+.keyed-row { align-items: center; }
+.keyed-row.with-browse { grid-template-columns: 180px 1fr auto auto; }
+.keyed-row.head, .pair-row.head { padding: 0 2px; margin-bottom: 6px; }
 .stack { display: flex; flex-direction: column; gap: 14px; }
 .stack.sm { gap: 10px; }
 .stack.lg { gap: 20px; }
 
-/* nullable field */
+/*----- nullable field -----*/
 .nullable {
   display: flex;
   flex-direction: column;
@@ -276,22 +296,71 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Section eyebrow / column-header label.
    `.eyebrow.strong` is the slightly bolder variant used for inline group headings. */
-/* Small secondary caption (row counts, empty-list notes, key-match hints). */
+/*----- Inline literals (a sample key, a config field name) quoted inside prose. -----*/
+code { font-family: var(--font-mono); }
+
+/*----- A status word or tag sitting beside its toggle, on a label row. -----*/
+.tag-row { display: flex; align-items: center; gap: 8px; }
+
+/*----- Small secondary caption (row counts, empty-list notes, key-match hints). -----*/
 .hint {
   font-size: 12px;
   color: var(--fg-4);
 }
 .hint.italic { font-style: italic; }
 .hint.warn   { color: var(--warn); }
+/*----- Advisory riding on a group header rather than on its own line. -----*/
+.hint.inline { font-size: 11px; margin-left: 8px; }
 
 .spacer { flex: 1; }
 
-/* Group header: title left, action button right. */
+/* Group header: title left, notes/action right. `.group` is the parameter-group variant
+   (IntaRNA's Helix/Seed/Accessibility/Output), which sits 2px looser. */
 .row-head {
   display: flex;
   align-items: center;
   margin-bottom: 8px;
 }
+.row-head.group { margin-bottom: 10px; }
+
+/*----- Uppercase pill marking a whole card's parameters as inert for the current variant. -----*/
+.inert-badge {
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+}
+
+/*----- Dashed explainer box shown where a group has been switched off, with a round "i" badge. -----*/
+.callout {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  font-size: 12.5px;
+  color: var(--fg-3);
+  background: var(--surface-2);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+}
+.callout .badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fg-3);
+}
+
+/*----- Short "Enabled"/"Enforced" caption beside a group's own switch. -----*/
+.status-text { font-size: 12px; color: var(--fg-4); }
+.status-text.on { color: var(--accent-ink); }
 
 .eyebrow {
   font-size: 11px;
@@ -353,7 +422,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   font-style: italic;
 }
 
-/* toggle (iOS-ish, small) */
+/*----- toggle (iOS-ish, small) -----*/
 .toggle {
   --w: 32px; --h: 18px;
   width: var(--w); height: var(--h);
@@ -380,7 +449,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .toggle.on { background: var(--accent); }
 .toggle.on::after { transform: translateX(calc(var(--w) - var(--h))); }
 
-/* YAML panel */
+/*----- YAML panel -----*/
 .yaml-panel {
   background: var(--panel-bg);
   color: var(--panel-fg);
@@ -398,7 +467,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .yaml-panel .y-num { color: rgb(244, 181, 129); }
 
 .nullable.locked,
-.field.locked {
+.subcard.locked {
   background: repeating-linear-gradient(
     45deg,
     var(--bg-2),
@@ -408,14 +477,9 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   );
   opacity: 0.85;
 }
-.field.locked {
-  padding: 10px 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-sm);
-}
 .nullable.locked .auto-tag { color: var(--warn); }
 
-/* paired integer input (x,y) */
+/*----- paired integer input (x,y) -----*/
 .pair-input {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
@@ -431,7 +495,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   user-select: none;
 }
 
-/* actions bar */
+/*----- actions bar -----*/
 .actions-bar {
   display: flex;
   align-items: center;
@@ -468,7 +532,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   margin-right: 2px;
 }
 
-/* YAML drawer — centered card, slides up from bottom of app window */
+/*----- YAML drawer — centered card, slides up from bottom of app window -----*/
 .yaml-drawer {
   position: absolute;
   left: 50%;
@@ -531,7 +595,7 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   transition: opacity 0.25s, visibility 0s 0s;
 }
 
-/* variation switcher (top-level) */
+/*----- variation switcher (top-level) -----*/
 .variation-switch {
   display: inline-flex;
   padding: 3px;
@@ -559,15 +623,13 @@ button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 }
 .variation-switch button:not(.active):hover { color: var(--fg-2); }
 
-/* section anchor scroll offset */
+/*----- section anchor scroll offset -----*/
 section[data-anchor] { scroll-margin-top: 20px; }
 
-/* ───────────────────────── hero ─────────────────────────
-   Page masthead above the form. Deliberately borderless and
-   chrome-free so it reads as the page heading, not another
-   section card. One quiet metric (optional params set) sits
-   opposite the title; the redundant query/target/thread counts
-   live in the form and the actions bar instead. */
+/*----- hero — Page masthead above the form. Deliberately borderless and chrome-free so it reads
+        as the page heading, not another section card. One quiet metric (optional params set)
+        sits opposite the title; the redundant query/target/thread counts live in the form and
+        the actions bar instead. -----*/
 .hero {
   display: flex;
   align-items: flex-end;
@@ -610,10 +672,8 @@ section[data-anchor] { scroll-margin-top: 20px; }
   color: var(--fg-4);
 }
 
-/* ───────────────────────── toast ─────────────────────────
-   Tiny status pill anchored to the bottom-right. Reserved for
-   one-shot confirmations; persistent state lives in the activity
-   rail or run overlay instead. */
+/*----- toast — Tiny status pill anchored to the bottom-right. Reserved for one-shot
+        confirmations; persistent state lives in the activity rail or run overlay instead. -----*/
 .toast {
   position: fixed;
   bottom: 96px;
@@ -642,13 +702,10 @@ section[data-anchor] { scroll-margin-top: 20px; }
   to   { transform: translateY(0); opacity: 1; }
 }
 
-/* ───────────────────────── spinner ─────────────────────────
-   "Hybridization" indicator: two counter-rotating rings around a
-   pulsing seed. Reads as molecular orbit at large size, as a
-   simple progress dot inline in buttons.
-
-   Implementation note: the inner ring uses --inner-inset so we can
-   override it on smaller sizes without redeclaring the rule. */
+/*----- spinner — "Hybridization" indicator: two counter-rotating rings around a pulsing seed.
+        Reads as molecular orbit at large size, as a simple progress dot inline in buttons.
+        Implementation note: the inner ring uses --inner-inset so we can override it on smaller
+        sizes without redeclaring the rule. -----*/
 .spinner {
   --size: 96px;
   --thickness: 1.6px;
@@ -723,10 +780,9 @@ section[data-anchor] { scroll-margin-top: 20px; }
   100% { box-shadow: 0 0 0 0   rgba(0, 0, 0, 0); }
 }
 
-/* ───────────────────────── run overlay ─────────────────────────
-   Modal blocker shown for the duration of a snakemake run. Sits
-   inside .window so it only covers the app surface, not the full
-   viewport — matches yaml-drawer's containment strategy. */
+/*----- run overlay — Modal blocker shown for the duration of a snakemake run. Sits inside
+        .window so it only covers the app surface, not the full viewport — matches yaml-drawer's
+        containment strategy. -----*/
 .run-overlay {
   position: absolute;
   inset: 0;
@@ -737,12 +793,23 @@ section[data-anchor] { scroll-margin-top: 20px; }
   -webkit-backdrop-filter: blur(8px) saturate(1.15);
   backdrop-filter: blur(8px) saturate(1.15);
   opacity: 0;
-  /* `visibility`, not opacity alone: the overlay is always mounted and its spinner runs
-     `infinite` animations that opacity:0 does NOT pause. The delay lets the fade render. */
+  /* `visibility`, not opacity alone, so the hidden overlay paints nothing. The delay lets
+     the fade render before it is taken out of the flow. */
   visibility: hidden;
   pointer-events: none;
   transition: opacity 0.28s ease-out, visibility 0s 0.28s;
 }
+
+/* `visibility: hidden` suppresses the PAINT but not the animation: per CSS Animations a
+   hidden element's `infinite` animations keep being sampled, so the renderer keeps asking
+   for frames. The overlay is always mounted, and on this target none of the three spinner
+   animations can be composited off the main thread — `seed-pulse` animates `box-shadow`
+   (never compositable), and Chromium 87 does not composite pseudo-element animations at
+   all — so leaving them running costs main-thread work every frame for the life of the
+   window. Pausing freezes them mid-phase, so the fade still resumes cleanly on open. */
+.run-overlay:not(.open) .spinner::before,
+.run-overlay:not(.open) .spinner::after,
+.run-overlay:not(.open) .spinner .seed { animation-play-state: paused; }
 [data-theme="dark"] .run-overlay { background: rgba(0, 0, 0, 0.55); }
 .run-overlay.open {
   opacity: 1;
@@ -771,7 +838,7 @@ section[data-anchor] { scroll-margin-top: 20px; }
   transform: translateY(0) scale(1);
   opacity: 1;
 }
-/* hairline accent at the top edge of the card */
+/*----- hairline accent at the top edge of the card -----*/
 .run-card::before {
   content: "";
   position: absolute;
@@ -823,10 +890,9 @@ section[data-anchor] { scroll-margin-top: 20px; }
   justify-content: center;
 }
 
-/* ───────────────────────── activity rail ─────────────────────────
-   Replaces the static Ready/Resolve indicator in the actions bar
-   when a run is active. The dot has an outward ripple so the bar
-   stays alive even when the user scrolls away from the overlay. */
+/*----- activity rail — Replaces the static Ready/Resolve indicator in the actions bar when a
+        run is active. The dot has an outward ripple so the bar stays alive even when the user
+        scrolls away from the overlay. -----*/
 .activity-rail {
   display: inline-flex;
   align-items: center;
@@ -861,13 +927,12 @@ section[data-anchor] { scroll-margin-top: 20px; }
   100% { transform: scale(2.8); opacity: 0; }
 }
 
-/* Solid (non-pulsing) dot for transient states like "saving". */
+/*----- Solid (non-pulsing) dot for transient states like "saving". -----*/
 .activity-rail.solid .live-dot::after { animation: none; opacity: 0; }
 
-/* ───────────────────────── busy buttons ─────────────────────────
-   When a button is mid-action we lock pointer events, dim the
-   surface a hair, and (for primary) pull a shimmer across to keep
-   the action visibly alive without distracting from the overlay. */
+/*----- busy buttons — When a button is mid-action we lock pointer events, dim the surface a
+        hair, and (for primary) pull a shimmer across to keep the action visibly alive without
+        distracting from the overlay. -----*/
 .btn[data-busy="true"] {
   pointer-events: none;
   opacity: 0.92;
@@ -895,12 +960,11 @@ section[data-anchor] { scroll-margin-top: 20px; }
   100% { transform: translateX(100%); }
 }
 
-/* ───────────────────────── inert groups ─────────────────────────
-   Parameter groups that don't apply to the current variant (calibration
-   off, seed enforcement off, accessibility Off, plots disabled) are wrapped
-   in <fieldset disabled>, which removes every nested control from the tab
-   order and the a11y tree natively. The fieldset only carries the dim; it
-   resets the browser's default chrome so it lays out like a plain block. */
+/*----- inert groups — Parameter groups that don't apply to the current variant (calibration
+        off, seed enforcement off, accessibility Off, plots disabled) are wrapped in <fieldset
+        disabled>, which removes every nested control from the tab order and the a11y tree
+        natively. The fieldset only carries the dim; it resets the browser's default chrome so
+        it lays out like a plain block. -----*/
 .group-fieldset {
   border: 0;
   margin: 0;
@@ -913,10 +977,9 @@ section[data-anchor] { scroll-margin-top: 20px; }
 }
 .toggle:disabled { cursor: not-allowed; }
 
-/* ───────────────────────── run log ─────────────────────────
-   Tail of the snakemake log, shown inside the run overlay when a run fails
-   or is cancelled, so the trace is readable in-app instead of only in the
-   launcher terminal. Mirrors the YAML panel's dark mono treatment. */
+/*----- run log — Tail of the snakemake log, shown inside the run overlay when a run fails or is
+        cancelled, so the trace is readable in-app instead of only in the launcher terminal.
+        Mirrors the YAML panel's dark mono treatment. -----*/
 .run-log-wrap { margin-top: 16px; text-align: left; }
 .run-log {
   margin: 0;
