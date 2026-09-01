@@ -26,8 +26,7 @@ CONSENSUS_COLUMNS = [
 
 
 #----- Keeps one row per `keys` group: the minimum `rank_col` (NaNs dropped first), tie-broken
-#      by `tiebreak_col`. The dropna is load-bearing — an all-NaN group must not survive via
-#      keep="first" -----#
+#      by `tiebreak_col`. The dropna is load-bearing — an all-NaN group must not survive via keep="first" -----#
 def select_best_hit(df, keys, rank_col, tiebreak_col):
     ranked = df.dropna(subset=[rank_col]).sort_values([rank_col, tiebreak_col], kind="mergesort")
     return ranked.drop_duplicates(subset=keys, keep="first")

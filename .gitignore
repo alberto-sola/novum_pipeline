@@ -5,7 +5,7 @@ __pycache__
 # Models
 .codex
 .claude
-CLAUDE.md
+CLAUDE.md*
 .superpowers
 docs
 .impeccable
@@ -18,12 +18,15 @@ docs
 # Data
 Data/Raw/genomes/*
 Data/Raw/miRNAs/*
-Data/Raw/RNAs*/*
+Data/Raw/RNAs
+Data/Raw/RNAs.*
 Data/Results/*
 Data/Analysis*
 
-data-prep/config-for-server.yaml
-data-prep/*.txt
+data-prep/our_data
+data-prep/validated_data
 
 # Files
-IntaRNA_instructions*
+IntaRNA_*md
+*.pdf
+Workflow/Legacy_scripts/generate_results*

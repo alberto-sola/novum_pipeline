@@ -235,7 +235,10 @@ Rather than hand-collect FASTAs, the `data-prep/` helper can assemble them from 
 python data-prep/prepare_inputs.py --pairs pairs.txt
 python data-prep/prepare_inputs.py --pairs pairs.txt --dry-run          # preview only, no downloads/writes
 python data-prep/prepare_inputs.py Veillonella_parvula:hsa-miR-200b-3p  # inline pair(s)
+python data-prep/prepare_inputs.py GCF_000153625.3:hsa-mir-515-5p       # pin one exact assembly
 ```
+
+The first field takes an **NCBI assembly accession** in place of a name, pinning that exact assembly instead of letting the resolver pick one for the species — how you reach a paper's strain when it is not the species reference. The two forms mix freely in one file, since no organism name can wear an accession's shape. A pinned line fails closed (a typo reports `bad_accession`, never a silent fallback to a name search), and the accession becomes the sample key, naming the query FASTA and the `Data/Results/` directory.
 
 A taxon reaches the config only if its genome **and** at least one of its miRNAs resolved; unresolved entries are skipped and recorded in a report TSV rather than aborting the run. See [`data-prep/README.md`](data-prep/README.md) for the full option list and assembly-selection rules.
 

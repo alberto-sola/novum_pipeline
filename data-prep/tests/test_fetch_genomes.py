@@ -12,7 +12,8 @@ from pathlib import Path
 
 import requests
 
-from fetch_genomes import assembly_stem, rna_ftp_url, target_dest, append_gz_fasta, download_targets
+from fetch_genomes import (assembly_stem, rna_ftp_url, target_dest, append_gz_fasta,
+                           download_targets, _resolve_one, _API_BASE, resolve_assemblies)
 
 
 def test_rna_ftp_url_splits_accession_digits():
@@ -319,6 +320,118 @@ def test_download_targets_skips_rna_when_cds_missing_from_zip():
     assert paths == {"t": None}
     assert s.gets == []                                   # RNA fetch skipped entirely
     assert list(d.glob("*")) == []                         # nothing written for this accession
+
+
+#----- _resolve_one: taxon-name search vs accession pin -----#
+
+class _ReportResp:
+    def __init__(self, payload, status_code=200):
+        self.status_code = status_code
+        self._payload = payload
+
+    def json(self):
+        return self._payload
+
+
+class _ReportSession:
+    """Serves canned dataset_report JSON and records every (url, params) call.
+
+    A `reports` value may be a plain list, or a dict with "reference"/"page" keys
+    to serve the taxon path's two tiers separately (tier 1 is the call carrying
+    filters.reference_only). An unknown url yields no reports, which is what NCBI
+    returns for an accession that does not exist.
+    """
+    def __init__(self, reports):
+        self.reports = reports
+        self.calls = []
+
+    def get(self, url, params=None, timeout=None):
+        params = dict(params or {})
+        self.calls.append((url, params))
+        entry = self.reports.get(url, [])
+        if isinstance(entry, dict):
+            entry = entry["reference" if "filters.reference_only" in params else "page"]
+        return _ReportResp({"reports": entry})
+
+
+def _report(acc, asm, category="", level="Complete Genome"):
+    return {"accession": acc,
+            "assembly_info": {"assembly_name": asm, "refseq_category": category,
+                              "assembly_level": level}}
+
+
+def _url(kind, ident):
+    return f"{_API_BASE}/genome/{kind}/{ident}/dataset_report"
+
+
+class _BoomSession:
+    """Every lookup raises, as a DNS failure or a dropped connection would."""
+    def get(self, *a, **k):
+        raise requests.ConnectionError("network down")
+
+
+def test_resolve_assemblies_reports_which_lookups_errored():
+    # A transient network failure is not "NCBI has no such genome". Collapsing the
+    # two makes prepare_inputs guess the reason back from the taxon key's shape,
+    # which reads a dropped connection on a pinned line as a typo.
+    hits, errored = resolve_assemblies(["escherichia coli", "GCF_000284435.1"],
+                                       _BoomSession(), 0)
+    assert hits == {"escherichia coli": None, "GCF_000284435.1": None}
+    assert errored == {"escherichia coli", "GCF_000284435.1"}
+
+
+def test_resolve_assemblies_reports_no_errors_on_a_clean_miss():
+    s = _ReportSession({})
+    hits, errored = resolve_assemblies(["nosuchbug"], s, 0)
+    assert hits == {"nosuchbug": None}
+    assert errored == set()
+
+
+def test_resolve_one_pins_an_accession_via_the_accession_endpoint():
+    s = _ReportSession({_url("accession", "GCF_000284435.1"):
+                        [_report("GCF_000284435.1", "ASM28443v1")]})
+    assert _resolve_one("GCF_000284435.1", s) == ("GCF_000284435.1", "ASM28443v1")
+    assert len(s.calls) == 1
+    assert "/genome/accession/" in s.calls[0][0]
+
+
+def test_resolve_one_accession_pin_sends_no_selection_filters():
+    # reference_only would reject any non-reference assembly, and assembly_source
+    # would reject a GenBank pin outright. A pin selects nothing: it names one row.
+    s = _ReportSession({_url("accession", "GCA_000284435.1"):
+                        [_report("GCA_000284435.1", "ASM28443v1")]})
+    assert _resolve_one("GCA_000284435.1", s) == ("GCA_000284435.1", "ASM28443v1")
+    params = s.calls[0][1]
+    assert "filters.reference_only" not in params
+    assert "filters.assembly_source" not in params
+
+
+def test_resolve_one_bad_accession_never_falls_back_to_a_taxon_search():
+    # A typo must fail closed. Falling through to the name path would resolve the
+    # pin to some other assembly and write it into the pinned output tree.
+    s = _ReportSession({})
+    assert _resolve_one("GCF_999999999.9", s) is None
+    assert len(s.calls) == 1
+    assert "/genome/accession/" in s.calls[0][0]
+
+
+def test_resolve_one_still_prefers_the_reference_assembly_for_a_name():
+    s = _ReportSession({_url("taxon", "escherichia%20coli"):
+                        {"reference": [_report("GCF_000005845.2", "ASM584v2", "reference genome")],
+                         "page": []}})
+    assert _resolve_one("escherichia coli", s) == ("GCF_000005845.2", "ASM584v2")
+    assert len(s.calls) == 1
+    assert "/genome/taxon/" in s.calls[0][0]
+    assert s.calls[0][1]["filters.reference_only"] == "true"
+
+
+def test_resolve_one_name_falls_back_to_ranking_a_candidate_page():
+    s = _ReportSession({_url("taxon", "candidatus%20arthromitus"):
+                        {"reference": [],
+                         "page": [_report("GCF_1.1", "ASM1", "", "Contig"),
+                                  _report("GCF_2.2", "ASM2", "representative genome")]}})
+    assert _resolve_one("candidatus arthromitus", s) == ("GCF_2.2", "ASM2")
+    assert len(s.calls) == 2
 
 
 if __name__ == "__main__":

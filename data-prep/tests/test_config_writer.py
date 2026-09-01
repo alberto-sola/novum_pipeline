@@ -47,6 +47,51 @@ def test_empty_block_inserts_without_removing():
     out = replace_block(lines, "queries", {"a": "p.fa"})
     assert out == ["queries:", "  a: p.fa", "", "#----- next -----#", "threads: 1"]
 
+INTERIOR_COMMENT = """\
+queries:
+  old_one: Data/Raw/RNAs/old_one.fa
+# a note the user wrote at column 0
+  old_two: Data/Raw/RNAs/old_two.fa
+targets:
+  t: g.fna
+""".splitlines()
+
+
+def _entries_under(lines, key):
+    """The indented entries between `key:` and the next top-level key."""
+    out = []
+    for ln in lines[lines.index(f"{key}:") + 1:]:
+        if ln.strip() == "" or ln.lstrip().startswith("#"):
+            continue
+        if ln[:1] not in (" ", "\t"):
+            break
+        out.append(ln.strip())
+    return out
+
+
+def test_column_zero_comment_inside_a_block_does_not_strand_stale_entries():
+    # A comment at column 0 used to terminate the block, so the entries below it
+    # survived alongside the new ones — a duplicate YAML key that PyYAML loads
+    # without complaint (last wins), silently running the pipeline on the old path.
+    out = replace_block(INTERIOR_COMMENT, "queries", {"new": "n.fa"})
+    assert _entries_under(out, "queries") == ["new: n.fa"]
+
+
+def test_column_zero_comment_inside_a_block_is_preserved():
+    # Dropping the stale entries must not take the user's comment with them.
+    out = replace_block(INTERIOR_COMMENT, "queries", {"new": "n.fa"})
+    assert "# a note the user wrote at column 0" in out
+    assert _entries_under(out, "targets") == ["t: g.fna"]   # next block untouched
+
+
+def test_indented_comment_inside_a_block_is_preserved_too():
+    lines = ["queries:", "  # human samples", "  s1: a.fa", "threads: 1"]
+    out = replace_block(lines, "queries", {"new": "n.fa"})
+    assert _entries_under(out, "queries") == ["new: n.fa"]
+    assert "  # human samples" in out
+    assert out[-1] == "threads: 1"
+
+
 def test_missing_key_raises():
     try:
         replace_block(["threads: 1"], "queries", {"a": "b"})

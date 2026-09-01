@@ -10,6 +10,10 @@ import requests
 # plain or the .gz URL works; adjust here if miRBase moves the path.
 MIRBASE_URL = "https://www.mirbase.org/download/mature.fa"
 
+# Species fallback order for a bare name. One spelling: prepare_inputs' CLI default
+# is built from this, so changing it here actually changes the behaviour.
+DEFAULT_PREFIX_CHAIN = ("hsa", "mmu")
+
 
 class MatureUnavailable(RuntimeError):
     """miRBase unreachable and no cached mature.fa present — an external outage, not a bug."""
@@ -18,6 +22,7 @@ class MatureUnavailable(RuntimeError):
 _STEMS = ("mir-", "let-", "lin-")
 
 
+#----- Parses mature.fa into {lowercased name: (canonical name, sequence)} -----#
 def index_mature(path) -> dict[str, tuple[str, str]]:
     index: dict[str, tuple[str, str]] = {}
     name: str | None = None
@@ -35,8 +40,9 @@ def index_mature(path) -> dict[str, tuple[str, str]]:
     return index
 
 
+#----- Exact name first, else prefix a bare mir-/let-/lin- stem; 3rd value flags the fallback -----#
 def resolve_mirna(raw: str, index: dict[str, tuple[str, str]],
-                  prefix_chain: tuple[str, ...] = ("hsa", "mmu")):
+                  prefix_chain: tuple[str, ...] = DEFAULT_PREFIX_CHAIN):
     key = raw.strip().lower()
     if key in index:
         canonical, seq = index[key]
@@ -54,6 +60,7 @@ def query_fasta_path(rnas_dir, taxon_key: str) -> Path:
     return Path(rnas_dir) / f"{taxon_key}.fa"
 
 
+#----- Writes one FASTA record per resolved miRNA into the taxon's query file -----#
 def write_query_fasta(taxon_key: str, resolved, rnas_dir) -> Path:
     out = query_fasta_path(rnas_dir, taxon_key)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -63,6 +70,7 @@ def write_query_fasta(taxon_key: str, resolved, rnas_dir) -> Path:
     return out
 
 
+#----- Cached miRBase fetch (gzip auto-detected); an outage raises MatureUnavailable, not a traceback -----#
 def ensure_mature_fa(mirnas_dir, session, force: bool = False, url: str = MIRBASE_URL) -> Path:
     out = Path(mirnas_dir) / "mature.fa"
     if out.exists() and not force:
@@ -81,7 +89,9 @@ def ensure_mature_fa(mirnas_dir, session, force: bool = False, url: str = MIRBAS
             f"then re-run — the download is skipped whenever that file already exists."
         ) from e
     data = resp.content
-    if url.endswith(".gz") or data[:2] == b"\x1f\x8b":     # gzip magic
+    # Magic bytes only, not the URL suffix: with Content-Encoding: gzip requests
+    # has already decompressed, and a .gz URL would then send plain FASTA here.
+    if data[:2] == b"\x1f\x8b":
         data = gzip.decompress(data)
     out.write_bytes(data)
     return out

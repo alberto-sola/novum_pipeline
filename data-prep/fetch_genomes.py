@@ -1,28 +1,27 @@
 """
-fetch_genomes.py — resolve taxon names to NCBI RefSeq reference assemblies and
-download a chosen file (CDS FASTA by default) from each genome data package.
+fetch_genomes.py — resolve taxa to NCBI assemblies and download each one's target
+FASTA. An importable library for prepare_inputs.py; it has no CLI.
 
-Workflow:
-  1. Read taxon names (one per line) from --names
-  2. GET /datasets/v2/genome/taxon/{name}/dataset_report for each name (throttled)
-  3. POST /datasets/v2/genome/download with the collected accessions
-  4. Extract the requested per-accession file → <out_dir>/<Name>__<accession>.<ext>
-  5. Write download_report.tsv with per-taxon status (TAXON, STATUS, ACCESSION, FILE_PATH)
+A taxon field is either an organism name, ranked to an assembly by select_best,
+or an assembly accession, which pins that exact one (see pairs.is_accession).
+
+Each target is assembled from two different NCBI services, because Datasets v2
+publishes no rna_from_genomic.fna for prokaryotes:
+
+  CDS   POST /datasets/v2/genome/download, batched, extracted from the ZIP
+  RNA   the FTP mirror, at a URL derived from (accession, assembly name)
+
+Both stream into one <accession>_<assembly>_cds_rna_from_genomic.fna through a
+staged .part file, so an interrupted run cannot leave a half-merged target that
+the next run mistakes for complete. Only that merged name counts as a cache hit;
+a CDS-only file is a degraded result and is retried.
 
 Environment:
   NCBI_API_KEY     Optional. Raises rate limit from ~3 to ~10 req/s.
   NCBI_API_EMAIL   Optional. Appended to the User-Agent header (NCBI etiquette).
-
-Usage:
-  python fetch_genomes.py [--names bacterial_names.txt] [--out-dir cds]
-                         [--report download_report.tsv]
-                         [--include CDS_FASTA [CDS_FASTA ...]]
-                         [--zip-filename cds_from_genomic.fna]
-                         [--batch-size 200]
 """
 from __future__ import annotations
 
-import argparse
 import gzip
 import os
 import shutil
@@ -37,6 +36,8 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
+from pairs import is_accession, taxon_to_query
+
 # NCBI Datasets v2 REST API. Switch this if NCBI moves the endpoint.
 _API_BASE = "https://api.ncbi.nlm.nih.gov/datasets/v2"
 
@@ -46,9 +47,9 @@ _DEFAULT_USER_AGENT = "ncbi-cds-downloader/1.0"
 # The CDS set NCBI ships inside each ncbi_dataset/data/<accession>/ directory.
 _CDS_FILENAME = "cds_from_genomic.fna"
 
-# Filename the standalone CLI extracts; override via --zip-filename for
-# protein.faa, rna.fna, genomic.gff, etc.
-_DEFAULT_ZIP_FILENAME = _CDS_FILENAME
+# Accessions per POST /genome/download. Bacterial CDS sets are small; this bounds
+# how much NCBI packages server-side in one request.
+_BATCH_SIZE = 200
 
 # Datasets v2 serves no rna_from_genomic.fna for prokaryotes, so the RNA half comes
 # from the FTP mirror, at a URL derived from (acc, asm) rather than queried.
@@ -94,14 +95,28 @@ def select_best(candidates: list[dict]) -> tuple[str, str] | None:
     return acc, info(best).get("assembly_name", "")
 
 
-#----- Resolves one taxon: reference first, else best of a candidate page -----#
+#----- Session plus its throttle, from the environment; single owner of NCBI etiquette policy -----#
+def session_from_env() -> tuple[requests.Session, float]:
+    api_key = os.environ.get("NCBI_API_KEY")
+    session = make_session(api_key=api_key, contact_email=os.environ.get("NCBI_API_EMAIL"))
+    return session, (_RATE_DELAY_WITH_KEY if api_key else _RATE_DELAY_NO_KEY)
+
+
+#----- Resolves one taxon name (reference first, else best of a page) or pins an accession -----#
 def _resolve_one(name: str, session: requests.Session) -> tuple[str, str] | None:
-    base = f"{_API_BASE}/genome/taxon/{quote(name, safe='')}/dataset_report"
+    pinned = is_accession(name)
+    kind = "accession" if pinned else "taxon"
+    query = quote(taxon_to_query(name), safe="")
+    base = f"{_API_BASE}/genome/{kind}/{query}/dataset_report"
 
     def reports_for(params):
         r = session.get(base, params=params, timeout=30)
         return r.json().get("reports", []) if r.status_code == 200 else None
 
+    if pinned:
+        # No fallback by design: a typo must fail closed rather than resolve to
+        # some other assembly and be written into the pinned output tree.
+        return select_best(reports_for({}) or [])
     # Tier 1: a designated reference assembly (clean filter, one row).
     rep = reports_for({"filters.reference_only": "true",
                        "filters.assembly_source": "refseq", "page_size": "1"})
@@ -112,9 +127,11 @@ def _resolve_one(name: str, session: requests.Session) -> tuple[str, str] | None
     return select_best(rep) if rep is not None else None
 
 
-#----- Resolves each taxon to (accession, assembly_name) with reference->latest fallback -----#
-def resolve_assemblies(names: list[str], session: requests.Session, delay: float) -> dict[str, tuple[str, str] | None]:
+#----- Resolves each taxon to (accession, assembly_name); returns the hits and which lookups errored -----#
+def resolve_assemblies(names: list[str], session: requests.Session,
+                       delay: float) -> tuple[dict[str, tuple[str, str] | None], set[str]]:
     result: dict[str, tuple[str, str] | None] = {}
+    errored: set[str] = set()
     for i, name in enumerate(names, 1):
         print(f"  [{i:>3}/{len(names)}] {name!r} ... ", end="", flush=True)
         try:
@@ -122,11 +139,12 @@ def resolve_assemblies(names: list[str], session: requests.Session, delay: float
         except requests.RequestException as exc:
             print(f"error ({exc.__class__.__name__})")
             hit = None
+            errored.add(name)
         else:
             print(f"{hit[0]} ({hit[1]})" if hit else "no_assembly")
         result[name] = hit
         time.sleep(delay)
-    return result
+    return result, errored
 
 
 #----- "<accession>_<assembly name>", the stem NCBI uses in both paths and filenames -----#
@@ -194,9 +212,9 @@ def iter_package_members(zip_paths, filename):
 
 
 #----- Extracts each accession's cds_from_genomic.fna from the batched ZIPs into a <stem>.part file -----#
-def _download_cds_parts(accessions, asm_by_acc, out_dir, session, batch_size):
+def _download_cds_parts(accessions, asm_by_acc, out_dir, session):
     parts: dict[str, Path] = {}
-    zip_paths = download_batch(accessions, ["CDS_FASTA"], session, batch_size)
+    zip_paths = download_batch(accessions, session)
     for acc, src in iter_package_members(zip_paths, _CDS_FILENAME):
         asm = asm_by_acc.get(acc)
         if asm is None:
@@ -266,8 +284,7 @@ def _finalize_target(part, acc, asm, out_dir, session, delay):
 
 #----- Downloads CDS (API) + rna_from_genomic (FTP) per accession, merged into one target FASTA -----#
 def download_targets(hits: dict[str, tuple[str, str] | None], out_dir, session,
-                     delay: float, force: bool = False,
-                     batch_size: int = 200) -> tuple[dict[str, str | None], dict[str, str]]:
+                     delay: float, force: bool = False) -> tuple[dict[str, str | None], dict[str, str]]:
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
@@ -291,7 +308,7 @@ def download_targets(hits: dict[str, tuple[str, str] | None], out_dir, session,
             todo.append(acc)
 
     if todo:
-        parts = _download_cds_parts(todo, asm_by_acc, out_dir, session, batch_size)
+        parts = _download_cds_parts(todo, asm_by_acc, out_dir, session)
         for acc in todo:
             part = parts.get(acc)
             if part is None:
@@ -312,7 +329,7 @@ def download_targets(hits: dict[str, tuple[str, str] | None], out_dir, session,
             continue
         dest = final_by_acc.get(hit[0])
         paths[taxon] = str(dest) if dest is not None else None
-        rna_status[taxon] = status_by_acc.get(hit[0], "-")
+        rna_status[taxon] = status_by_acc[hit[0]]
     return paths, rna_status
 
 
@@ -326,152 +343,31 @@ def make_session(api_key: str | None = None, contact_email: str | None = None) -
     if api_key:
         s.headers["api-key"] = api_key
     # urllib3 handles exponential backoff and respects Retry-After headers, so we don't roll our own.
-    retry = Retry(total=3, backoff_factor=2.0, status_forcelist=_RETRIABLE_STATUS)
+    # POST is not in urllib3's default allowed_methods, which would leave
+    # /genome/download — the run's single most expensive request — as the only
+    # one with no retry. Replay is safe: the endpoint is a read.
+    retry = Retry(total=3, backoff_factor=2.0, status_forcelist=_RETRIABLE_STATUS,
+                  allowed_methods=Retry.DEFAULT_ALLOWED_METHODS | {"POST"})
     s.mount("https://", HTTPAdapter(max_retries=retry))
     return s
 
 
-#----- Resolves each taxon to its top RefSeq reference accession (None if NCBI has no match) -----#
-def resolve_accessions(names: list[str], session: requests.Session, delay: float) -> dict[str, str | None]:
-    result: dict[str, str | None] = {}
-    for i, name in enumerate(names, 1):
-        print(f"  [{i:>3}/{len(names)}] {name!r} ... ", end="", flush=True)
-        # NCBI requires URL-encoded taxon names in the path (handles spaces, parentheses).
-        url = f"{_API_BASE}/genome/taxon/{quote(name, safe='')}/dataset_report"
-        r = session.get(url, params={
-            "filters.reference_only": "true",
-            "filters.assembly_source": "refseq",
-            "page_size": "1",
-        }, timeout=30)
-        if r.status_code != 200:
-            print(f"HTTP {r.status_code}")
-            result[name] = None
-        else:
-            reports = r.json().get("reports", [])
-            if reports:
-                # `accession` is canonical; `current_accession` is set when the assembly was renamed.
-                acc = reports[0].get("accession") or reports[0].get("current_accession")
-                print(acc)
-                result[name] = acc
-            else:
-                print("no_reference")
-                result[name] = None
-        # Hand-rolled rate limit; the urllib3 retry above only triggers on actual 429 responses.
-        time.sleep(delay)
-    return result
-
-
 #----- Bulk-downloads accessions in batches via POST /genome/download, streaming each ZIP to a temp file -----#
-def download_batch(accessions: list[str], include_types: list[str], session: requests.Session, batch_size: int) -> list[Path]:
+def download_batch(accessions: list[str], session: requests.Session) -> list[Path]:
     zip_paths: list[Path] = []
-    n_batches = (len(accessions) + batch_size - 1) // batch_size
-    for b, start in enumerate(range(0, len(accessions), batch_size), 1):
-        chunk = accessions[start : start + batch_size]
+    n_batches = (len(accessions) + _BATCH_SIZE - 1) // _BATCH_SIZE
+    for b, start in enumerate(range(0, len(accessions), _BATCH_SIZE), 1):
+        chunk = accessions[start : start + _BATCH_SIZE]
         print(f"  Batch {b}/{n_batches}: {len(chunk)} accessions ...", flush=True)
         r = session.post(
             f"{_API_BASE}/genome/download",
-            json={"accessions": chunk, "include_annotation_type": include_types},
+            json={"accessions": chunk, "include_annotation_type": ["CDS_FASTA"]},
             stream=True,
             timeout=600,
         )
         r.raise_for_status()
-        # Stream to disk: bacterial CDS sets are small, but multi-include or eukaryote payloads can be GB-scale.
+        # Stream to disk rather than buffering: one batch is up to 200 CDS sets.
         zip_paths.append(_stream_to_tempfile(r, ".zip"))
     return zip_paths
 
 
-#----- Walks each ZIP and copies the requested filename out of every accession dir to <Name>__<acc>.<ext> -----#
-def extract_flat(zip_paths: list[Path], acc_to_name: dict[str, str], out_dir: Path, zip_filename: str = _DEFAULT_ZIP_FILENAME) -> dict[str, str | None]:
-    out_dir.mkdir(parents=True, exist_ok=True)
-    # Pre-fill with None so we can flag accessions present in the request but missing in the ZIP payload.
-    result: dict[str, str | None] = {acc: None for acc in acc_to_name}
-    out_suffix = Path(zip_filename).suffix or ".dat"
-
-    for acc, src in iter_package_members(zip_paths, zip_filename):
-        name = acc_to_name.get(acc)
-        if name is None:
-            continue
-        # Spaces in scientific names break shell scripts; underscore them in filenames.
-        safe_name = name.replace(" ", "_")
-        dest = out_dir / f"{safe_name}__{acc}{out_suffix}"
-        with dest.open("wb") as dst:
-            shutil.copyfileobj(src, dst)
-        result[acc] = str(dest)
-        print(f"    {dest.name}")
-
-    return result
-
-
-#----- Writes the per-taxon TSV audit report (one row per input name; uppercase column headers) -----#
-def write_report(path: Path, names: list[str], resolved: dict[str, str | None], extraction: dict[str, str | None]) -> None:
-    with path.open("w") as fh:
-        fh.write("TAXON\tSTATUS\tACCESSION\tFILE_PATH\n")
-        for name in names:
-            acc = resolved.get(name)
-            if acc is None:
-                fh.write(f"{name}\tno_reference\t-\t-\n")
-                continue
-            dest = extraction.get(acc)
-            if dest is None:
-                fh.write(f"{name}\tmissing_in_zip\t{acc}\t-\n")
-            else:
-                fh.write(f"{name}\tok\t{acc}\t{dest}\n")
-
-
-#----- CLI entry point: parse args, resolve, download, extract, report -----#
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Download per-taxon files from NCBI Datasets by taxon name")
-    ap.add_argument("--names", default="bacterial_names.txt",
-                    help="Input: one taxon name per line (default: bacterial_names.txt)")
-    ap.add_argument("--out-dir", default="genomes",
-                    help="Output directory for extracted files (default: genomes/)")
-    ap.add_argument("--report", default="download_report.tsv",
-                    help="TSV audit report path (default: download_report.tsv)")
-    ap.add_argument("--include", nargs="+", default=["CDS_FASTA"], metavar="TYPE",
-                    help="Annotation types to download (default: CDS_FASTA). "
-                         "Common values: GENOME_FASTA, RNA_FASTA, CDS_FASTA, PROT_FASTA, GENOME_GFF.")
-    ap.add_argument("--zip-filename", default=_DEFAULT_ZIP_FILENAME,
-                    help=f"File to extract from each accession dir (default: {_DEFAULT_ZIP_FILENAME}). "
-                         "Examples: protein.faa, rna.fna, genomic.gff.")
-    ap.add_argument("--batch-size", type=int, default=200,
-                    help="Max accessions per POST request (default: 200)")
-    args = ap.parse_args()
-
-    base = Path(__file__).parent
-    names_path = base / args.names
-    out_dir = base / args.out_dir
-    report_path = base / args.report
-
-    api_key = os.environ.get("NCBI_API_KEY")
-    contact_email = os.environ.get("NCBI_API_EMAIL")
-    delay = _RATE_DELAY_WITH_KEY if api_key else _RATE_DELAY_NO_KEY
-
-    names = [ln.strip() for ln in names_path.read_text().splitlines() if ln.strip()]
-    print(f"Loaded {len(names)} names from {names_path}\n")
-
-    session = make_session(api_key=api_key, contact_email=contact_email)
-
-    print("--- Resolving reference accessions ---")
-    resolved = resolve_accessions(names, session, delay)
-
-    acc_to_name = {acc: name for name, acc in resolved.items() if acc is not None}
-    no_ref = [n for n, a in resolved.items() if a is None]
-    print(f"\nResolved: {len(acc_to_name)}  No reference: {len(no_ref)}")
-    if no_ref:
-        print("  Skipped:", ", ".join(no_ref))
-
-    extraction: dict[str, str | None] = {}
-    if acc_to_name:
-        print("\n--- Downloading packages ---")
-        zip_paths = download_batch(list(acc_to_name), args.include, session, args.batch_size)
-        print(f"\n--- Extracting {args.zip_filename} ---")
-        extraction = extract_flat(zip_paths, acc_to_name, out_dir, zip_filename=args.zip_filename)
-        n_ok = sum(1 for v in extraction.values() if v is not None)
-        print(f"\nExtracted {n_ok}/{len(acc_to_name)} files → {out_dir}/")
-
-    write_report(report_path, names, resolved, extraction)
-    print(f"Report  → {report_path}")
-
-
-if __name__ == "__main__":
-    main()
