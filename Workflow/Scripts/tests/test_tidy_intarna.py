@@ -176,6 +176,54 @@ def test_cap_is_global_not_per_chunk(tiny_chunks, tmp_path):
     assert df.loc[0, "E_hybrid"] == -30.0
 
 
+def test_the_cap_bounds_what_the_loop_accumulates(tiny_chunks, tmp_path, monkeypatch):
+    # The memory failure batching alone does not prevent: the gate is the only filter that
+    # runs inside the loop, so with the floors null every gated row is held until the
+    # concat. Measured on the shipped panel that is 16.6M rows (36% of the file), not the
+    # 285k that reach the output — the cap is what makes the output small, and it used to
+    # run only after everything had accumulated. Hoisting it into the loop bounds the
+    # accumulation at cap x pairs per batch. The assertion is on rows reaching the concat
+    # because that is the peak this rule was OOM-killed at.
+    rows = [_row("g1", "m1", e, start1=10 * i) for i, e in enumerate([-15.0, -30.0, -20.0,
+                                                                     -25.0, -18.0, -22.0,
+                                                                     -17.0, -19.0])]
+    accumulated = []
+    real_concat = pd.concat
+
+    def spy(frames, *args, **kwargs):
+        frames = list(frames)
+        accumulated.append(sum(len(frame) for frame in frames))
+        return real_concat(frames, *args, **kwargs)
+
+    monkeypatch.setattr(tidy_intarna.pd, "concat", spy)
+    df = _run(tmp_path, rows, max_suboptimal_hits=1)
+
+    assert accumulated == [4]                   # one survivor per batch, not all eight
+    assert df.loc[0, "E_hybrid"] == -30.0       # and the global winner is still the answer
+
+
+def test_the_cap_counts_per_pair_not_per_gene(tiny_chunks, tmp_path):
+    # One gene, two miRNAs, both inside the same batch. The cap is per PAIR, so both rows
+    # are each their pair's only hit and both must survive. A pre-cap grouping by Gene
+    # alone would keep just the stronger, and the global cap would then never see m1 at
+    # all — a pair silently lost inside the loop, which no amount of global capping undoes.
+    rows = [_row("g1", "m1", -20.0, start1=10), _row("g1", "m2", -25.0, start1=20)]
+    df = _run(tmp_path, rows, max_suboptimal_hits=1)
+    assert sorted(df["miRNA"]) == ["m1", "m2"]
+
+
+def test_ties_across_batches_keep_the_first_in_file_order(tiny_chunks, tmp_path):
+    # Pre-capping per batch reorders each batch by E_hybrid. Tied rows must still resolve
+    # the way the un-batched file would resolve them — first occurrence wins — or the cap
+    # silently picks a different representative site for the pair.
+    # The weaker row leads each batch, so the pre-cap's sort reorders both of them before
+    # the tie between start1 20 and 40 is ever compared.
+    rows = [_row("g1", "m1", -15.0, start1=10), _row("g1", "m1", -20.0, start1=20),
+            _row("g1", "m1", -16.0, start1=30), _row("g1", "m1", -20.0, start1=40)]
+    df = _run(tmp_path, rows, max_suboptimal_hits=1)
+    assert list(df["Start1"]) == [20]
+
+
 def test_sort_is_global_not_per_chunk(tiny_chunks, tmp_path):
     rows = [_row("g1", "m1", e, start1=10 * i) for i, e in enumerate([-15.0, -30.0, -20.0,
                                                                      -25.0, -18.0])]

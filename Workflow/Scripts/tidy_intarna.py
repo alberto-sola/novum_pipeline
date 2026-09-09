@@ -20,6 +20,10 @@ REQUIRED_COLS = {"id1", "id2", "start1", "end1", "start2", "end2", "E", "E_hybri
 # chunking cannot remove), and throughput is flat from 100k to 1M rows — a pure memory knob.
 READ_CHUNK_ROWS = 250_000
 
+# One pair. Spelled once because the cap is applied twice — once per batch, once globally —
+# and the two must group identically or the pre-cap stops being a no-op on the result.
+CAP_KEYS = ["miRNA", "Gene"]
+
 # IntaRNA writes uppercase NAN in the seed columns under --noSeed (top-level seed: null),
 # and that spelling is outside pandas' default NA set — the five columns would land as
 # Python strings and cost 34% of the frame. Declaring it types them as float, so they also
@@ -84,12 +88,21 @@ def _prepare_chunk(chunk, gene_lengths, max_hybrid_energy, floors):
         if floor is not None:
             chunk = chunk[chunk[column] >= float(floor)]
 
-    # Annotation runs on what survived, not on the ~94% that did not. Position is a 0-1
-    # fraction for cross-arm comparability with tidy_rnahybrid, which anchors the same way.
+    # Annotation runs on what survived the gate and floors, not on the majority that did
+    # not. Position is a 0-1 fraction for cross-arm comparability with tidy_rnahybrid, which anchors the same way.
     return chunk.assign(
         Gene_length=lambda d: d["Gene"].map(gene_lengths).astype(int),
         Position=lambda d: d["Start1"].astype(float) / d["Gene_length"],
     )
+
+
+#----- The per-pair cap, hoisted into the read loop -----#
+def _precap_chunk(chunk, max_suboptimal_hits):
+    if max_suboptimal_hits is None:
+        return chunk
+
+    ranked = chunk.sort_values("E_hybrid", kind="stable")
+    return ranked.groupby(CAP_KEYS, sort=False).head(int(max_suboptimal_hits))
 
 
 #----- Reads IntaRNA's CSV in batches, keeping only gated/floored rows, then ranks and caps on E_hybrid and emits the CSV -----#
@@ -100,7 +113,7 @@ def tidy_intarna(input_path, target_fasta_path, output_path,
     floors = (("Pu1", min_target_unpaired_probability),
               ("Pu2", min_query_unpaired_probability))
     # E/E_hybrid typed by the C parser rather than cast afterwards: an astype() would run on
-    # the whole batch, ~94% of which the gate below is about to discard.
+    # the whole batch, most of which the gate and cap below are about to discard.
     read_options = dict(sep=";", dtype={"id1": str, "id2": str, "E": float, "E_hybrid": float},
                         na_values=INTARNA_NA_VALUES)
 
@@ -109,11 +122,10 @@ def tidy_intarna(input_path, target_fasta_path, output_path,
 
     gene_lengths = _parse_gene_lengths(target_fasta_path)
 
-    # Batched: ~94% of every batch dies in the filters above, so only survivors accumulate.
-    # A file with no hits still yields one empty batch, so the concat always has a frame and
-    # the output keeps its schema; a test pins that rather than a dead fallback.
+    # Batched, and capped per batch: how much of a batch dies in the filters alone depends entirely on the config
     prepared = [
-        _prepare_chunk(chunk, gene_lengths, max_hybrid_energy, floors)
+        _precap_chunk(_prepare_chunk(chunk, gene_lengths, max_hybrid_energy, floors),
+                      max_suboptimal_hits)
         for chunk in pd.read_csv(input_path, chunksize=READ_CHUNK_ROWS, **read_options)
     ]
     df = pd.concat(prepared, ignore_index=True)
@@ -123,7 +135,7 @@ def tidy_intarna(input_path, target_fasta_path, output_path,
     df = df.sort_values("E_hybrid", kind="stable")
 
     if max_suboptimal_hits is not None:
-        df = df.groupby(["miRNA", "Gene"], sort=False).head(int(max_suboptimal_hits))
+        df = df.groupby(CAP_KEYS, sort=False).head(int(max_suboptimal_hits))
 
     # After the cap, not before: the correction ranks a pair's genes against each other, so a
     # gene should weigh as close to once as the cap allows. Column only, never a gate — see

@@ -352,10 +352,6 @@ rule tidy_intarna:
     output:
         tidy=f"{SAMPLE_VARIANT_DIR}/intarna_tidy.csv"
     resources:
-        # Measured peak RSS on the largest real input: 405 MB with a Pu floor, 873 MB with
-        # only the energy gate — it scales with the SURVIVORS, not the file, and
-        # `max_suboptimal_hits: null` can push it well past this. Advisory: binds only under
-        # `--resources mem_mb=N` or a cluster profile, not plain `--cores all`.
         mem_mb = 1200
     conda:
         # postprocess, not intarna: this rule needs pandas and never invokes the binary,

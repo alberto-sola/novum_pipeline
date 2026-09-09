@@ -5,11 +5,9 @@ __pycache__
 # Models
 .codex
 .claude
-CLAUDE.md*
+CLAUDE.md
 .superpowers
 docs
-.impeccable
-.agents
 
 # IDE
 .idea/
@@ -18,8 +16,7 @@ docs
 # Data
 Data/Raw/genomes/*
 Data/Raw/miRNAs/*
-Data/Raw/RNAs
-Data/Raw/RNAs.*
+Data/Raw/RNAs/*
 Data/Results/*
 Data/Analysis*
 
