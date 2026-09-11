@@ -185,12 +185,25 @@ def test_rnacalibrate_block_round_trips_through_the_real_js(rng_seed):
     assert out["obj"]["rnacalibrate"] == cfg["rnacalibrate"]
 
 
+@pytest.mark.skipif(NODE is None, reason="node not found on PATH")
+@pytest.mark.parametrize("anchors", ["80,200,500,1200", None])
+def test_length_anchors_null_survives_the_round_trip(anchors):
+    # null is meaningful — it turns the ladder off and restores the pre-branch whole-file
+    # fit — so the serializer must not read it as "absent" and re-emit the INITIAL_CONFIG
+    # default. The OFF_DEFAULT test below never passes None, so only this case catches it.
+    cfg = yaml.safe_load((ROOT / "Config" / "config.yaml").read_text())
+    cfg["rnacalibrate"]["length_anchors"] = anchors
+    out = _run_js_roundtrip(cfg)
+    assert out["obj"]["rnacalibrate"]["length_anchors"] == anchors
+
+
 # Every key shifted OFF its INITIAL_CONFIG default. A round trip that only used shipped
 # values would pass even with the hydrate side deleted, because the default it falls back
 # to is the value being compared — the blind spot that made F1 survive its own test.
 OFF_DEFAULT = {
     "rnacalibrate": {"calibration_variant": "both", "k": 4321, "max_target_length": 12345,
-                     "randomize_targets": False, "rng_seed": 99},
+                     "randomize_targets": False, "rng_seed": 99,
+                     "length_anchors": "80,200,500,1200"},
     "rnahybrid": {"species": "3utr_fly", "max_hybrid_energy": -21.5, "max_internal_loop": 7,
                   "max_bulge_loop": 6, "pvalue_threshold": 0.02, "distribution": "3,4"},
 }
@@ -206,6 +219,16 @@ def test_config_blocks_round_trip_off_default_values(block):
     cfg[block].update(OFF_DEFAULT[block])
     out = _run_js_roundtrip(cfg)
     assert out["obj"][block] == cfg[block]
+
+
+def test_shipped_length_anchors_are_the_validated_ladder():
+    # Seven cells, six fits: anchors above FIT_CEILING_NT are declared so the long tail
+    # gets its own cell, then extrapolated rather than fitted.
+    import _rnacalibrate_config as rcc
+    cfg = yaml.safe_load((ROOT / "Config" / "config.yaml").read_text())
+    anchors = rcc.parse_anchors(cfg["rnacalibrate"]["length_anchors"])
+    assert anchors == rcc.DEFAULT_LENGTH_ANCHORS
+    assert len(rcc.fitted_anchors(anchors)) == 6
 
 
 def test_initial_config_has_every_top_block_key():

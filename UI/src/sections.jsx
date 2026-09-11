@@ -207,6 +207,17 @@ function RNACalibrateSection({ cfg, setCfg }) {
               />
             }
           />
+          <Subcard
+            label="Target-length anchors"
+            hint="nt, comma-separated — one Gumbel null per cell"
+          >
+            <input
+              className="input mono"
+              type="text"
+              value={r.length_anchors}
+              onChange={(e) => set({ length_anchors: e.target.value })}
+            />
+          </Subcard>
         </DisableGroup>
       </div>
     </SectionCard>

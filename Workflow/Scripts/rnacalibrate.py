@@ -11,6 +11,16 @@ from functools import partial
 from pathlib import Path
 
 from _common import which_required, iter_fasta_records, iter_fasta_headers, query_key, ensure_parent
+from _rnacalibrate_config import assign_anchor, cell_edges, fitted_anchors, parse_anchors
+from _gumbel_fit import (
+    FitPoint,
+    UnusableCurveError,
+    classify_fit,
+    fit_alpha_robust,
+    predict_theta,
+    residual_ratio,
+    weighted_median,
+)
 
 
 #----- Mean and population stdev of the target FASTA's record lengths (the input to RNAcalibrate's `-l`) -----#
@@ -40,6 +50,25 @@ def build_length_arg(stats):
     }
 
 
+#----- The -l for one anchor. Fixing std/mean at 1/3 is the point: the null's WIDTH then
+#      depends on the cell, not on how a genome's lengths fall inside it. divisor=2 is
+#      Tier 2's widening rung -----#
+def anchor_length_arg(anchor, divisor=3):
+    std_length = int(round(anchor / divisor))
+    return {"mean": anchor, "std": std_length, "value": f"{anchor},{std_length}"}
+
+
+#----- Cell occupancy. An empty anchor is never fitted and gets no stratum — a genome with
+#      no genes under 107 nt simply has no 76 cell -----#
+def count_records_per_anchor(target_file, anchors):
+    edges = cell_edges(anchors)
+    counts = {anchor: 0 for anchor in anchors}
+    for _header, sequence in iter_fasta_records(target_file):
+        if sequence:
+            counts[assign_anchor(len(sequence), anchors, edges)] += 1
+    return counts
+
+
 #----- The one normalisation both the RNG seed and the provenance digest must agree on -----#
 def _normalise_sequence(sequence):
     return sequence.strip().upper().replace("T", "U")
@@ -51,9 +80,15 @@ def _sequence_digest(sequence):
     return hashlib.sha256(_normalise_sequence(sequence).encode())
 
 
-#----- Per-miRNA RNG seed: stable across processes and machines, so calibration is reproducible -----#
-def derive_seed(base_seed, sequence):
-    return (base_seed + int.from_bytes(_sequence_digest(sequence).digest()[:4], "big")) % 2**31
+#----- Per-miRNA RNG seed, stable across processes and machines. With no anchor it returns
+#      exactly what it always has, keeping the reference fit comparable with every run on
+#      disk; an anchor folds in the cell and attempt, so strata never share a draw and a
+#      re-draw is as reproducible as the first try -----#
+def derive_seed(base_seed, sequence, anchor=None, attempt=0):
+    digest = _sequence_digest(sequence)
+    if anchor is not None:
+        digest.update(f"|{anchor}|{attempt}".encode())
+    return (base_seed + int.from_bytes(digest.digest()[:4], "big")) % 2**31
 
 
 #----- Provenance digest of one sequence; shares derive_seed's normalisation -----#
@@ -79,7 +114,7 @@ def _file_provenance(path):
 
 #----- Provenance: distinguishes "same input" from "same path", which `command` alone cannot -----#
 def build_inputs_block(query, target, k, max_target_length, length_arg, forced_helix,
-                       max_internal_loop, max_bulge_loop, rng_seed):
+                       max_internal_loop, max_bulge_loop, rng_seed, length_anchors=None):
     return {
         "query": _file_provenance(query),
         "target": _file_provenance(target),
@@ -87,6 +122,7 @@ def build_inputs_block(query, target, k, max_target_length, length_arg, forced_h
             "k": k,
             "max_target_length": max_target_length,
             "length_arg": length_arg["value"],
+            "length_anchors": list(length_anchors) if length_anchors else None,
             "forced_helix": forced_helix,
             "max_internal_loop": max_internal_loop,
             "max_bulge_loop": max_bulge_loop,
@@ -267,7 +303,7 @@ class DegenerateFitError(RuntimeError):
 
 
 #----- Parses the four-column RNAcalibrate stdout into one xi/theta record per query miRNA -----#
-def parse_rnacalibrate_output(stdout):
+def parse_rnacalibrate_output(stdout, reject_nan=True):
     per_query = []
 
     for raw_line in stdout.splitlines():
@@ -284,9 +320,9 @@ def parse_rnacalibrate_output(stdout):
 
         xi = float(fields[2])
         theta = float(fields[3])
-        # NaN sneaks in when RNAcalibrate's sample is degenerate; refuse to
-        # let it poison the downstream RNAhybrid -d argument.
-        if math.isnan(xi) or math.isnan(theta):
+        # NaN means a degenerate sample; keep it out of the downstream -d. The anchor path
+        # passes reject_nan=False: it classifies and retries rather than aborting.
+        if reject_nan and (math.isnan(xi) or math.isnan(theta)):
             raise DegenerateFitError(f"RNAcalibrate produced NaN parameters: {raw_line}")
 
         per_query.append({
@@ -375,20 +411,158 @@ def _calibrate_one(index, header, sequence, tmpdir, make_command,
     return entry
 
 
-#----- Top-level driver: one RNAcalibrate invocation PER miRNA. NOT an optimisation —
-#      RNAcalibrate consumes ONE RNG stream across every query in a -q file, so a miRNA's
-#      xi/theta depends on how many records precede it (measured, purely ordinal). Batching
-#      these back into one call reintroduces that dependence and makes results
-#      non-comparable across differing query sets. Costs ~0.9% (measured, k=2000).
+#----- Tier 2 rungs: (std divisor, k multiplier, resulting status). The INDEX is the attempt:
+#      folded into derive_seed when pinned, or forced past a clock second when not (see
+#      _calibrate_anchor), so every rung draws a fresh sample at an identical command — free,
+#      because near the 2.0 cutoff the outcome is near a coin flip (three identical runs gave
+#      nan, nan, converged). k buys no extra bins (B caps at 500), only a wider range -----#
+REPAIR_LADDER = (
+    (3, 1, "fitted"),               # attempt 0 — the configured setting
+    (3, 1, "fitted"),               # attempt 1 — re-draw
+    (3, 1, "fitted"),               # attempt 2 — re-draw
+    (2, 1, "refitted_widened"),     # attempt 3 — widen to -l L,L/2
+    (3, 3, "refitted_high_k"),      # attempt 4 — raise k 3x at the configured width
+)
+
+#----- The positive counterpart to REPAIR_LADDER's statuses: "measured", never "modelled".
+#      resolve_strata filters on membership here, not on excluding "rejected" — so a future
+#      modelled status can never sneak into the weighted least squares unnoticed -----#
+FITTED_STATUSES = tuple(dict.fromkeys(status for _, _, status in REPAIR_LADDER))
+
+
+#----- A cell with no usable fit yet; carries WHY it ended up modelled rather than measured -----#
+def _rejected_stratum(anchor, reason, attempts=0):
+    return {"anchor": anchor, "length_arg": None, "k": None, "sample_size": None,
+            "xi": None, "theta": None, "derived_seed": None, "attempts": attempts,
+            "status": "rejected", "reason": reason, "residual": None}
+
+
+#----- One (miRNA x anchor) fit with the Tier 2 ladder. Never raises on a bad FIT — Tier 3
+#      turns an exhausted ladder into an extrapolated cell. A non-zero EXIT does raise:
+#      that is a broken invocation, not a degenerate sample -----#
+def _calibrate_anchor(index, header, sequence, anchor, tmpdir, make_command, k,
+                      rng_seed, library_path, platform_name, pin_clock):
+    mirna = query_key(header)
+    # Indexed AND anchored: two IDs may share a sequence, and concurrent jobs must not
+    # share a path.
+    single_record = Path(tmpdir) / f"query_{index:05d}_a{anchor}.fa"
+    single_record.write_text(f">{header}\n{sequence}\n")
+
+    reason = "unusable_curve"
+    for attempt, (divisor, k_multiplier, status) in enumerate(REPAIR_LADDER):
+        length_arg = anchor_length_arg(anchor, divisor)
+        attempt_k = k * k_multiplier
+        command = make_command(query=str(single_record), length_arg=length_arg, k=attempt_k)
+
+        derived_seed = None
+        env = None
+        if pin_clock:
+            derived_seed = derive_seed(rng_seed, sequence, anchor=anchor, attempt=attempt)
+            env = build_faketime_env(derived_seed, library_path, platform_name, os.environ)
+        elif attempt > 0:
+            # Unpinned, so RNAcalibrate seeds from time() at 1s resolution: an identical
+            # command issued immediately would collapse into the same draw. Force the clock
+            # past a second boundary instead, mirroring verify_faketime's same trick.
+            time.sleep(1.1)
+
+        try:
+            completed = subprocess.run(command, check=True, capture_output=True,
+                                       text=True, env=env)
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"RNAcalibrate failed for miRNA {mirna} at anchor {anchor}: "
+                f"{' '.join(command)} exited with code {exc.returncode}. "
+                f"Error output: {exc.stderr}."
+            ) from exc
+
+        context = f"[miRNA {mirna}, anchor {anchor}, attempt {attempt}, derived_seed={derived_seed}]"
+        try:
+            parsed = parse_rnacalibrate_output(completed.stdout, reject_nan=False)
+        except (RuntimeError, ValueError) as exc:
+            # Malformed or absent output from one of many concurrent jobs — without this
+            # context the error names no miRNA, anchor, or seed.
+            raise RuntimeError(f"{exc} {context}.") from exc
+        row = expect_single_row(parsed, f"{mirna} @ anchor {anchor}")
+        reason = classify_fit(row["sample_size"], row["xi"], row["theta"])
+        if reason is None:
+            return {
+                "anchor": anchor, "length_arg": length_arg["value"], "k": attempt_k,
+                "sample_size": row["sample_size"], "xi": row["xi"], "theta": row["theta"],
+                "derived_seed": derived_seed, "attempts": attempt + 1, "status": status,
+                "reason": None, "residual": None,
+            }
+
+    return _rejected_stratum(anchor, reason, attempts=len(REPAIR_LADDER))
+
+
+#----- Tier 3, per miRNA: fit its OWN alpha over the sound anchors, drop 3-sigma outliers,
+#      fill the rest off the curve. The residual test also catches Tier 2's retry selection
+#      bias. Returns (strata, alpha, spread); alpha is None under reference_fallback -----#
+def resolve_strata(entries, query_length, reference):
+    sound = [entry for entry in entries if entry["status"] in FITTED_STATUSES]
+    points = [FitPoint(e["anchor"], query_length, e["theta"], e["sample_size"])
+              for e in sound]
+
+    try:
+        fit = fit_alpha_robust(points)
+    except UnusableCurveError as exc:
+        # Never halt a panel over one low-GC miRNA — fall back to its whole-file fit for
+        # every cell, which is exactly today's behaviour for it. "reason" stays in its
+        # fixed, machine-read vocabulary; the free-text detail is only for a human, so it
+        # goes to stderr instead.
+        print(f"rnacalibrate: {reference['query']} — reference_fallback ({exc})",
+              file=sys.stderr)
+        return [
+            {**entry, "length_arg": None, "k": None,
+             "sample_size": reference["sample_size"], "xi": reference["xi"],
+             "theta": reference["theta"], "derived_seed": reference["derived_seed"],
+             "status": "reference_fallback", "reason": entry["reason"] or "unusable_curve",
+             "residual": None}
+            for entry in entries
+        ], None, None
+
+    outliers = {point.target_length for point in fit.dropped}
+    survivors = [e for e in sound if e["anchor"] not in outliers]
+    survivor_anchors = {e["anchor"] for e in survivors}
+    # xi drifts ~4% across a 20x length range but is noisy per fit, so take the survivors'
+    # weighted median rather than their mean or any one anchor.
+    xi_modelled = weighted_median([e["xi"] for e in survivors],
+                                  [e["sample_size"] for e in survivors])
+
+    strata = []
+    for entry in entries:
+        if entry["anchor"] in survivor_anchors:
+            point = FitPoint(entry["anchor"], query_length, entry["theta"],
+                             entry["sample_size"])
+            strata.append({**entry,
+                           "residual": residual_ratio(point, fit.alpha, fit.log_c)})
+            continue
+        strata.append({
+            **entry, "length_arg": None, "k": None, "sample_size": None,
+            "xi": xi_modelled,
+            "theta": predict_theta(fit.alpha, fit.log_c, entry["anchor"], query_length),
+            "derived_seed": None, "status": "extrapolated",
+            "reason": entry["reason"] or "residual_outlier", "residual": None,
+        })
+    return strata, fit.alpha, fit.residual_spread
+
+
+#----- Top-level driver: one RNAcalibrate invocation PER miRNA (plus, when length_anchors is
+#      set, one per fitted anchor). NOT an optimisation — RNAcalibrate consumes ONE RNG
+#      stream across every query in a -q file, so a miRNA's xi/theta depends on how many
+#      records precede it (measured, purely ordinal). Batching these back into one call
+#      reintroduces that dependence and makes results non-comparable across differing query
+#      sets. Costs ~0.9% (measured, k=2000).
 #      The invocations are independent, so they run on `threads` cores at once; pool.map
 #      preserves input order, keeping per_query in query-FASTA order -----#
 def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize_targets=False,
                      max_internal_loop=None, max_bulge_loop=None, seed=None, rng_seed=None,
-                     threads=1):
+                     threads=1, length_anchors=None):
     executable = which_required("RNAcalibrate", "rnacalibrate")
     stats = compute_target_length_stats(target)
     length_arg = build_length_arg(stats)
     platform_name = sys.platform
+    anchors = parse_anchors(length_anchors)
 
     pin_clock = pinning_enabled(rng_seed, randomize_targets)
     if rng_seed is not None and not randomize_targets:
@@ -407,32 +581,101 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
         verify_faketime(executable, query, target, k, max_target_length, length_arg,
                         rng_seed, library_path, platform_name)
 
-    # One binding for every argv the run produces, so the per-miRNA invocations and the
-    # provenance template below can never drift apart on a flag.
-    make_command = partial(
-        build_command,
-        executable=executable, target=target, k=k, max_target_length=max_target_length,
-        length_arg=length_arg, randomize_targets=randomize_targets,
-        max_internal_loop=max_internal_loop, max_bulge_loop=max_bulge_loop, seed=seed,
+    common = dict(
+        executable=executable, target=target, max_target_length=max_target_length,
+        randomize_targets=randomize_targets, max_internal_loop=max_internal_loop,
+        max_bulge_loop=max_bulge_loop, seed=seed,
     )
+    # The reference fit binds k and -l; the anchor path leaves both free for Tier 2 to vary.
+    # One `common` for both, so they cannot drift apart on a flag.
+    make_command = partial(build_command, k=k, length_arg=length_arg, **common)
+    make_anchor_command = partial(build_command, **common)
+
+    anchor_block = None
+    counts = {}
+    fit_targets = ()
+    if anchors:
+        counts = count_records_per_anchor(target, anchors)
+        fit_targets = tuple(a for a in fitted_anchors(anchors) if counts[a] > 0)
+        anchor_block = [
+            {"anchor": anchor,
+             "length_arg": anchor_length_arg(anchor)["value"] if anchor in fit_targets else None,
+             "n_records": counts[anchor],
+             "status": ("empty" if counts[anchor] == 0
+                        else "attempted" if anchor in fit_targets
+                        else "above_ceiling")}
+            for anchor in anchors
+        ]
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Materialised before dispatch so the duplicate-ID and empty-file guards in
         # iter_query_records still raise up front, not inside a worker.
         records = list(iter_query_records(query))
+
         calibrate = partial(
             _calibrate_one, tmpdir=tmpdir, make_command=make_command, rng_seed=rng_seed,
             library_path=library_path, platform_name=platform_name, pin_clock=pin_clock,
         )
+        calibrate_anchor = partial(
+            _calibrate_anchor, tmpdir=tmpdir, make_command=make_anchor_command, k=k,
+            rng_seed=rng_seed, library_path=library_path, platform_name=platform_name,
+            pin_clock=pin_clock,
+        )
+
+        # One flat job list, so all 72 x 7 = 504 fits run concurrently rather than 72.
+        jobs = []
+        for index, (header, sequence) in enumerate(records):
+            jobs.append((None, index, header, sequence))
+            for anchor in fit_targets:
+                jobs.append((anchor, index, header, sequence))
+
+        def run_job(job):
+            anchor, index, header, sequence = job
+            if anchor is None:
+                return calibrate(index, header, sequence)
+            return calibrate_anchor(index, header, sequence, anchor)
+
         with ThreadPoolExecutor(max_workers=max(1, threads)) as pool:
-            per_query = list(pool.map(
-                lambda job: calibrate(job[0], *job[1]), enumerate(records)
-            ))
+            results = list(pool.map(run_job, jobs))
+
+    # pool.map preserves order, so results line up with jobs and per_query stays in
+    # query-FASTA order.
+    per_query = []
+    by_index = {}
+    for (anchor, index, _header, _sequence), result in zip(jobs, results):
+        if anchor is None:
+            by_index[index] = (result, [])
+        else:
+            by_index[index][1].append(result)
+
+    for index, (header, sequence) in enumerate(records):
+        entry, fitted = by_index[index]
+        if anchors:
+            occupied = [a for a in anchors if counts[a] > 0]
+            fitted_by_anchor = {row["anchor"]: row for row in fitted}
+            entries = []
+            for anchor in occupied:
+                row = fitted_by_anchor.get(anchor)
+                entries.append(row if row is not None else _rejected_stratum(anchor, "above_ceiling"))
+            strata, alpha, spread = resolve_strata(entries, len(sequence), entry)
+            entry["alpha"] = alpha
+            entry["alpha_residual_spread"] = spread
+            entry["strata"] = strata
+            if any(s["status"] != "fitted" for s in strata):
+                print(
+                    f"rnacalibrate: {entry['query']} — "
+                    + ", ".join(f"{s['anchor']}:{s['status']}"
+                                for s in strata if s["status"] != "fitted"),
+                    file=sys.stderr,
+                )
+        per_query.append(entry)
+
+    calibration = {"per_query": per_query}
+    if anchor_block is not None:
+        calibration = {"anchors": anchor_block, "per_query": per_query}
 
     ensure_parent(output_file).write_text(json.dumps(
         {
-            # Informational only (nothing reads it): the argv invariant across the N
-            # invocations, rather than any one miRNA's temp path.
             "command": make_command(query="<per-query>"),
             "target_length_stats": stats,
             "target_length_argument": length_arg,
@@ -440,11 +683,10 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
                 query=query, target=target, k=k, max_target_length=max_target_length,
                 length_arg=length_arg, forced_helix=seed,
                 max_internal_loop=max_internal_loop, max_bulge_loop=max_bulge_loop,
-                # The seed that was actually APPLIED, so provenance never claims a
-                # pinned run that did not happen (e.g. randomize_targets: false).
                 rng_seed=rng_seed if pin_clock else None,
+                length_anchors=anchors,
             ),
-            "calibration": {"per_query": per_query},
+            "calibration": calibration,
         }, indent=2) + "\n"
     )
 
@@ -462,6 +704,7 @@ def run_from_snakemake(snakemake):
         max_bulge_loop=snakemake.params.max_bulge_loop,
         seed=snakemake.params.seed,
         rng_seed=snakemake.params.rng_seed,
+        length_anchors=snakemake.params.length_anchors,
         threads=snakemake.threads,
     )
 

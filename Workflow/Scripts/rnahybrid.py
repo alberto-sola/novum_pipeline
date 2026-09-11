@@ -8,6 +8,7 @@ import sys
 import tempfile
 
 from _common import which_required, query_key, ensure_parent
+from _rnacalibrate_config import assign_anchor, cell_edges
 from _rnahybrid_worker import OUTPUT_GLOB_BROADCAST, OUTPUT_GLOB_CALIBRATED
 
 
@@ -26,35 +27,58 @@ def _iter_raw_records(path):
         yield record
 
 
-#----- Splits the target FASTA into chunk files of bounded line count, never breaking a record across chunks -----#
-def write_fasta_chunks(target_file, chunk_dir, chunk_prefix="chunk_", max_lines=800):
+#----- Record length from sequence lines only, so a wrapped FASTA or leading junk both
+#      measure correctly -----#
+def _record_length(record):
+    return sum(len(line.strip()) for line in record if not line.startswith(">"))
+
+
+#----- Chunks of bounded line count, never breaking a record. With `anchors`, records group
+#      by length cell first so a chunk carries one cell's -d xi,theta. Returns
+#      (chunk_path, anchor); anchor is None on the broadcast path -----#
+def write_fasta_chunks(target_file, chunk_dir, chunk_prefix="chunk_", max_lines=800,
+                       anchors=None):
     chunk_dir = Path(chunk_dir)
     chunk_dir.mkdir(parents=True, exist_ok=True)
 
-    chunk_paths = []
+    chunks = []
     buffered = []
 
     #----- Writes the buffered records out as the next numbered chunk file -----#
-    def flush_chunk():
+    def flush_chunk(anchor):
         if not buffered:
             return
-        # Zero-padded so merge_output_files' sorted(glob) orders chunks numerically rather
-        # than lexicographically (chunk_10 before chunk_9).
-        chunk_path = chunk_dir / f"{chunk_prefix}{len(chunk_paths):06d}"
+        # Zero-padded AND globally numbered so merge_output_files' sorted(glob) stays
+        # numeric (chunk_10 before chunk_9). Restarting the counter per cell breaks it.
+        chunk_path = chunk_dir / f"{chunk_prefix}{len(chunks):06d}"
         chunk_path.write_text("".join(buffered))
-        chunk_paths.append(chunk_path)
+        chunks.append((chunk_path, anchor))
         buffered.clear()
 
-    for record in _iter_raw_records(target_file):
-        if buffered and len(buffered) + len(record) > max_lines:
-            flush_chunk()
-        buffered.extend(record)
-    flush_chunk()
+    if anchors is None:
+        groups = [(None, _iter_raw_records(target_file))]
+    else:
+        anchors = tuple(anchors)
+        edges = cell_edges(anchors)
+        # Targets top out around 8 MB, so grouping in memory beats a pass per cell.
+        by_anchor = {}
+        for record in _iter_raw_records(target_file):
+            anchor = assign_anchor(_record_length(record), anchors, edges)
+            by_anchor.setdefault(anchor, []).append(record)
+        # Ascending anchor order, empty cells simply absent.
+        groups = [(anchor, by_anchor[anchor]) for anchor in anchors if anchor in by_anchor]
 
-    if not chunk_paths:
+    for anchor, records in groups:
+        for record in records:
+            if buffered and len(buffered) + len(record) > max_lines:
+                flush_chunk(anchor)
+            buffered.extend(record)
+        flush_chunk(anchor)
+
+    if not chunks:
         raise RuntimeError(f"No FASTA records found in target file: {target_file}")
 
-    return chunk_paths
+    return chunks
 
 
 _UNSAFE_STEM = re.compile(r"[^A-Za-z0-9._-]")
@@ -125,17 +149,39 @@ def build_optional_args(max_suboptimal_hits=None, max_internal_loop=None, max_bu
     return optional_args
 
 
-#----- Reads per-miRNA xi/theta from the calibration JSON; returns None on the uncalibrated path -----#
+#----- xi/theta from the calibration JSON as (anchors, map keyed on (query, anchor)).
+#      Both are None for a ladder-less JSON — the shape of every file written before this
+#      feature — and (None, None) on the uncalibrated path, read as broadcast -----#
 def load_per_query_distributions(distribution_file):
     if distribution_file is None:
-        return None
+        return None, None
 
     payload = json.loads(Path(distribution_file).read_text())
-    per_query = payload.get("calibration", {}).get("per_query")
+    calibration = payload.get("calibration", {})
+    per_query = calibration.get("per_query")
     if not per_query:
-        raise RuntimeError(f"No per-query distributions found in calibration file: {distribution_file}")
+        raise RuntimeError(
+            f"No per-query distributions found in calibration file: {distribution_file}")
 
-    return {entry["query"]: f"{entry['xi']:.6f},{entry['theta']:.6f}" for entry in per_query}
+    anchor_block = calibration.get("anchors")
+    if not anchor_block:
+        return None, {(entry["query"], None): f"{entry['xi']:.6f},{entry['theta']:.6f}"
+                      for entry in per_query}
+
+    anchors = tuple(item["anchor"] for item in anchor_block)
+    dist_map = {}
+    for entry in per_query:
+        strata = entry.get("strata")
+        if not strata:
+            raise RuntimeError(
+                f"Calibration file {distribution_file} declares anchors but miRNA "
+                f"{entry['query']} has no strata block. The ladder and the fits were "
+                "written by different versions; re-run rule rnacalibrate."
+            )
+        for stratum in strata:
+            dist_map[(entry["query"], stratum["anchor"])] = (
+                f"{stratum['xi']:.6f},{stratum['theta']:.6f}")
+    return anchors, dist_map
 
 
 #----- Resolves the species/distribution conflict: an explicit distribution wins, species is dropped with a warning -----#
@@ -155,21 +201,25 @@ def validate_rnahybrid_args(species=None, distribution=None):
     return species
 
 
-#----- Materializes the (miRNA × target chunk) cross-product as a TSV that GNU Parallel reads line-by-line -----#
-def build_job_spec_tsv(query_paths_by_name, dist_map, chunk_paths, tsv_path):
-    missing = sorted(name for name in query_paths_by_name if name not in dist_map)
-    if missing:
-        raise RuntimeError(
-            "miRNA(s) in query FASTA have no calibration entry: " + ", ".join(missing)
-        )
-
+#----- The (miRNA x chunk) job list as a TSV GNU Parallel reads line-by-line. A chunk holds
+#      one length cell, so the -d column is that (miRNA, cell)'s own xi/theta -----#
+def build_job_spec_tsv(query_paths_by_name, dist_map, chunks, tsv_path):
     lines = []
+    missing = []
     for name, query_path in query_paths_by_name.items():
-        distribution = dist_map[name]
-        for chunk_path in chunk_paths:
+        for chunk_path, anchor in chunks:
+            distribution = dist_map.get((name, anchor))
+            if distribution is None:
+                missing.append(f"{name} @ {anchor}")
+                continue
             lines.append(
                 f"{Path(query_path).as_posix()}\t{distribution}\t{Path(chunk_path).as_posix()}"
             )
+
+    if missing:
+        raise RuntimeError(
+            "No calibration entry for: " + ", ".join(sorted(set(missing)))
+        )
 
     tsv_path = ensure_parent(tsv_path)
     tsv_path.write_text("\n".join(lines) + "\n")
@@ -249,9 +299,11 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
     split_output_dir.mkdir(parents=True, exist_ok=True)
 
     try:
-        chunk_paths = write_fasta_chunks(target, chunk_dir)
-        dist_map = load_per_query_distributions(distribution_file)
+        # Load first: no ladder param, so anchors come from the JSON already taken as an
+        # input — chunking cannot drift from the fits.
+        anchors, dist_map = load_per_query_distributions(distribution_file)
         calibrated = dist_map is not None
+        chunks = write_fasta_chunks(target, chunk_dir, anchors=anchors)
 
         # One call for both branches. On the calibrated path the static `distribution` is
         # dropped explicitly rather than by omission: calibration supplies per-miRNA xi/theta
@@ -269,7 +321,7 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
             spec_path = build_job_spec_tsv(
                 query_paths_by_name=query_paths_by_name,
                 dist_map=dist_map,
-                chunk_paths=chunk_paths,
+                chunks=chunks,
                 tsv_path=tmp_dir / "job_spec.tsv",
             )
             command = build_parallel_command_calibrated(
@@ -285,7 +337,7 @@ def run_rnahybrid(query, target, species, output_file, max_target_length, thread
             species = validate_rnahybrid_args(species=species, distribution=distribution)
             command = build_parallel_command_broadcast(
                 query=query,
-                chunk_paths=chunk_paths,
+                chunk_paths=[chunk_path for chunk_path, _anchor in chunks],
                 species=species,
                 optional_args=optional_args,
                 threads=threads,

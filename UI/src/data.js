@@ -100,6 +100,7 @@ window.CONFIG_BLOCKS = {
     ["max_target_length", "p"],
     ["randomize_targets", "p"],
     ["rng_seed", "n"],
+    ["length_anchors", "s"],
   ],
   rnahybrid: [
     ["species", "p"],
@@ -289,7 +290,8 @@ window.INITIAL_CONFIG = {
     k: 10000,
     max_target_length: 50000,
     randomize_targets: true,
-    rng_seed: { set: false, value: 1 }   // null = don't pin the clock
+    rng_seed: { set: false, value: 1 },   // null = don't pin the clock
+    length_anchors: "76,150,300,600,900,1500,3000",
   },
   rnahybrid: {
     species: "3utr_human",

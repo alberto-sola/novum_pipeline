@@ -33,6 +33,10 @@ rnacalibrate:
   randomize_targets: true
   rng_seed: 1                           # RNG pin for the shuffled null (libfaketime; RNAcalibrate has no seed flag)
                                         # NOT the top-level `seed` (RNAhybrid -f). null = unpinned, not reproducible
+  length_anchors: "76,150,300,600,900,1500,3000"
+                                        # Target-length cells; genes join the nearest anchor in LOG space and each
+                                        # (miRNA x cell) is fitted at -l anchor,anchor/3. Anchors above 1500 nt are
+                                        # declared but extrapolated, never fitted. null = one whole-file null
 
 #----- Parameters for RNAhybrid -----#
 rnahybrid:

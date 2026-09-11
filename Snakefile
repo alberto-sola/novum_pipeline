@@ -19,6 +19,11 @@ from _intarna_config import (
     validate_intarna_config,
 )
 
+#----- RNAcalibrate ladder schema + validation. Same contract as _intarna_config: stdlib
+#      only, imported here into the DRIVER env, so a bad ladder fails at DAG-build time
+#      rather than an hour into the arm -----#
+from _rnacalibrate_config import validate_rnacalibrate_config
+
 #----- Populate Snakefile variables with the config file. opt() wherever a default exists:
 #      an explicit YAML null reaches .get as None and would flow on as the string "None".
 #      Plain .get() only where null is itself meaningful — "all hits", --noSeed, ungated -----#
@@ -115,6 +120,9 @@ for _warning in validate_intarna_config(
     max_suboptimal_hits=shared_max_suboptimal_hits,
     accessibility_on=W_ACCESSIBILITY in intarna_variants,
 ):
+    logger.warning(_warning)
+
+for _warning in validate_rnacalibrate_config(rnacalibrate_config):
     logger.warning(_warning)
 
 #----- A floor on --outNumber for the accessibility arm; opt() because an explicit null would
@@ -242,6 +250,9 @@ rule rnacalibrate:
         max_target_length=max_target_length,
         randomize_targets=rnacalibrate_config.get("randomize_targets", False),
         rng_seed=rnacalibrate_config.get("rng_seed"),
+        # A param, so editing the ladder re-runs calibration; rule rnahybrid takes the JSON
+        # as an INPUT and follows. Exactly the two dependent rules.
+        length_anchors=rnacalibrate_config.get("length_anchors"),
         max_internal_loop=rnahybrid_config.get("max_internal_loop"),
         max_bulge_loop=rnahybrid_config.get("max_bulge_loop"),
         seed=shared_seed

@@ -1,12 +1,16 @@
 from __future__ import annotations
+import json
+import math
 import os
 import subprocess
 import sys
+from functools import partial
 from pathlib import Path
 from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # Workflow/Scripts
 
 import pytest
+import _gumbel_fit as gf
 import rnacalibrate as rc
 
 SCRIPTS = str(Path(__file__).resolve().parent.parent)
@@ -288,6 +292,7 @@ def test_build_inputs_block_shape(tmp_path, rng_seed):
     assert block["target"]["sha256"] == rc.sha256_file(t)
     assert block["params"] == {
         "k": 10000, "max_target_length": 50000, "length_arg": "986,792",
+        "length_anchors": None,
         "forced_helix": None, "max_internal_loop": None, "max_bulge_loop": None,
     }
     assert block["rng_seed"] == rng_seed
@@ -434,3 +439,360 @@ def test_run_rnacalibrate_warns_only_when_the_seed_is_inert(
         assert f"rng_seed={rng_seed}" in err and "randomize_targets" in err
     else:
         assert err == ""
+
+
+# --- the length-anchor ladder ---
+
+
+def test_derive_seed_is_unchanged_when_no_anchor_is_given():
+    # Pinned against the shipped code: the reference fit must keep its seed so per_query
+    # stays comparable with the 96 runs on disk.
+    assert rc.derive_seed(1, "GUGAGGACUCGGGAGGUGG") == 1932658044
+    assert rc.derive_seed(0, "GUGAGGACUCGGGAGGUGG") == 1932658043
+    assert rc.derive_seed(1, "ACGT") == 600126125
+
+def test_derive_seed_still_normalises_t_to_u_and_case():
+    assert rc.derive_seed(1, "ACGT") == rc.derive_seed(1, "acgu")
+    assert rc.derive_seed(1, "ACGT", anchor=900) == rc.derive_seed(1, "acgu", anchor=900)
+
+def test_derive_seed_differs_per_anchor_and_per_attempt():
+    base = rc.derive_seed(1, "ACGU")
+    seeds = {rc.derive_seed(1, "ACGU", anchor=a) for a in (76, 150, 300, 600, 900, 1500)}
+    assert len(seeds) == 6
+    assert base not in seeds
+    attempts = {rc.derive_seed(1, "ACGU", anchor=900, attempt=i) for i in range(5)}
+    assert len(attempts) == 5
+
+def test_derive_seed_stays_inside_the_faketime_safe_range():
+    for anchor in (76, 1500):
+        for attempt in range(5):
+            seed = rc.derive_seed(1, "ACGU", anchor=anchor, attempt=attempt)
+            assert 0 <= seed < 2 ** 31
+
+def test_derive_seed_is_immune_to_pythonhashseed(tmp_path):
+    # sha256, never the salted built-in hash() — two interpreters must agree. Pinned
+    # against the shipped code, like its pre-existing sibling above.
+    code = ("import sys; sys.path.insert(0, %r); import rnacalibrate as rc; "
+            "print(rc.derive_seed(1, 'ACGU', anchor=900, attempt=2))" % SCRIPTS)
+    outs = set()
+    for hashseed in ("0", "12345"):
+        env = {**os.environ, "PYTHONHASHSEED": hashseed}
+        outs.add(subprocess.run([sys.executable, "-c", code], capture_output=True,
+                                text=True, env=env, check=True).stdout.strip())
+    assert outs == {"1984738640"}
+
+
+def test_anchor_length_arg_fixes_the_null_width_at_one_third():
+    assert rc.anchor_length_arg(900) == {"mean": 900, "std": 300, "value": "900,300"}
+    assert rc.anchor_length_arg(76) == {"mean": 76, "std": 25, "value": "76,25"}
+
+def test_anchor_length_arg_widens_for_the_tier_two_repair():
+    assert rc.anchor_length_arg(900, divisor=2)["value"] == "900,450"
+
+
+def test_repair_ladder_is_two_redraws_then_widen_then_raise_k():
+    assert rc.REPAIR_LADDER == (
+        (3, 1, "fitted"),
+        (3, 1, "fitted"),
+        (3, 1, "fitted"),
+        (2, 1, "refitted_widened"),
+        (3, 3, "refitted_high_k"),
+    )
+
+
+def test_count_records_per_anchor_bins_by_the_geometric_midpoint(tmp_path):
+    # 50 -> 76 (open bottom cell), 734 -> 600, 736 -> 900, 5000 -> 3000 (open top cell)
+    f = _fasta(tmp_path, "".join(
+        f">r{i}\n{'A' * length}\n" for i, length in enumerate([50, 734, 736, 5000])))
+    counts = rc.count_records_per_anchor(f, (76, 150, 300, 600, 900, 1500, 3000))
+    assert counts == {76: 1, 150: 0, 300: 0, 600: 1, 900: 1, 1500: 0, 3000: 1}
+
+
+def test_parse_output_lets_nan_through_when_asked():
+    # The anchor path classifies a degenerate fit rather than raising; Tier 2 retries it.
+    parsed = rc.parse_rnacalibrate_output("hsa-miR-1224-5p 222 -nan -nan\n", reject_nan=False)
+    row = parsed["per_query"][0]
+    assert row["sample_size"] == 222
+    assert math.isnan(row["xi"]) and math.isnan(row["theta"])
+
+def test_parse_output_still_raises_on_nan_by_default():
+    with pytest.raises(rc.DegenerateFitError):
+        rc.parse_rnacalibrate_output("hsa-miR-1224-5p 222 -nan -nan\n")
+
+
+# --- resolve_strata: Tier 3 and extrapolation ---
+
+REFERENCE = {"query": "m", "sample_size": 240, "xi": 2.40, "theta": 0.19,
+             "derived_seed": 7}
+
+def _entry(anchor, theta, sample_size=250, status="fitted", xi=2.5):
+    return {"anchor": anchor, "length_arg": f"{anchor},{anchor // 3}", "k": 10000,
+            "sample_size": sample_size, "xi": xi, "theta": theta,
+            "derived_seed": 1, "attempts": 1, "status": status,
+            "reason": None, "residual": None}
+
+def _rejected(anchor, reason="non_finite"):
+    return {"anchor": anchor, "length_arg": None, "k": None, "sample_size": None,
+            "xi": None, "theta": None, "derived_seed": None, "attempts": 5,
+            "status": "rejected", "reason": reason, "residual": None}
+
+def _on_curve(anchor, alpha=1.557, log_c=0.5, query_nt=22):
+    return gf.predict_theta(alpha, log_c, anchor, query_nt)
+
+def test_resolve_strata_keeps_sound_fits_and_records_their_residual():
+    entries = [_entry(a, _on_curve(a)) for a in (76, 150, 300, 600, 900, 1500)]
+    strata, alpha, spread = rc.resolve_strata(entries, 22, REFERENCE)
+    assert alpha == pytest.approx(1.557, abs=1e-9)
+    assert spread == pytest.approx(0.0, abs=1e-9)
+    assert [s["status"] for s in strata] == ["fitted"] * 6
+    assert all(s["residual"] == pytest.approx(1.0) for s in strata)
+
+def test_resolve_strata_extrapolates_a_rejected_cell_off_the_curve():
+    entries = [_entry(a, _on_curve(a)) for a in (76, 150, 300, 600, 900)]
+    entries.append(_rejected(1500))
+    strata, alpha, _ = rc.resolve_strata(entries, 22, REFERENCE)
+    top = strata[-1]
+    assert top["status"] == "extrapolated"
+    assert top["reason"] == "non_finite"
+    assert top["theta"] == pytest.approx(_on_curve(1500))
+    assert top["xi"] == 2.5              # weighted median of the survivors' xi
+    assert top["length_arg"] is None     # nothing was invoked for this cell
+
+def test_extrapolated_xi_is_the_survivors_weighted_median():
+    # The fixture above gives every anchor the same xi, so it cannot tell the weighted
+    # median from any other summary. Here the five xi are distinct and anchor 600 carries
+    # 40x the weight: 2.60 is its value, and no unweighted median (2.65), mean (2.69),
+    # weighted mean (2.610), first survivor (2.90) or last (2.50) lands on it.
+    xis = {76: 2.90, 150: 2.80, 300: 2.65, 600: 2.60, 900: 2.50}
+    entries = [_entry(a, _on_curve(a), sample_size=400 if a == 600 else 10, xi=xis[a])
+               for a in (76, 150, 300, 600, 900)]
+    entries.append(_rejected(1500))
+    strata, _, _ = rc.resolve_strata(entries, 22, REFERENCE)
+    assert strata[-1]["status"] == "extrapolated"
+    assert strata[-1]["xi"] == 2.60
+
+REPAIRED_STATUSES = ("refitted_widened", "refitted_high_k")
+
+def test_fitted_statuses_covers_every_repair_rung():
+    # Spelled out rather than derived from FITTED_STATUSES: hand-listing it as ("fitted",)
+    # would otherwise empty the parametrize below and turn that test into a silent skip.
+    assert set(rc.FITTED_STATUSES) == {"fitted", *REPAIRED_STATUSES}
+
+@pytest.mark.parametrize("status", REPAIRED_STATUSES)
+def test_resolve_strata_fits_on_every_repaired_status_not_just_fitted(status):
+    # FITTED_STATUSES is derived from REPAIR_LADDER so a renamed or added rung stays in the
+    # least squares. Hand-listing ("fitted",) would silently re-label a REPAIRED cell as
+    # extrapolated and drop its measured theta from the very curve it would be read off.
+    entries = [_entry(a, _on_curve(a)) for a in (76, 150, 300, 600, 900)]
+    entries.append(_entry(1500, _on_curve(1500), status=status))
+    strata, _, _ = rc.resolve_strata(entries, 22, REFERENCE)
+    top = strata[-1]
+    assert top["status"] == status
+    assert top["residual"] == pytest.approx(1.0)
+    assert top["length_arg"] is not None  # still the measured fit, not a modelled cell
+
+def test_resolve_strata_extrapolates_an_above_ceiling_anchor():
+    entries = [_entry(a, _on_curve(a)) for a in (76, 150, 300, 600, 900, 1500)]
+    entries.append(_rejected(3000, reason="above_ceiling"))
+    strata, _, _ = rc.resolve_strata(entries, 22, REFERENCE)
+    assert strata[-1]["anchor"] == 3000
+    assert strata[-1]["status"] == "extrapolated"
+    assert strata[-1]["reason"] == "above_ceiling"
+    assert strata[-1]["theta"] == pytest.approx(_on_curve(3000))
+
+def test_resolve_strata_extrapolates_a_three_sigma_outlier():
+    entries = [_entry(a, _on_curve(a)) for a in (76, 150, 300, 600, 900, 1500)]
+    entries[3]["theta"] *= 1.5
+    strata, alpha, _ = rc.resolve_strata(entries, 22, REFERENCE)
+    outlier = next(s for s in strata if s["anchor"] == 600)
+    assert outlier["status"] == "extrapolated"
+    assert outlier["reason"] == "residual_outlier"
+    assert alpha == pytest.approx(1.557, abs=1e-9)   # refitted without it
+
+def test_resolve_strata_falls_back_to_the_reference_fit_when_alpha_is_undetermined():
+    # Two sound anchors is below Tier 3's floor of three.
+    entries = [_entry(76, _on_curve(76)), _entry(150, _on_curve(150)),
+               _rejected(300), _rejected(600)]
+    strata, alpha, spread = rc.resolve_strata(entries, 22, REFERENCE)
+    assert alpha is None and spread is None
+    assert [s["status"] for s in strata] == ["reference_fallback"] * 4
+    assert all(s["xi"] == REFERENCE["xi"] and s["theta"] == REFERENCE["theta"]
+               for s in strata)
+    # "reason" is a closed, machine-read vocabulary: a sound entry with no reason of its
+    # own reports the fallback itself, never the raw UnusableCurveError text; a rejected
+    # entry keeps ITS OWN reason, since that is more specific than the fallback.
+    assert [s["reason"] for s in strata] == [
+        "unusable_curve", "unusable_curve", "non_finite", "non_finite",
+    ]
+
+def test_resolve_strata_returns_entries_in_ladder_order():
+    entries = [_entry(a, _on_curve(a)) for a in (76, 150, 300, 600, 900, 1500)]
+    strata, _, _ = rc.resolve_strata(entries, 22, REFERENCE)
+    assert [s["anchor"] for s in strata] == [76, 150, 300, 600, 900, 1500]
+
+
+# --- review fixes: _calibrate_anchor and the anchored run_rnacalibrate path, on real jobs ---
+
+STRATUM_KEYS = {"anchor", "length_arg", "k", "sample_size", "xi", "theta", "derived_seed",
+                "attempts", "status", "reason", "residual"}
+
+
+def _bare_anchor_command():
+    # No k / length_arg bound — _calibrate_anchor supplies both per attempt, exactly as
+    # run_rnacalibrate's make_anchor_command does.
+    return partial(rc.build_command, executable="RNAcalibrate", target="t.fna",
+                  max_target_length=100, randomize_targets=True)
+
+
+def test_calibrate_anchor_uses_a_fresh_derived_seed_per_repair_attempt(tmp_path, monkeypatch):
+    seeds_seen = []
+
+    def fake_run(command, **kwargs):
+        seeds_seen.append(kwargs["env"]["FAKETIME"])
+        # non_finite for the first two rungs, sound on the third.
+        stdout = "m 2 -nan -nan\n" if len(seeds_seen) <= 2 else "m 250 2.5 0.2\n"
+        return _completed(stdout)
+
+    monkeypatch.setattr(rc.subprocess, "run", fake_run)
+
+    result = rc._calibrate_anchor(0, "m", "ACGU", 900, str(tmp_path), _bare_anchor_command(),
+                                  k=10000, rng_seed=1, library_path="/x.so",
+                                  platform_name="linux", pin_clock=True)
+
+    expected = [f"@{rc.derive_seed(1, 'ACGU', anchor=900, attempt=i)}" for i in range(3)]
+    assert seeds_seen == expected
+    assert len(set(seeds_seen)) == 3          # a fresh draw every retry, never a repeat
+    assert result["status"] == "fitted"
+    assert result["attempts"] == 3
+    assert result["reason"] is None
+
+
+def test_calibrate_anchor_recovers_at_a_later_repair_rung(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        # non_finite through all three "fitted" rungs, sound once widened.
+        stdout = "m 2 -nan -nan\n" if len(calls) <= 3 else "m 300 2.4 0.18\n"
+        return _completed(stdout)
+
+    monkeypatch.setattr(rc.subprocess, "run", fake_run)
+
+    result = rc._calibrate_anchor(0, "m", "ACGU", 900, str(tmp_path), _bare_anchor_command(),
+                                  k=10000, rng_seed=1, library_path="/x.so",
+                                  platform_name="linux", pin_clock=True)
+
+    assert result["status"] == "refitted_widened"
+    assert result["attempts"] == 4
+    assert result["reason"] is None
+    assert result["length_arg"] == "900,450"   # divisor=2, the widening rung
+    assert result["k"] == 10000                # k multiplier is 1 at this rung
+
+
+def test_calibrate_anchor_sleeps_past_a_clock_second_on_unpinned_retries(tmp_path, monkeypatch):
+    calls = []
+    sleeps = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        stdout = "m 2 -nan -nan\n" if len(calls) <= 2 else "m 300 2.4 0.18\n"
+        return _completed(stdout)
+
+    monkeypatch.setattr(rc.subprocess, "run", fake_run)
+    monkeypatch.setattr(rc.time, "sleep", lambda seconds: sleeps.append(seconds))
+
+    result = rc._calibrate_anchor(0, "m", "ACGU", 900, str(tmp_path), _bare_anchor_command(),
+                                  k=10000, rng_seed=None, library_path=None,
+                                  platform_name="linux", pin_clock=False)
+
+    # No sleep before attempt 0; one before each of the two retries that follow it. Unpinned
+    # commands are otherwise identical, so without this an unpinned retry would collapse
+    # into the same draw RNAcalibrate's time()-seeded RNG already made.
+    assert sleeps == [1.1, 1.1]
+    assert result["status"] == "fitted"
+    assert result["derived_seed"] is None
+
+
+def test_run_rnacalibrate_anchored_path_writes_uniform_11_key_strata(tmp_path, monkeypatch):
+    query = tmp_path / "q.fa"
+    query.write_text(">mirA\nACGUACGUACGU\n")
+    target = tmp_path / "t.fna"
+    # Lengths land one per cell of anchors (76, 150, 300): 50 -> 76, 150 -> 150, 250 -> 300.
+    target.write_text(">g1\n" + "A" * 50 + "\n>g2\n" + "A" * 150 + "\n>g3\n" + "A" * 250 + "\n")
+
+    monkeypatch.setattr(rc, "which_required", lambda *a: "RNAcalibrate")
+    monkeypatch.setattr(rc, "resolve_faketime_library", lambda *a: "/opt/lib/libfaketime.so.1")
+    monkeypatch.setattr(rc, "verify_faketime", lambda *a, **k: None)
+
+    def fake_run(command, **kwargs):
+        length_value = command[command.index("-l") + 1]
+        header, sequence = next(rc.iter_fasta_records(command[command.index("-q") + 1]))
+        name = rc.query_key(header)
+        for anchor in (76, 150, 300):
+            if length_value == rc.anchor_length_arg(anchor)["value"]:
+                # Exactly on an alpha=1.5 curve, so fit_alpha_robust recovers it with zero
+                # residual spread and every anchor succeeds on attempt 0.
+                theta = gf.predict_theta(1.5, 0.3, anchor, len(sequence))
+                return _completed(f"{name} 300 2.4 {theta}\n")
+        return _completed(f"{name} 300 2.4 0.2\n")   # the reference job's own -l
+
+    monkeypatch.setattr(rc.subprocess, "run", fake_run)
+
+    out = tmp_path / "out.json"
+    rc.run_rnacalibrate(query, target, out, k=10000, max_target_length=100000,
+                        randomize_targets=True, rng_seed=1, length_anchors=(76, 150, 300))
+    data = json.loads(out.read_text())
+
+    assert data["calibration"]["anchors"] == [
+        {"anchor": 76, "length_arg": "76,25", "n_records": 1, "status": "attempted"},
+        {"anchor": 150, "length_arg": "150,50", "n_records": 1, "status": "attempted"},
+        {"anchor": 300, "length_arg": "300,100", "n_records": 1, "status": "attempted"},
+    ]
+
+    [entry] = data["calibration"]["per_query"]
+    assert entry["alpha"] == pytest.approx(1.5, abs=1e-6)
+    assert entry["alpha_residual_spread"] == pytest.approx(0.0, abs=1e-6)
+    strata = entry["strata"]
+    assert [s["anchor"] for s in strata] == [76, 150, 300]
+    assert [s["status"] for s in strata] == ["fitted", "fitted", "fitted"]
+    assert [s["attempts"] for s in strata] == [1, 1, 1]
+    assert all(set(s.keys()) == STRATUM_KEYS for s in strata)
+
+
+# --- one binary-dependent test, following the test_intarna.py precedent ---
+
+ECOLI = Path("Data/Raw/genomes/GCF_000005845.2_ASM584v2_cds_rna_from_genomic.fna")
+
+# rnahybrid-2.1.2-h7b50bb2_4 at FAKETIME=@1000, k=200, -l 900,300; both reproduce 2/2.
+# k=200 shifts N (B becomes 200) but not the mechanism.
+PINNED_MODES = [
+    ("hsa-miR-1224-5p", "GUGAGGACUCGGGAGGUGG", 85, "non_finite"),
+    ("hsa-miR-2054", "CUGUAAUAUAAAUUUAAUUUAUU", -2, "degenerate_sample"),
+]
+
+
+@pytest.mark.skipif(not ECOLI.exists(), reason="E. coli target FASTA not present")
+@pytest.mark.parametrize("mirna,sequence,expected_n,expected_reason", PINNED_MODES)
+def test_the_binarys_two_failure_modes_are_still_what_the_guard_expects(
+        tmp_path, mirna, sequence, expected_n, expected_reason):
+    # The fit window is a hard-coded ABSOLUTE 2.0 cutoff on a scale that slides with
+    # ln(m*n): a range entirely above it yields -nan, one entirely below caps `start` and
+    # yields 0.000000 with a negative "sample size". Both are binary properties, so pin them.
+    executable = rc.which_required("RNAcalibrate", "rnacalibrate")
+    library = rc.resolve_faketime_library(sys.platform)
+    query = tmp_path / "q.fa"
+    query.write_text(f">{mirna}\n{sequence}\n")
+
+    command = rc.build_command(
+        executable=executable, query=str(query), target=str(ECOLI), k=200,
+        max_target_length=50000, length_arg=rc.anchor_length_arg(900),
+        randomize_targets=True,
+    )
+    env = rc.build_faketime_env(1000, library, sys.platform, os.environ)
+    stdout = subprocess.run(command, check=True, capture_output=True, text=True,
+                            env=env).stdout
+
+    row = rc.expect_single_row(
+        rc.parse_rnacalibrate_output(stdout, reject_nan=False), mirna)
+    assert row["sample_size"] == expected_n
+    assert gf.classify_fit(row["sample_size"], row["xi"], row["theta"]) == expected_reason

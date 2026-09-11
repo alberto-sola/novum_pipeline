@@ -32,11 +32,13 @@ function _nullableValue(field, forced) {
 }
 
 //----- One config block, emitted from its spec. `forced(key)` collapses a field to null
-//      whatever its toggle says (RNAhybrid's distribution, once calibration supplies it) -----//
+//      whatever its toggle says (RNAhybrid's distribution, once calibration supplies it).
+//      "s" is a plain string whose blank is a meaningful null, not a missing value -----//
 function _block(state, spec, forced = () => false) {
   return Object.fromEntries(spec.map(([key, kind]) => [
     key,
     kind === "n" ? _nullableValue(state[key], forced(key))
+    : kind === "s" ? (String(state[key] ?? "").trim() || null)
     : kind === "c" ? window.INTARNA_OUTPUT_COLUMNS_DEFAULT
     : state[key],
   ]));
@@ -125,12 +127,14 @@ function _variantStr(v, dflt) {
 }
 
 //----- Reads one block back into form state, in place. "c" is a constant the form never
-//      edits, so it is deliberately not hydrated -----//
+//      edits, so it is deliberately not hydrated. "s" keys on PRESENCE, not on null: an
+//      explicit null blanks the field, where an absent key keeps the default -----//
 function _hydrateBlock(rawBlock, state, spec) {
   if (!rawBlock) return;
   spec.forEach(([key, kind]) => {
     if (kind === "n") state[key] = _toNullable(rawBlock[key], state[key]);
     else if (kind === "v") state[key] = _variantStr(rawBlock[key], state[key]);
+    else if (kind === "s") state[key] = key in rawBlock ? String(rawBlock[key] ?? "") : state[key];
     else if (kind === "p" && rawBlock[key] != null) state[key] = rawBlock[key];
   });
 }
