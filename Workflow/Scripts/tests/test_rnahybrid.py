@@ -1,9 +1,14 @@
 from __future__ import annotations
+import json
 import sys
 from pathlib import Path
+
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # Workflow/Scripts
 
 import rnahybrid
+import _common
 import _rnahybrid_worker as worker
 
 
@@ -38,15 +43,26 @@ def test_no_energy_flag_when_cutoff_is_none():
     assert "-e" not in rnahybrid.build_optional_args()
 
 
-import json
-
-import pytest
-
 LADDER = [76, 150, 300, 600, 900, 1500, 3000]
 
 
 def _record(name, length):
     return f">{name}\n{'A' * length}\n"
+
+
+# --- the cross-module contract: both arms must bin a gene into the SAME cell ---
+
+def test_record_length_agrees_with_the_length_rnacalibrate_bins_on(tmp_path):
+    # rnahybrid measures a record from its raw lines, rnacalibrate from the joined sequence
+    # of _common.iter_fasta_records. A gene chunked into a cell rnacalibrate never fitted
+    # surfaces an hour into the arm as "No calibration entry", so pin the two together on
+    # the shapes that could separate them: wrapping, blank lines, and CRLF.
+    fasta = tmp_path / "t.fna"
+    fasta.write_text(">wrapped\nAAAA\nCCC\n\n>crlf\r\nGGGGG\r\n>plain\nUU\n")
+
+    raw = [rnahybrid._record_length(r) for r in rnahybrid._iter_raw_records(fasta)]
+    joined = [len(seq) for _header, seq in _common.iter_fasta_records(fasta)]
+    assert raw == joined == [7, 5, 2]
 
 
 # --- chunking: the broadcast path must not move ---

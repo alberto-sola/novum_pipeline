@@ -79,7 +79,7 @@ def fitted_anchors(anchors):
 #----- (a) Without -s there is no RNG and -l is dropped entirely (verified inert), so every
 #      anchor would hold bit-identical numbers -----#
 def _reject_ladder_without_shuffling(anchors, cfg):
-    if anchors and not cfg.get("randomize_targets"):
+    if not cfg.get("randomize_targets"):
         raise ValueError(
             "rnacalibrate.length_anchors is set but randomize_targets is false. Without "
             "-s there is no RNG and RNAcalibrate drops -l entirely, so every anchor would "
@@ -90,8 +90,6 @@ def _reject_ladder_without_shuffling(anchors, cfg):
 
 #----- (b) The one shape constraint that depends on the ceiling; parse_anchors covers the rest -----#
 def _reject_too_few_fitted_anchors(anchors):
-    if not anchors:
-        return
     fitted = fitted_anchors(anchors)
     if len(fitted) < MIN_FITTED_ANCHORS:
         raise ValueError(
@@ -104,7 +102,7 @@ def _reject_too_few_fitted_anchors(anchors):
 
 #----- (c) Expected on the shipped ladder: the top anchor gives the long tail its own cell -----#
 def _above_ceiling_warnings(anchors):
-    above = [anchor for anchor in (anchors or ()) if anchor > FIT_CEILING_NT]
+    above = [anchor for anchor in anchors if anchor > FIT_CEILING_NT]
     if not above:
         return []
     return [
@@ -115,9 +113,10 @@ def _above_ceiling_warnings(anchors):
     ]
 
 
-#----- (d) The block is inert when the arm never runs -----#
-def _inert_ladder_warnings(anchors, cfg):
-    if anchors and cfg.get("calibration_variant") == "off":
+#----- (d) The block is inert when the arm never runs. Takes the RESOLVED flag, not the raw
+#      key: YAML 1.1 parses a bare `off` as False, which no string compare here would catch -----#
+def _inert_ladder_warnings(calibration_on):
+    if not calibration_on:
         return [
             "rnacalibrate: length_anchors is set but calibration_variant is 'off', so no "
             "calibration runs and the ladder is wholly inert."
@@ -127,8 +126,8 @@ def _inert_ladder_warnings(anchors, cfg):
 
 #----- (e) Re-draws still work unpinned, but the retry COUNT varies run to run, so two runs
 #      of one config can extrapolate different cells -----#
-def _unpinned_ladder_warnings(anchors, cfg):
-    if anchors and cfg.get("rng_seed") is None:
+def _unpinned_ladder_warnings(cfg):
+    if cfg.get("rng_seed") is None:
         return [
             "rnacalibrate: length_anchors is set with rng_seed: null. The Tier 2 re-draws "
             "still work, but which anchors need them is no longer reproducible, so two "
@@ -139,9 +138,12 @@ def _unpinned_ladder_warnings(anchors, cfg):
 
 #----- DAG-build-time validation. (a)/(b) raise, (c)/(d)/(e) return warnings; adding a check
 #      means a helper plus one line here, never growing this body -----#
-def validate_rnacalibrate_config(cfg):
+def validate_rnacalibrate_config(cfg, calibration_on=True):
     cfg = cfg or {}
     anchors = parse_anchors(cfg.get("length_anchors"))
+    # No ladder means every check below is inert, so each helper can assume one exists.
+    if not anchors:
+        return []
 
     # Every fatal runs before any warning is collected — a warning list a raise discards
     # is wasted work.
@@ -150,6 +152,6 @@ def validate_rnacalibrate_config(cfg):
 
     return (
         _above_ceiling_warnings(anchors)
-        + _inert_ladder_warnings(anchors, cfg)
-        + _unpinned_ladder_warnings(anchors, cfg)
+        + _inert_ladder_warnings(calibration_on)
+        + _unpinned_ladder_warnings(cfg)
     )

@@ -500,12 +500,20 @@ def test_repair_ladder_is_two_redraws_then_widen_then_raise_k():
     )
 
 
-def test_count_records_per_anchor_bins_by_the_geometric_midpoint(tmp_path):
+def test_count_records_per_anchor_bins_by_the_geometric_midpoint():
     # 50 -> 76 (open bottom cell), 734 -> 600, 736 -> 900, 5000 -> 3000 (open top cell)
+    counts = rc.count_records_per_anchor([50, 734, 736, 5000],
+                                         (76, 150, 300, 600, 900, 1500, 3000))
+    assert counts == {76: 1, 150: 0, 300: 0, 600: 1, 900: 1, 1500: 0, 3000: 1}
+
+
+def test_record_lengths_feeds_both_the_l_stats_and_the_cell_counts(tmp_path):
+    # The two derivations must describe the same population — one pass, one `if seq` filter.
     f = _fasta(tmp_path, "".join(
         f">r{i}\n{'A' * length}\n" for i, length in enumerate([50, 734, 736, 5000])))
-    counts = rc.count_records_per_anchor(f, (76, 150, 300, 600, 900, 1500, 3000))
-    assert counts == {76: 1, 150: 0, 300: 0, 600: 1, 900: 1, 1500: 0, 3000: 1}
+    lengths = rc.record_lengths(f)
+    assert lengths == [50, 734, 736, 5000]
+    assert rc.summarise_lengths(lengths) == rc.compute_target_length_stats(f)
 
 
 def test_parse_output_lets_nan_through_when_asked():
@@ -633,8 +641,8 @@ def test_resolve_strata_returns_entries_in_ladder_order():
 
 # --- review fixes: _calibrate_anchor and the anchored run_rnacalibrate path, on real jobs ---
 
-STRATUM_KEYS = {"anchor", "length_arg", "k", "sample_size", "xi", "theta", "derived_seed",
-                "attempts", "status", "reason", "residual"}
+# Derived from the factory, not restated: the point of _stratum is that there is one spelling.
+STRATUM_KEYS = set(rc._stratum(900))
 
 
 def _bare_anchor_command():
@@ -644,21 +652,29 @@ def _bare_anchor_command():
                   max_target_length=100, randomize_targets=True)
 
 
-def test_calibrate_anchor_uses_a_fresh_derived_seed_per_repair_attempt(tmp_path, monkeypatch):
-    seeds_seen = []
-
+def _nan_then(n_failures, calls):
+    # Degenerate for the first n_failures rungs, sound after; records (command, env) per call.
     def fake_run(command, **kwargs):
-        seeds_seen.append(kwargs["env"]["FAKETIME"])
-        # non_finite for the first two rungs, sound on the third.
-        stdout = "m 2 -nan -nan\n" if len(seeds_seen) <= 2 else "m 250 2.5 0.2\n"
-        return _completed(stdout)
+        calls.append((command, kwargs.get("env")))
+        return _completed("m 2 -nan -nan\n" if len(calls) <= n_failures
+                          else "m 300 2.4 0.18\n")
+    return fake_run
 
+
+def _run_anchor(tmp_path, monkeypatch, fake_run, **overrides):
     monkeypatch.setattr(rc.subprocess, "run", fake_run)
+    kwargs = dict(k=10000, rng_seed=1, library_path="/x.so",
+                  platform_name="linux", pin_clock=True)
+    kwargs.update(overrides)
+    query_path = rc._write_query_file(tmp_path, 0, "m", "ACGU")
+    return rc._calibrate_anchor(query_path, "m", "ACGU", 900, _bare_anchor_command(), **kwargs)
 
-    result = rc._calibrate_anchor(0, "m", "ACGU", 900, str(tmp_path), _bare_anchor_command(),
-                                  k=10000, rng_seed=1, library_path="/x.so",
-                                  platform_name="linux", pin_clock=True)
 
+def test_calibrate_anchor_uses_a_fresh_derived_seed_per_repair_attempt(tmp_path, monkeypatch):
+    calls = []
+    result = _run_anchor(tmp_path, monkeypatch, _nan_then(2, calls))
+
+    seeds_seen = [env["FAKETIME"] for _command, env in calls]
     expected = [f"@{rc.derive_seed(1, 'ACGU', anchor=900, attempt=i)}" for i in range(3)]
     assert seeds_seen == expected
     assert len(set(seeds_seen)) == 3          # a fresh draw every retry, never a repeat
@@ -668,19 +684,8 @@ def test_calibrate_anchor_uses_a_fresh_derived_seed_per_repair_attempt(tmp_path,
 
 
 def test_calibrate_anchor_recovers_at_a_later_repair_rung(tmp_path, monkeypatch):
-    calls = []
-
-    def fake_run(command, **kwargs):
-        calls.append(command)
-        # non_finite through all three "fitted" rungs, sound once widened.
-        stdout = "m 2 -nan -nan\n" if len(calls) <= 3 else "m 300 2.4 0.18\n"
-        return _completed(stdout)
-
-    monkeypatch.setattr(rc.subprocess, "run", fake_run)
-
-    result = rc._calibrate_anchor(0, "m", "ACGU", 900, str(tmp_path), _bare_anchor_command(),
-                                  k=10000, rng_seed=1, library_path="/x.so",
-                                  platform_name="linux", pin_clock=True)
+    # non_finite through all three "fitted" rungs, sound once widened.
+    result = _run_anchor(tmp_path, monkeypatch, _nan_then(3, []))
 
     assert result["status"] == "refitted_widened"
     assert result["attempts"] == 4
@@ -690,25 +695,16 @@ def test_calibrate_anchor_recovers_at_a_later_repair_rung(tmp_path, monkeypatch)
 
 
 def test_calibrate_anchor_sleeps_past_a_clock_second_on_unpinned_retries(tmp_path, monkeypatch):
-    calls = []
     sleeps = []
-
-    def fake_run(command, **kwargs):
-        calls.append(command)
-        stdout = "m 2 -nan -nan\n" if len(calls) <= 2 else "m 300 2.4 0.18\n"
-        return _completed(stdout)
-
-    monkeypatch.setattr(rc.subprocess, "run", fake_run)
     monkeypatch.setattr(rc.time, "sleep", lambda seconds: sleeps.append(seconds))
 
-    result = rc._calibrate_anchor(0, "m", "ACGU", 900, str(tmp_path), _bare_anchor_command(),
-                                  k=10000, rng_seed=None, library_path=None,
-                                  platform_name="linux", pin_clock=False)
+    result = _run_anchor(tmp_path, monkeypatch, _nan_then(2, []),
+                         rng_seed=None, library_path=None, pin_clock=False)
 
     # No sleep before attempt 0; one before each of the two retries that follow it. Unpinned
     # commands are otherwise identical, so without this an unpinned retry would collapse
     # into the same draw RNAcalibrate's time()-seeded RNG already made.
-    assert sleeps == [1.1, 1.1]
+    assert sleeps == [rc.CLOCK_TICK_SLEEP_S, rc.CLOCK_TICK_SLEEP_S]
     assert result["status"] == "fitted"
     assert result["derived_seed"] is None
 

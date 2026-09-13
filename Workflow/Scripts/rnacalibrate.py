@@ -23,12 +23,17 @@ from _gumbel_fit import (
 )
 
 
-#----- Mean and population stdev of the target FASTA's record lengths (the input to RNAcalibrate's `-l`) -----#
-def compute_target_length_stats(target_file):
+#----- The lengths every downstream derivation reads: the `-l` stats and the cell occupancy
+#      must describe the same population, so they share one pass and one `if seq` filter -----#
+def record_lengths(target_file):
     lengths = [len(seq) for _header, seq in iter_fasta_records(target_file) if seq]
     if not lengths:
         raise RuntimeError(f"No FASTA records found in target file: {target_file}")
+    return lengths
 
+
+#----- Mean and population stdev of already-read record lengths (the input to RNAcalibrate's `-l`) -----#
+def summarise_lengths(lengths):
     mean_length = sum(lengths) / len(lengths)
     if len(lengths) == 1:
         std_length = 0.0
@@ -37,6 +42,11 @@ def compute_target_length_stats(target_file):
         std_length = math.sqrt(variance)
 
     return {"count": len(lengths), "mean": mean_length, "std": std_length}
+
+
+#----- The same, straight from a FASTA -----#
+def compute_target_length_stats(target_file):
+    return summarise_lengths(record_lengths(target_file))
 
 
 #----- Rounds the (mean, std) pair to ints and formats them as RNAcalibrate's "<mean>,<std>" -l argument -----#
@@ -60,12 +70,11 @@ def anchor_length_arg(anchor, divisor=3):
 
 #----- Cell occupancy. An empty anchor is never fitted and gets no stratum — a genome with
 #      no genes under 107 nt simply has no 76 cell -----#
-def count_records_per_anchor(target_file, anchors):
+def count_records_per_anchor(lengths, anchors):
     edges = cell_edges(anchors)
     counts = {anchor: 0 for anchor in anchors}
-    for _header, sequence in iter_fasta_records(target_file):
-        if sequence:
-            counts[assign_anchor(len(sequence), anchors, edges)] += 1
+    for length in lengths:
+        counts[assign_anchor(length, anchors, edges)] += 1
     return counts
 
 
@@ -188,6 +197,10 @@ def build_faketime_env(seed, library_path, platform_name, base_env):
 PROBE_K = 5
 PROBE_K_RETRY = 200
 
+# Just past a wall-clock second. RNAcalibrate seeds from time() at 1s resolution, so this is
+# what forces an UNPINNED clock to hand out a different draw; a pinned one is unaffected.
+CLOCK_TICK_SLEEP_S = 1.1
+
 
 #----- Cheap rungs only while they are cheaper than the real run; k itself is always last, so
 #      the verdict is never decided in a regime the run never enters -----#
@@ -213,10 +226,6 @@ def classify_probe(first, repeat, other):
 #      Always probes with randomize_targets=True: `-s` is the only consumer of the RNG, so a
 #      probe without it would be deterministic at every seed and report a false "blind".
 #      The caller must therefore only invoke this when randomize_targets is on.
-#      COST: probes run over the whole query FASTA, so the k rung is ~one full calibration
-#      each. Cheap in practice (k=5 settles it unless every miRNA is degenerate there), but
-#      the worst case is ~3x a real run — deliberate, since a single-record probe is far
-#      likelier to report a false "blind" on a miRNA that is NaN at low k. -----#
 def verify_faketime(executable, query, target, k, max_target_length, length_arg, seed,
                     library_path, platform_name):
     #----- One probe run at a given seed and k, returning its raw stdout to compare -----#
@@ -244,7 +253,7 @@ def verify_faketime(executable, query, target, k, max_target_length, length_arg,
         # (~0.15s apart) are byte-identical whether or not libfaketime is doing anything.
         # Sleeping past a second boundary forces an UNPINNED clock to diverge; a PINNED one
         # is frozen, so first == repeat however long we wait — no false "blocked".
-        time.sleep(1.1)
+        time.sleep(CLOCK_TICK_SLEEP_S)
         repeat = probe(seed, probe_k)
         other = probe(seed + 1, probe_k)
         verdict = classify_probe(first, repeat, other)
@@ -363,36 +372,50 @@ def expect_single_row(parsed, mirna):
     return rows[0]
 
 
-#----- One miRNA's fit: its own single-record -q file, so it is always position 1 in
-#      RNAcalibrate's RNG stream, and its own derived seed. Nothing here reads another
-#      miRNA's state — that independence is what lets the driver run these concurrently -----#
-def _calibrate_one(index, header, sequence, tmpdir, make_command,
-                   rng_seed, library_path, platform_name, pin_clock):
-    mirna = query_key(header)
-    # Indexed, not named after the miRNA: two distinct IDs may carry the same sequence, and
-    # concurrent jobs must never share a path.
-    single_record = Path(tmpdir) / f"query_{index:05d}.fa"
-    single_record.write_text(f">{header}\n{sequence}\n")
-    command = make_command(query=str(single_record))
+#----- This miRNA's single-record -q file, so every invocation is position 1 in its own RNG
+#      stream. Written ONCE in the main thread and only read after, so the anchor fits share
+#      it without racing. Indexed, not named after the miRNA: two IDs may share a sequence -----#
+def _write_query_file(tmpdir, index, header, sequence):
+    path = Path(tmpdir) / f"query_{index:05d}.fa"
+    path.write_text(f">{header}\n{sequence}\n")
+    return path
 
-    derived_seed = None
-    env = None
-    if pin_clock:
-        derived_seed = derive_seed(rng_seed, sequence)
-        env = build_faketime_env(derived_seed, library_path, platform_name, os.environ)
 
+#----- The derived seed and the faketime env for one fit; `seed_parts` separates the anchor
+#      path's (anchor, attempt) draws. Both None when the clock is not pinned -----#
+def _fit_env(pin_clock, rng_seed, sequence, library_path, platform_name, **seed_parts):
+    if not pin_clock:
+        return None, None
+    derived_seed = derive_seed(rng_seed, sequence, **seed_parts)
+    return derived_seed, build_faketime_env(derived_seed, library_path, platform_name, os.environ)
+
+
+#----- The one RNAcalibrate invocation. A non-zero EXIT is the only failure it raises on —
+#      a bad FIT is the caller's to classify. `subject` names the job in that error -----#
+def _run_or_raise(command, env, subject):
     try:
-        completed = subprocess.run(command, check=True, capture_output=True, text=True, env=env)
+        return subprocess.run(command, check=True, capture_output=True,
+                              text=True, env=env).stdout
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(
-            f"RNAcalibrate failed for miRNA {mirna}: "
+            f"RNAcalibrate failed for {subject}: "
             f"{' '.join(command)} exited with code {exc.returncode}. "
             f"Error output: {exc.stderr}."
         ) from exc
 
+
+#----- One miRNA's reference fit at the whole-file -l. Nothing here reads another miRNA's
+#      state — that independence is what lets the driver run these concurrently -----#
+def _calibrate_one(query_path, header, sequence, make_command,
+                   rng_seed, library_path, platform_name, pin_clock):
+    mirna = query_key(header)
+    command = make_command(query=str(query_path))
+    derived_seed, env = _fit_env(pin_clock, rng_seed, sequence, library_path, platform_name)
+    stdout = _run_or_raise(command, env, f"miRNA {mirna}")
+
     context = f"[miRNA {mirna}, derived_seed={derived_seed}]"
     try:
-        parsed = parse_rnacalibrate_output(completed.stdout)
+        parsed = parse_rnacalibrate_output(stdout)
     except DegenerateFitError as exc:
         # Caught by TYPE, not by matching the message: a degenerate fit at a pinned seed is
         # reproducible, so re-running will not clear it.
@@ -427,57 +450,48 @@ REPAIR_LADDER = (
 #----- The positive counterpart to REPAIR_LADDER's statuses: "measured", never "modelled".
 #      resolve_strata filters on membership here, not on excluding "rejected" — so a future
 #      modelled status can never sneak into the weighted least squares unnoticed -----#
-FITTED_STATUSES = tuple(dict.fromkeys(status for _, _, status in REPAIR_LADDER))
+FITTED_STATUSES = frozenset(status for _, _, status in REPAIR_LADDER)
+
+
+#----- The one spelling of a stratum's keys. resolve_strata merges these with {**entry, ...},
+#      so a key missing from one construction site would write a ragged rnacalibrate.json -----#
+def _stratum(anchor, **fields):
+    return {"anchor": anchor, "length_arg": None, "k": None, "sample_size": None,
+            "xi": None, "theta": None, "derived_seed": None, "attempts": 0,
+            "status": "rejected", "reason": None, "residual": None, **fields}
 
 
 #----- A cell with no usable fit yet; carries WHY it ended up modelled rather than measured -----#
 def _rejected_stratum(anchor, reason, attempts=0):
-    return {"anchor": anchor, "length_arg": None, "k": None, "sample_size": None,
-            "xi": None, "theta": None, "derived_seed": None, "attempts": attempts,
-            "status": "rejected", "reason": reason, "residual": None}
+    return _stratum(anchor, reason=reason, attempts=attempts)
 
 
 #----- One (miRNA x anchor) fit with the Tier 2 ladder. Never raises on a bad FIT — Tier 3
 #      turns an exhausted ladder into an extrapolated cell. A non-zero EXIT does raise:
 #      that is a broken invocation, not a degenerate sample -----#
-def _calibrate_anchor(index, header, sequence, anchor, tmpdir, make_command, k,
+def _calibrate_anchor(query_path, header, sequence, anchor, make_command, k,
                       rng_seed, library_path, platform_name, pin_clock):
     mirna = query_key(header)
-    # Indexed AND anchored: two IDs may share a sequence, and concurrent jobs must not
-    # share a path.
-    single_record = Path(tmpdir) / f"query_{index:05d}_a{anchor}.fa"
-    single_record.write_text(f">{header}\n{sequence}\n")
 
     reason = "unusable_curve"
     for attempt, (divisor, k_multiplier, status) in enumerate(REPAIR_LADDER):
         length_arg = anchor_length_arg(anchor, divisor)
         attempt_k = k * k_multiplier
-        command = make_command(query=str(single_record), length_arg=length_arg, k=attempt_k)
+        command = make_command(query=str(query_path), length_arg=length_arg, k=attempt_k)
 
-        derived_seed = None
-        env = None
-        if pin_clock:
-            derived_seed = derive_seed(rng_seed, sequence, anchor=anchor, attempt=attempt)
-            env = build_faketime_env(derived_seed, library_path, platform_name, os.environ)
-        elif attempt > 0:
+        derived_seed, env = _fit_env(pin_clock, rng_seed, sequence, library_path,
+                                     platform_name, anchor=anchor, attempt=attempt)
+        if not pin_clock and attempt > 0:
             # Unpinned, so RNAcalibrate seeds from time() at 1s resolution: an identical
             # command issued immediately would collapse into the same draw. Force the clock
             # past a second boundary instead, mirroring verify_faketime's same trick.
-            time.sleep(1.1)
+            time.sleep(CLOCK_TICK_SLEEP_S)
 
-        try:
-            completed = subprocess.run(command, check=True, capture_output=True,
-                                       text=True, env=env)
-        except subprocess.CalledProcessError as exc:
-            raise RuntimeError(
-                f"RNAcalibrate failed for miRNA {mirna} at anchor {anchor}: "
-                f"{' '.join(command)} exited with code {exc.returncode}. "
-                f"Error output: {exc.stderr}."
-            ) from exc
+        stdout = _run_or_raise(command, env, f"miRNA {mirna} at anchor {anchor}")
 
         context = f"[miRNA {mirna}, anchor {anchor}, attempt {attempt}, derived_seed={derived_seed}]"
         try:
-            parsed = parse_rnacalibrate_output(completed.stdout, reject_nan=False)
+            parsed = parse_rnacalibrate_output(stdout, reject_nan=False)
         except (RuntimeError, ValueError) as exc:
             # Malformed or absent output from one of many concurrent jobs — without this
             # context the error names no miRNA, anchor, or seed.
@@ -485,12 +499,11 @@ def _calibrate_anchor(index, header, sequence, anchor, tmpdir, make_command, k,
         row = expect_single_row(parsed, f"{mirna} @ anchor {anchor}")
         reason = classify_fit(row["sample_size"], row["xi"], row["theta"])
         if reason is None:
-            return {
-                "anchor": anchor, "length_arg": length_arg["value"], "k": attempt_k,
-                "sample_size": row["sample_size"], "xi": row["xi"], "theta": row["theta"],
-                "derived_seed": derived_seed, "attempts": attempt + 1, "status": status,
-                "reason": None, "residual": None,
-            }
+            return _stratum(
+                anchor, length_arg=length_arg["value"], k=attempt_k,
+                sample_size=row["sample_size"], xi=row["xi"], theta=row["theta"],
+                derived_seed=derived_seed, attempts=attempt + 1, status=status,
+            )
 
     return _rejected_stratum(anchor, reason, attempts=len(REPAIR_LADDER))
 
@@ -521,9 +534,10 @@ def resolve_strata(entries, query_length, reference):
             for entry in entries
         ], None, None
 
-    outliers = {point.target_length for point in fit.dropped}
-    survivors = [e for e in sound if e["anchor"] not in outliers]
-    survivor_anchors = {e["anchor"] for e in survivors}
+    # Read off the fit's own kept set rather than re-deriving it from `dropped`: which
+    # anchors survived rejection is fit_alpha_robust's answer to give, not ours.
+    survivor_anchors = {point.target_length for point in fit.kept}
+    survivors = [e for e in sound if e["anchor"] in survivor_anchors]
     # xi drifts ~4% across a 20x length range but is noisy per fit, so take the survivors'
     # weighted median rather than their mean or any one anchor.
     xi_modelled = weighted_median([e["xi"] for e in survivors],
@@ -548,18 +562,14 @@ def resolve_strata(entries, query_length, reference):
 
 
 #----- Top-level driver: one RNAcalibrate invocation PER miRNA (plus, when length_anchors is
-#      set, one per fitted anchor). NOT an optimisation — RNAcalibrate consumes ONE RNG
-#      stream across every query in a -q file, so a miRNA's xi/theta depends on how many
-#      records precede it (measured, purely ordinal). Batching these back into one call
-#      reintroduces that dependence and makes results non-comparable across differing query
-#      sets. Costs ~0.9% (measured, k=2000).
-#      The invocations are independent, so they run on `threads` cores at once; pool.map
-#      preserves input order, keeping per_query in query-FASTA order -----#
+#      set, one per fitted anchor). The invocations are independent, so they run on `threads`
+#      cores at once; pool.map preserves input order, keeping per_query in query-FASTA order -----#
 def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize_targets=False,
                      max_internal_loop=None, max_bulge_loop=None, seed=None, rng_seed=None,
                      threads=1, length_anchors=None):
     executable = which_required("RNAcalibrate", "rnacalibrate")
-    stats = compute_target_length_stats(target)
+    lengths = record_lengths(target)
+    stats = summarise_lengths(lengths)
     length_arg = build_length_arg(stats)
     platform_name = sys.platform
     anchors = parse_anchors(length_anchors)
@@ -591,33 +601,41 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
     make_command = partial(build_command, k=k, length_arg=length_arg, **common)
     make_anchor_command = partial(build_command, **common)
 
+    # One table per anchor; fit_targets and occupied are views of it, never re-derived from a second copy of the counts.
     anchor_block = None
-    counts = {}
     fit_targets = ()
+    occupied = ()
     if anchors:
-        counts = count_records_per_anchor(target, anchors)
-        fit_targets = tuple(a for a in fitted_anchors(anchors) if counts[a] > 0)
+        counts = count_records_per_anchor(lengths, anchors)
+        fittable = fitted_anchors(anchors)
         anchor_block = [
             {"anchor": anchor,
-             "length_arg": anchor_length_arg(anchor)["value"] if anchor in fit_targets else None,
+             "length_arg": (anchor_length_arg(anchor)["value"]
+                            if counts[anchor] and anchor in fittable else None),
              "n_records": counts[anchor],
-             "status": ("empty" if counts[anchor] == 0
-                        else "attempted" if anchor in fit_targets
+             "status": ("empty" if not counts[anchor]
+                        else "attempted" if anchor in fittable
                         else "above_ceiling")}
             for anchor in anchors
         ]
+        fit_targets = tuple(r["anchor"] for r in anchor_block if r["status"] == "attempted")
+        occupied = tuple(r["anchor"] for r in anchor_block if r["n_records"])
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Materialised before dispatch so the duplicate-ID and empty-file guards in
         # iter_query_records still raise up front, not inside a worker.
         records = list(iter_query_records(query))
+        # One -q file per miRNA, written here rather than in the workers: every fit of a
+        # miRNA reads the same bytes, and a file only read after dispatch cannot race.
+        query_files = [_write_query_file(tmpdir, index, header, sequence)
+                       for index, (header, sequence) in enumerate(records)]
 
         calibrate = partial(
-            _calibrate_one, tmpdir=tmpdir, make_command=make_command, rng_seed=rng_seed,
+            _calibrate_one, make_command=make_command, rng_seed=rng_seed,
             library_path=library_path, platform_name=platform_name, pin_clock=pin_clock,
         )
         calibrate_anchor = partial(
-            _calibrate_anchor, tmpdir=tmpdir, make_command=make_anchor_command, k=k,
+            _calibrate_anchor, make_command=make_anchor_command, k=k,
             rng_seed=rng_seed, library_path=library_path, platform_name=platform_name,
             pin_clock=pin_clock,
         )
@@ -632,8 +650,8 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
         def run_job(job):
             anchor, index, header, sequence = job
             if anchor is None:
-                return calibrate(index, header, sequence)
-            return calibrate_anchor(index, header, sequence, anchor)
+                return calibrate(query_files[index], header, sequence)
+            return calibrate_anchor(query_files[index], header, sequence, anchor)
 
         with ThreadPoolExecutor(max_workers=max(1, threads)) as pool:
             results = list(pool.map(run_job, jobs))
@@ -651,7 +669,6 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
     for index, (header, sequence) in enumerate(records):
         entry, fitted = by_index[index]
         if anchors:
-            occupied = [a for a in anchors if counts[a] > 0]
             fitted_by_anchor = {row["anchor"]: row for row in fitted}
             entries = []
             for anchor in occupied:
@@ -670,9 +687,10 @@ def run_rnacalibrate(query, target, output_file, k, max_target_length, randomize
                 )
         per_query.append(entry)
 
+    # "anchors" leads when there is a ladder; rnahybrid keys the shape off its presence.
     calibration = {"per_query": per_query}
     if anchor_block is not None:
-        calibration = {"anchors": anchor_block, "per_query": per_query}
+        calibration = {"anchors": anchor_block, **calibration}
 
     ensure_parent(output_file).write_text(json.dumps(
         {

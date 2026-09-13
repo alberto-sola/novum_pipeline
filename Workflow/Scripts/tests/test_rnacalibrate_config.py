@@ -10,18 +10,7 @@ import _rnacalibrate_config as rcc
 
 LADDER = (76, 150, 300, 600, 900, 1500, 3000)
 
-# An allowlist rather than _intarna_config's empty set: this module needs log/sqrt.
-ALLOWED_IMPORTS = {"import math", "import bisect"}
-
-
-def test_module_is_dependency_free():
-    # The driver imports this at DAG-build time; a third-party import here breaks every
-    # snakemake invocation, --dry-run included.
-    source = Path(rcc.__file__).read_text()
-    imports = [l.strip() for l in source.splitlines()
-               if l.startswith("import ") or l.startswith("from ")]
-    extra = sorted(set(imports) - ALLOWED_IMPORTS)
-    assert not extra, f"_rnacalibrate_config must stay stdlib-only, found: {extra}"
+# This module's stdlib-only contract is pinned in test_import_contracts.py, with the other four.
 
 
 # --- parse_anchors ---
@@ -100,7 +89,7 @@ def test_default_ladder_declares_one_anchor_above_the_ceiling():
 
 def _cfg(**overrides):
     base = {"length_anchors": "76,150,300,600,900,1500,3000",
-            "randomize_targets": True, "rng_seed": 1, "calibration_variant": "both"}
+            "randomize_targets": True, "rng_seed": 1}
     base.update(overrides)
     return base
 
@@ -136,8 +125,19 @@ def test_c_is_silent_when_every_anchor_is_at_or_below_the_ceiling():
     assert not any("extrapolated" in w for w in warnings)
 
 def test_d_warns_when_the_ladder_is_set_with_calibration_off():
-    warnings = rcc.validate_rnacalibrate_config(_cfg(calibration_variant="off"))
+    warnings = rcc.validate_rnacalibrate_config(_cfg(), calibration_on=False)
     assert any("calibration_variant" in w for w in warnings)
+
+def test_d_is_silent_when_the_calibrated_arm_runs():
+    assert not any("wholly inert" in w
+                   for w in rcc.validate_rnacalibrate_config(_cfg(), calibration_on=True))
+
+def test_d_reads_the_resolved_flag_not_the_raw_key():
+    # YAML 1.1 parses a bare `off` as False, so the raw key is unusable here; the Snakefile
+    # resolves it through variants_for and passes the result in.
+    warnings = rcc.validate_rnacalibrate_config(_cfg(calibration_variant=False),
+                                                calibration_on=True)
+    assert not any("wholly inert" in w for w in warnings)
 
 def test_e_warns_when_the_ladder_is_set_without_an_rng_seed():
     warnings = rcc.validate_rnacalibrate_config(_cfg(rng_seed=None))

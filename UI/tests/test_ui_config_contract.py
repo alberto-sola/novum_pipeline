@@ -33,6 +33,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent  # repo root
 sys.path.insert(0, str(ROOT / "Workflow" / "Scripts"))
 
 import _intarna_config  # stdlib-only by contract, so importable from any env
+import _rnacalibrate_config
 
 NODE = shutil.which("node")
 JS_ROUNDTRIP_HARNESS = Path(__file__).resolve().parent / "_js_roundtrip.js"
@@ -290,3 +291,12 @@ def test_js_default_helix_max_bp_mirrors_python():
     match = re.search(r"INTARNA_DEFAULT_HELIX_MAX_BP\s*=\s*(\d+)", _data_js_source())
     assert match, "could not locate INTARNA_DEFAULT_HELIX_MAX_BP in data.js"
     assert int(match.group(1)) == _intarna_config.INTARNA_DEFAULT_HELIX_MAX_BP
+
+
+def test_js_default_length_anchors_mirror_python():
+    # INITIAL_CONFIG is what a config file missing the key gets saved with, so this literal
+    # is a third spelling of the ladder beside the Python constant and config.yaml.
+    match = re.search(r"length_anchors:\s*\"([0-9,]+)\"", _data_js_source())
+    assert match, "could not locate length_anchors in data.js INITIAL_CONFIG"
+    assert match.group(1) == ",".join(
+        str(a) for a in _rnacalibrate_config.DEFAULT_LENGTH_ANCHORS)

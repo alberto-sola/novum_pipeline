@@ -11,13 +11,7 @@ import _intarna_config as cfgmod
 validate = cfgmod.validate_intarna_config
 
 
-def test_module_is_dependency_free():
-    # The Snakemake DRIVER imports this at DAG-build time, where none of the arms'
-    # scientific deps exist. A third-party import here breaks every snakemake invocation.
-    source = (Path(cfgmod.__file__)).read_text()
-    imports = [l.strip() for l in source.splitlines()
-               if l.startswith("import ") or l.startswith("from ")]
-    assert imports == [], f"_intarna_config must stay stdlib-only, found: {imports}"
+# This module's stdlib-only contract is pinned in test_import_contracts.py, with the other four.
 
 
 # --- opt(): explicit null must fall back, but 0 must survive ---

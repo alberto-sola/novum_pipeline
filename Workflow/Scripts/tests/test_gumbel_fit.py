@@ -9,16 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # Workflow/Scri
 
 import _gumbel_fit as gf
 
-ALLOWED_IMPORTS = {"import math", "from collections import namedtuple"}
-
-
-def test_module_is_dependency_free():
-    # rule rnacalibrate runs in rnahybrid.yaml: no pandas, no numpy.
-    source = Path(gf.__file__).read_text()
-    imports = [l.strip() for l in source.splitlines()
-               if l.startswith("import ") or l.startswith("from ")]
-    extra = sorted(set(imports) - ALLOWED_IMPORTS)
-    assert not extra, f"_gumbel_fit must stay stdlib-only, found: {extra}"
+# This module's stdlib-only contract is pinned in test_import_contracts.py, with the other four.
 
 
 # --- Tier 1: hard rejects, straight from the RNAcalibrate source ---

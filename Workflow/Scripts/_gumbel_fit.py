@@ -141,4 +141,6 @@ def weighted_median(values, weights):
         running += weight
         if running >= half:
             return value
+    # Unreachable on non-negative weights, which is all a sample_size can be; here so a
+    # negative one degrades to the largest value instead of returning None.
     return ordered[-1][0]

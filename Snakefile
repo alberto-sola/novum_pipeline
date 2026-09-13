@@ -122,7 +122,10 @@ for _warning in validate_intarna_config(
 ):
     logger.warning(_warning)
 
-for _warning in validate_rnacalibrate_config(rnacalibrate_config):
+for _warning in validate_rnacalibrate_config(
+    rnacalibrate_config,
+    calibration_on=W_CALIBRATION in variants,
+):
     logger.warning(_warning)
 
 #----- A floor on --outNumber for the accessibility arm; opt() because an explicit null would

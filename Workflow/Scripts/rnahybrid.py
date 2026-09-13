@@ -153,6 +153,10 @@ def build_optional_args(max_suboptimal_hits=None, max_internal_loop=None, max_bu
 #      Both are None for a ladder-less JSON — the shape of every file written before this
 #      feature — and (None, None) on the uncalibrated path, read as broadcast -----#
 def load_per_query_distributions(distribution_file):
+    #----- RNAhybrid's -d argument. Spelled once: the precision is what a run reproduces from -----#
+    def distribution(row):
+        return f"{row['xi']:.6f},{row['theta']:.6f}"
+
     if distribution_file is None:
         return None, None
 
@@ -165,8 +169,7 @@ def load_per_query_distributions(distribution_file):
 
     anchor_block = calibration.get("anchors")
     if not anchor_block:
-        return None, {(entry["query"], None): f"{entry['xi']:.6f},{entry['theta']:.6f}"
-                      for entry in per_query}
+        return None, {(entry["query"], None): distribution(entry) for entry in per_query}
 
     anchors = tuple(item["anchor"] for item in anchor_block)
     dist_map = {}
@@ -179,8 +182,7 @@ def load_per_query_distributions(distribution_file):
                 "written by different versions; re-run rule rnacalibrate."
             )
         for stratum in strata:
-            dist_map[(entry["query"], stratum["anchor"])] = (
-                f"{stratum['xi']:.6f},{stratum['theta']:.6f}")
+            dist_map[(entry["query"], stratum["anchor"])] = distribution(stratum)
     return anchors, dist_map
 
 
