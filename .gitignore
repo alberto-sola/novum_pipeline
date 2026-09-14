@@ -19,6 +19,7 @@ Data/Raw/miRNAs/*
 Data/Raw/RNAs/*
 Data/Results/*
 Data/Analysis*
+Data/fixed_pvalue_analysis
 
 data-prep/our_data
 data-prep/validated_data

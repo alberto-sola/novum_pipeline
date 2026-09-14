@@ -52,6 +52,26 @@ def write_pairs(fh, pairs, row):
         fh.write(f"{column}: {fmt(row[idx])}\n")
 
 
+#----- Resolves each column group to its (name, index) pairs. One report section per group, in
+#      the order given, dropping any group that is absent or holds no value at all: the seed
+#      columns are all-NA under --noSeed, and consensus reindexes them back in even when
+#      IntaRNA never wrote them, so "present" alone would section an empty block -----#
+def column_blocks(annotated, groups):
+    blocks = []
+    for group in groups:
+        pairs = column_pairs(annotated, group)
+        if pairs and any(annotated[column].notna().any() for column, _idx in pairs):
+            blocks.append(pairs)
+    return blocks
+
+
+#----- Writes each resolved group as its own block, a blank line ahead of each -----#
+def write_blocks(fh, blocks, row):
+    for block in blocks:
+        fh.write("\n")
+        write_pairs(fh, block, row)
+
+
 #----- Per-record report driver: metadata block (every column not in `skip_cols`), then the
 #      arm's own sections via `render_record(fh, row, index_of)`, then the record separator.
 #      Owning the separator here is what keeps the three enhance_* scripts to their sections -----#

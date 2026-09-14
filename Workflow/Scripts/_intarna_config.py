@@ -102,6 +102,22 @@ def derive_seed_from_string(seed_str):
     return {"length": bp, "query_range": f"{x}-{y}"}
 
 
+# IntaRNA's five seed columns, in its own spelling. The single source: intarna.py withholds
+# them from --outCsvCols under --noSeed and tidy_intarna names its report block from them.
+INTARNA_SEED_COLUMNS = ("seedStart1", "seedEnd1", "seedE", "seedStart2", "seedEnd2")
+
+
+#----- The --outCsvCols list with the seed columns dropped when no seed is enforced. Under
+#      --noSeed IntaRNA writes the literal NAN in all five on every row — ~12% of a
+#      panel-scale CSV that is written, re-read and parsed to carry nothing -----#
+def resolve_output_columns(columns, derived_seed):
+    if not columns or derived_seed is not None:
+        return columns
+    kept = [name for name in str(columns).split(",")
+            if name.strip() not in INTARNA_SEED_COLUMNS]
+    return ",".join(kept)
+
+
 #----- (d) The two arms' cutoffs must sit ~one convention offset apart, or the consensus silently intersects non-comparable bars -----#
 def _energy_comparability_warnings(cfg, rnahybrid_max_hybrid_energy):
     intarna_cutoff = cfg.get("max_hybrid_energy")

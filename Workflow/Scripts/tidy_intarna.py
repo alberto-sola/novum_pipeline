@@ -1,14 +1,20 @@
 import pandas as pd
 
 from _common import iter_fasta_records, parse_header_id, ensure_parent
+from _intarna_config import INTARNA_SEED_COLUMNS
 from _length import add_length_corrected, corrected_name
 
 
+# The two IntaRNA column groups, in report order. Spelled once here because the enhance
+# reports render each as its own block and OUTPUT_COLUMNS orders the CSV from them.
+ENERGY_COLUMNS = ["E", "E_hybrid", corrected_name("E_hybrid"), "ED1", "ED2", "Pu1", "Pu2"]
+SEED_COLUMNS   = list(INTARNA_SEED_COLUMNS)
+
 OUTPUT_COLUMNS = [
-    "miRNA", "Gene", "E", "E_hybrid", corrected_name("E_hybrid"), "ED1", "ED2", "Pu1", "Pu2",
+    "miRNA", "Gene", *ENERGY_COLUMNS,
     "Gene_length", "Start1", "End1", "Start2", "End2", "Position",
     "subseqDP", "hybridDP",
-    "seedStart1", "seedEnd1", "seedE", "seedStart2", "seedEnd2",
+    *SEED_COLUMNS,
 ]
 
 # Columns that must be present in IntaRNA CSV output for this script to work.
@@ -52,9 +58,9 @@ def _require_intarna_columns(columns, floors):
             )
 
 
-#----- Everything row-independent — rename, validate, gate, floor, annotate — so it can run
-#      per batch and let all but the survivors go. The sort and the per-pair cap need the
-#      whole surviving set and stay in tidy_intarna below -----#
+#----- Everything that is row-independent and cheap on a doomed row — rename, validate, gate,
+#      floor — so it runs per batch and lets all but the survivors go. The sort, the per-pair
+#      cap and the annotation need the whole surviving set and stay in tidy_intarna below -----#
 def _prepare_chunk(chunk, gene_lengths, max_hybrid_energy, floors):
     chunk = chunk.rename(columns={"id1": "Gene", "id2": "miRNA",
                                   "start1": "Start1", "end1": "End1",
@@ -73,36 +79,37 @@ def _prepare_chunk(chunk, gene_lengths, max_hybrid_energy, floors):
     if nonpositive:
         raise ValueError(f"Non-positive Gene_length in target FASTA for: {nonpositive}")
 
-    # Gate on hybridization energy — the quantity RNAhybrid's -e filters and the scale the
-    # literature's -18 threshold is stated on. --outMaxE cannot express this under acc=C,
-    # where it bounds E_hybrid+ED1+ED2 instead, so this is the authoritative gate on both
-    # variants. On wo_accessibility it is a no-op: the tool already applied the same bound.
+    # The energy gate is authoritative on both variants: --outMaxE bounds E_hybrid+ED1+ED2
+    # under acc=C, so it cannot express this bound there. The floors run before the cap, or
+    # they would ask "was the strongest site accessible?" instead of "has this pair an
+    # accessible site at all?". One mask, one take: chaining them materialized a throwaway
+    # frame apiece on the path where most of a batch dies. NaN fails every comparison, so
+    # unknown accessibility is never admitted.
+    mask = None
     if max_hybrid_energy is not None:
-        chunk = chunk[chunk["E_hybrid"] <= float(max_hybrid_energy)]
-
-    # Before the cap, like the energy gate: capping first collapses each pair to its best
-    # site, so a floor would then ask "was the strongest site accessible?" instead of "has
-    # this pair an accessible site at all?" — up to 3.5x fewer surviving pairs on four
-    # genomes. NaN Pu fails the comparison, so unknown accessibility is never admitted.
+        mask = chunk["E_hybrid"] <= max_hybrid_energy
     for column, floor in floors:
-        if floor is not None:
-            chunk = chunk[chunk[column] >= float(floor)]
+        if floor is None:
+            continue
+        floored = chunk[column] >= floor
+        mask = floored if mask is None else mask & floored
 
-    # Annotation runs on what survived the gate and floors, not on the majority that did
-    # not. Position is a 0-1 fraction for cross-arm comparability with tidy_rnahybrid, which anchors the same way.
-    return chunk.assign(
-        Gene_length=lambda d: d["Gene"].map(gene_lengths).astype(int),
-        Position=lambda d: d["Start1"].astype(float) / d["Gene_length"],
-    )
+    return chunk if mask is None else chunk[mask]
+
+
+#----- The per-pair cap, on a frame already sorted by E_hybrid. Applied per batch and again
+#      globally, so both go through here and can never disagree about how they group -----#
+def _cap_sorted(df, max_suboptimal_hits):
+    if max_suboptimal_hits is None:
+        return df
+    return df.groupby(CAP_KEYS, sort=False).head(int(max_suboptimal_hits))
 
 
 #----- The per-pair cap, hoisted into the read loop -----#
 def _precap_chunk(chunk, max_suboptimal_hits):
     if max_suboptimal_hits is None:
         return chunk
-
-    ranked = chunk.sort_values("E_hybrid", kind="stable")
-    return ranked.groupby(CAP_KEYS, sort=False).head(int(max_suboptimal_hits))
+    return _cap_sorted(chunk.sort_values("E_hybrid", kind="stable"), max_suboptimal_hits)
 
 
 #----- Reads IntaRNA's CSV in batches, keeping only gated/floored rows, then ranks and caps on E_hybrid and emits the CSV -----#
@@ -110,8 +117,13 @@ def tidy_intarna(input_path, target_fasta_path, output_path,
                  max_hybrid_energy=None, max_suboptimal_hits=None,
                  min_target_unpaired_probability=None,
                  min_query_unpaired_probability=None):
-    floors = (("Pu1", min_target_unpaired_probability),
-              ("Pu2", min_query_unpaired_probability))
+    # Cutoffs resolved to float once here rather than per batch, where they are loop-invariant.
+    gate = None if max_hybrid_energy is None else float(max_hybrid_energy)
+    floors = tuple(
+        (column, None if value is None else float(value))
+        for column, value in (("Pu1", min_target_unpaired_probability),
+                              ("Pu2", min_query_unpaired_probability))
+    )
     # E/E_hybrid typed by the C parser rather than cast afterwards: an astype() would run on
     # the whole batch, most of which the gate and cap below are about to discard.
     read_options = dict(sep=";", dtype={"id1": str, "id2": str, "E": float, "E_hybrid": float},
@@ -124,26 +136,29 @@ def tidy_intarna(input_path, target_fasta_path, output_path,
 
     # Batched, and capped per batch: how much of a batch dies in the filters alone depends entirely on the config
     prepared = [
-        _precap_chunk(_prepare_chunk(chunk, gene_lengths, max_hybrid_energy, floors),
-                      max_suboptimal_hits)
+        _precap_chunk(_prepare_chunk(chunk, gene_lengths, gate, floors), max_suboptimal_hits)
         for chunk in pd.read_csv(input_path, chunksize=READ_CHUNK_ROWS, **read_options)
     ]
     df = pd.concat(prepared, ignore_index=True)
 
     # Rank by the gated quantity, then cap. Capping first could discard a qualifying row
     # in favour of a better-total-E one that fails the gate.
-    df = df.sort_values("E_hybrid", kind="stable")
+    df = _cap_sorted(df.sort_values("E_hybrid", kind="stable"), max_suboptimal_hits)
 
-    if max_suboptimal_hits is not None:
-        df = df.groupby(CAP_KEYS, sort=False).head(int(max_suboptimal_hits))
+    # Annotated only once the cap has run: nothing above reads either column, and the gate
+    # alone lets through far more rows than survive. Position is a 0-1 fraction for cross-arm
+    # comparability with tidy_rnahybrid, which anchors the same way.
+    df = df.assign(
+        Gene_length=lambda d: d["Gene"].map(gene_lengths).astype(int),
+        Position=lambda d: d["Start1"].astype(float) / d["Gene_length"],
+    )
 
     # After the cap, not before: the correction ranks a pair's genes against each other, so a
     # gene should weigh as close to once as the cap allows. Column only, never a gate — see
     # _length.py.
     df = add_length_corrected(df, "E_hybrid")
 
-    present_cols = [c for c in OUTPUT_COLUMNS if c in df.columns]
-    df = df[present_cols]
+    df = df[[c for c in OUTPUT_COLUMNS if c in df.columns]]
 
     df.to_csv(ensure_parent(output_path), index=False)
 

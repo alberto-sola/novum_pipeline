@@ -286,3 +286,26 @@ def test_inert_floor_warning_silent_when_accessibility_is_on():
 
 def test_inert_floor_warning_silent_when_no_floor_is_set():
     assert validate({}, None, accessibility_on=False) == []
+
+
+#----- resolve_output_columns: the seed columns are inert under --noSeed -----#
+
+def test_resolve_output_columns_drops_every_seed_column():
+    columns = ",".join(("id1", *cfgmod.INTARNA_SEED_COLUMNS, "E"))
+    assert cfgmod.resolve_output_columns(columns, derived_seed=None) == "id1,E"
+
+
+def test_resolve_output_columns_keeps_them_when_a_seed_is_enforced():
+    columns = "id1,seedE,E"
+    assert cfgmod.resolve_output_columns(columns, derived_seed={"length": 6}) == columns
+
+
+def test_resolve_output_columns_tolerates_padded_names():
+    assert cfgmod.resolve_output_columns("id1, seedE ,E", derived_seed=None) == "id1,E"
+
+
+def test_resolve_output_columns_passes_an_empty_setting_through():
+    # An empty `columns:` must stay falsy so intarna.py falls back to IntaRNA's own column
+    # set rather than emitting a bare --outCsvCols=.
+    assert cfgmod.resolve_output_columns(None, derived_seed=None) is None
+    assert cfgmod.resolve_output_columns("", derived_seed=None) == ""

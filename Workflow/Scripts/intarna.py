@@ -9,6 +9,7 @@ from _intarna_config import (
     INTARNA_MAX_OUTNUMBER,
     derive_seed_from_string,
     opt,
+    resolve_output_columns,
 )
 
 
@@ -112,7 +113,8 @@ def _resolve_outnumber(max_suboptimal_hits):
 
 
 #----- --out* filtering flags. `out_max_energy` is IntaRNA's TOTAL-energy bound (--outMaxE), supplied by the Snakefile only where it equals the hybridization gate (acc=N) -----#
-def _add_output_flags(cmd, out, max_suboptimal_hits=None, out_max_energy=None):
+def _add_output_flags(cmd, out, max_suboptimal_hits=None, out_max_energy=None,
+                      derived_seed=None):
     if out_max_energy is not None:
         cmd.append(f"--outMaxE={out_max_energy}")
     _add_value_flags(cmd, out, _OUTPUT_VALUE_FLAGS)
@@ -120,9 +122,11 @@ def _add_output_flags(cmd, out, max_suboptimal_hits=None, out_max_energy=None):
     cmd.append(f"--outOverlap={opt(out, 'overlap', 'B')}")
     _add_bool_flags(cmd, out, _OUTPUT_BOOL_FLAGS)
     # Truthiness, not `is not None`: an empty `columns:` must fall back to IntaRNA's own
-    # column set rather than emit a bare `--outCsvCols=`.
-    if out.get("columns"):
-        cmd.append(f"--outCsvCols={out['columns']}")
+    # column set rather than emit a bare `--outCsvCols=`. Under --noSeed the seed columns
+    # drop out — the tool would write NAN in every one of them.
+    columns = resolve_output_columns(out.get("columns"), derived_seed)
+    if columns:
+        cmd.append(f"--outCsvCols={columns}")
 
 
 #----- Assembles the IntaRNA command line for one (query, target); `acc` is the resolved --acc mode (N=none, C=constrained) from the Snakefile -----#
@@ -157,7 +161,8 @@ def build_command(cfg, acc, query, target, out_path, threads,
     _add_accessibility_flags(cmd, cfg.get("accessibility") or {})
 
     _add_output_flags(cmd, cfg.get("output") or {},
-                      max_suboptimal_hits=max_suboptimal_hits, out_max_energy=out_max_energy)
+                      max_suboptimal_hits=max_suboptimal_hits, out_max_energy=out_max_energy,
+                      derived_seed=derived_seed)
 
     return cmd
 

@@ -23,10 +23,7 @@ ANNOTATION_COLUMNS = [column for column, _keys in ANNOTATION_FIELDS]
 #----- First key holding a non-empty value, falling back to the last key's raw value (so an
 #      empty `[gene=]` still reads as "" rather than becoming None) -----#
 def _first_set(fields, keys):
-    for key in keys[:-1]:
-        if fields.get(key):
-            return fields[key]
-    return fields.get(keys[-1])
+    return next((fields[key] for key in keys if fields.get(key)), fields.get(keys[-1]))
 
 
 #----- Pulls gene/locus/protein metadata out of FASTA headers and returns one deduped row per Gene -----#
@@ -66,9 +63,8 @@ def annotate_results(tidy_csv_path, fasta_path, output_path, insert_after):
     annotations = parse_fasta_annotations(fasta_path)
     annotated = tidy.merge(annotations, on="Gene", how="left")
 
-    fasta_columns = [column for column in annotations.columns if column != "Gene"]
     cut = tidy.columns.get_loc(insert_after) + 1
-    annotated = annotated[[*tidy.columns[:cut], *fasta_columns, *tidy.columns[cut:]]]
+    annotated = annotated[[*tidy.columns[:cut], *ANNOTATION_COLUMNS, *tidy.columns[cut:]]]
 
     annotated.to_csv(ensure_parent(output_path), index=False)
 

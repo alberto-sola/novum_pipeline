@@ -221,3 +221,26 @@ def test_outmaxe_omitted_when_none():
     # a ~2x stricter bar. tidy_intarna gates on E_hybrid downstream instead.
     cmd = _build({}, out_max_energy=None)
     assert _flag(cmd, "--outMaxE=") is None
+
+
+SHIPPED_COLUMNS = ("id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,"
+                   "E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2")
+
+
+def _csv_cols(cmd):
+    return _flag(cmd, "--outCsvCols=").split("=", 1)[1].split(",")
+
+
+def test_seed_columns_withheld_under_noseed():
+    # --noSeed makes IntaRNA write the literal NAN in all five seed columns on every row —
+    # ~12% of a panel-scale CSV carrying nothing. Withhold them rather than parse them back.
+    cmd = _build({"output": {"columns": SHIPPED_COLUMNS}})        # _build's seed default: None
+    assert "--noSeed" in cmd
+    assert not [c for c in _csv_cols(cmd) if c.startswith("seed")]
+    assert _csv_cols(cmd)[:4] == ["id1", "id2", "start1", "end1"]  # order otherwise intact
+
+
+def test_seed_columns_kept_when_a_seed_is_enforced():
+    cmd = _build({"output": {"columns": SHIPPED_COLUMNS}},
+                 derived_seed={"length": 6, "query_range": "2-7"})
+    assert _csv_cols(cmd) == SHIPPED_COLUMNS.split(",")

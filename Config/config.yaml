@@ -22,12 +22,12 @@ targets:
 
 #----- Shared by both arms -----#
 threads: 8
-max_suboptimal_hits: 1                # null → every hit below the arm's energy cutoff, per pair
-seed: null                            # Forced seed "x,y"; RNAhybrid -f, IntaRNA --seedBP/--seedQRange. null → no seed
+max_suboptimal_hits: 1                  # null → every hit below the arm's energy cutoff, per pair
+seed: null                              # Forced seed "x,y"; RNAhybrid -f, IntaRNA --seedBP/--seedQRange. null → no seed
 
 #----- Parameters for RNAcalibrate -----#
 rnacalibrate:
-  calibration_variant: both             # "on" | "off" | "both"
+  calibration_variant: "on"             # "on" | "off" | "both"
   k: 10000
   max_target_length: 50000
   randomize_targets: true
@@ -41,7 +41,7 @@ rnacalibrate:
 #----- Parameters for RNAhybrid -----#
 rnahybrid:
   species: 3utr_human
-  max_hybrid_energy: -18              # -e hybridization MFE; the literature threshold
+  max_hybrid_energy: -18                # -e hybridization MFE; the literature threshold
   max_internal_loop: null
   max_bulge_loop: null
   pvalue_threshold: null
@@ -49,74 +49,74 @@ rnahybrid:
 
 #----- Parameters for IntaRNA -----#
 intarna:
-  accessibility_variant: on           # "on" | "off" | "both"
-  prediction_mode: H                  # H heuristic | M exact | S seed-only
-  model: S                            # X seed-extension | S legacy | B helix-block | P ensemble
-  energy_set: Turner04                # --energyVRNA  Turner99 | Turner04 | Andronescu07
-  max_hybrid_energy: -12.9            # E_hybrid gate = -18 + 5.10 measured offset. NOT seed.max_hybrid_energy.
+  accessibility_variant: on             # "on" | "off" | "both"
+  prediction_mode: H                    # H heuristic | M exact | S seed-only
+  model: S                              # X seed-extension | S legacy | B helix-block | P ensemble
+  energy_set: Turner04                  # --energyVRNA  Turner99 | Turner04 | Andronescu07
+  max_hybrid_energy: -12.9              # E_hybrid gate = -18 + 5.10 measured offset. NOT seed.max_hybrid_energy.
   min_target_unpaired_probability: null   # Pu1 floor, gene side; null = accessibility annotates, never selects
   min_query_unpaired_probability: null    # Pu2 floor, miRNA side; separate — the sides' Pu differ by orders of magnitude
                                           # Both inert under accessibility_variant: off (acc=N computes no Pu); warns there
-  accessibility_search_depth: 150     # --outNumber FLOOR on w_accessibility only (acc=C ranks by total E, the gate is on E_hybrid)
-  max_interaction_length: 0           # --intLenMax   (null/0 = auto: min of seq length, accW)
-  max_loop_size: 15                   # --intLoopMax  unpaired nt between paired bases, PER SIDE (null = 10).
-                                      # 15 matches RNAhybrid's -u/-v defaults. At IntaRNA's own 10 the arms
-                                      # were not asking the same question: measured on the concordant table,
-                                      # IntaRNA never crossed a loop wider than 10 while RNAhybrid reached 15,
-                                      # and where RNAhybrid did, IntaRNA pairs 2.70 fewer bases and the
-                                      # cross-arm energy offset rises from +5.5 to +6.9.
-                                      # Outcome of the 2026-08-26 re-run at 15: IntaRNA now reaches 15
-                                      # (4.49% of sites use a loop >10, RNAhybrid 6.40%), but the effect is
-                                      # small - exact site agreement 52.0% -> 53.4%, median offset +5.78 ->
-                                      # +5.76. It removes a parameter asymmetry; it does not close the gap
-                                      # to the configured offset, which is the constant's own provenance.
+  accessibility_search_depth: 150       # --outNumber FLOOR on w_accessibility only (acc=C ranks by total E, the gate is on E_hybrid)
+  max_interaction_length: 0             # --intLenMax   (null/0 = auto: min of seq length, accW)
+  max_loop_size: 15                     # --intLoopMax  unpaired nt between paired bases, PER SIDE (null = 10).
+                                        # 15 matches RNAhybrid's -u/-v defaults. At IntaRNA's own 10 the arms
+                                        # were not asking the same question: measured on the concordant table,
+                                        # IntaRNA never crossed a loop wider than 10 while RNAhybrid reached 15,
+                                        # and where RNAhybrid did, IntaRNA pairs 2.70 fewer bases and the
+                                        # cross-arm energy offset rises from +5.5 to +6.9.
+                                        # Outcome of the 2026-08-26 re-run at 15: IntaRNA now reaches 15
+                                        # (4.49% of sites use a loop >10, RNAhybrid 6.40%), but the effect is
+                                        # small - exact site agreement 52.0% -> 53.4%, median offset +5.78 ->
+                                        # +5.76. It removes a parameter asymmetry; it does not close the gap
+                                        # to the configured offset, which is the constant's own provenance.
 
-  helix:                              # ONLY applies when model: B (helix-block). Ignored under X/S/P.
-    min_bp: null                      # --helixMinBP  (default 2,  range [2,4])
-    max_bp: null                      # --helixMaxBP  (default 10, range [2,20]); must be >= the seed width
-    max_internal_loop: null           # --helixMaxIL  (default 0 = pure stacks, range [0,2])
-    min_unpaired_probability: null    # --helixMinPu  (inert when accessibility_variant: off)
-    max_energy: null                  # --helixMaxE   (default 0 = a helix must be stabilizing)
-    full_energy: false                # --helixFullE  makes max_energy count E_init, ED, dangling ends
+  helix:                                # ONLY applies when model: B (helix-block). Ignored under X/S/P.
+    min_bp: null                        # --helixMinBP  (default 2,  range [2,4])
+    max_bp: null                        # --helixMaxBP  (default 10, range [2,20]); must be >= the seed width
+    max_internal_loop: null             # --helixMaxIL  (default 0 = pure stacks, range [0,2])
+    min_unpaired_probability: null      # --helixMinPu  (inert when accessibility_variant: off)
+    max_energy: null                    # --helixMaxE   (default 0 = a helix must be stabilizing)
+    full_energy: false                  # --helixFullE  makes max_energy count E_init, ED, dangling ends
 
-  seed:                               # enabled / length / query_range are inherited from the top-level `seed`.
-    max_energy: null                  # --seedMaxE
-    max_hybrid_energy: null           # --seedMaxEhybrid
-    min_unpaired_probability: null    # --seedMinPu
-    forbid_gu: false                  # --seedNoGU
-    forbid_gu_at_ends: false          # --seedNoGUend
-    target_range: null                # --seedTRange   (target coords; no top-level source)
+  seed:                                 # enabled / length / query_range are inherited from the top-level `seed`.
+    max_energy: null                    # --seedMaxE
+    max_hybrid_energy: null             # --seedMaxEhybrid
+    min_unpaired_probability: null      # --seedMinPu
+    forbid_gu: false                    # --seedNoGU
+    forbid_gu_at_ends: false            # --seedNoGUend
+    target_range: null                  # --seedTRange   (target coords; no top-level source)
     max_unpaired_bases: null
-                                      # --seedMaxUP    null → 0 under a seed (RNAhybrid parity)
-    report_best_only: false           # --outBestSeedOnly
+                                        # --seedMaxUP    null → 0 under a seed (RNAhybrid parity)
+    report_best_only: false             # --outBestSeedOnly
 
   accessibility:
-    window: null                      # --accW  BOTH sides (0 → global, whole sequence; null → IntaRNA default 150)
-    max_bp_span: null                 # --accL  BOTH sides (0 → falls back to the window; null → IntaRNA default 100)
-                                      # Per-side overrides below: IntaRNA ABORTS if one is set alongside a
-                                      # DIFFERING shared value above. Also, *_max_bp_span must not exceed
-                                      # *_window — IntaRNA reports that on the QUERY side either way.
-    query_window: 0                   # --qAccW  overrides window on the miRNA side
-    query_max_bp_span: 0              # --qAccL  overrides max_bp_span
-    target_window: 80                 # --tAccW  overrides window on the CDS side
-    target_max_bp_span: 40            # --tAccL  overrides max_bp_span
-    forbid_lonely_pairs: false        # --accNoLP
-    forbid_gu_at_ends: false          # --accNoGUend
+    window: null                        # --accW  BOTH sides (0 → global, whole sequence; null → IntaRNA default 150)
+    max_bp_span: null                   # --accL  BOTH sides (0 → falls back to the window; null → IntaRNA default 100)
+                                        # Per-side overrides below: IntaRNA ABORTS if one is set alongside a
+                                        # DIFFERING shared value above. Also, *_max_bp_span must not exceed
+                                        # *_window — IntaRNA reports that on the QUERY side either way.
+    query_window: 0                     # --qAccW  overrides window on the miRNA side
+    query_max_bp_span: 0                # --qAccL  overrides max_bp_span
+    target_window: 80                   # --tAccW  overrides window on the CDS side
+    target_max_bp_span: 40              # --tAccL  overrides max_bp_span
+    forbid_lonely_pairs: false          # --accNoLP
+    forbid_gu_at_ends: false            # --accNoGUend
 
   output:
-    max_delta_energy: null            # --outDeltaE
-    overlap: B                        # --outOverlap N|T|Q|B
-    min_unpaired_probability: null    # --outMinPu: EVERY interacting position, both sides, at the tool — a
-                                      # different (stricter) bar than the per-site floors above, and changing
-                                      # it re-runs IntaRNA.
-    forbid_lonely_pairs: false        # --outNoLP
-    forbid_gu_at_ends: false          # --outNoGUend
+    max_delta_energy: null              # --outDeltaE
+    overlap: B                          # --outOverlap N|T|Q|B
+    min_unpaired_probability: null      # --outMinPu: EVERY interacting position, both sides, at the tool — a
+                                        # different (stricter) bar than the per-site floors above, and changing
+                                        # it re-runs IntaRNA.
+    forbid_lonely_pairs: false          # --outNoLP
+    forbid_gu_at_ends: false            # --outNoGUend
     columns: id1,id2,start1,end1,start2,end2,subseqDP,hybridDP,E,E_hybrid,ED1,ED2,Pu1,Pu2,seedStart1,seedEnd1,seedE,seedStart2,seedEnd2
 
 #----- Parameters for plots (optional; omit or set type: null to skip) -----#
 plots:
-  type: null                           # pvalue_distribution | position_pvalue | position_energy | volcano | pvalue_ecdf | calibration_delta | per_mirna | position_density | seed_class | all
-                                       # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
+  type: null                            # pvalue_distribution | position_pvalue | position_energy | volcano | pvalue_ecdf | calibration_delta | per_mirna | position_density | seed_class | all
+                                        # or a comma-separated subset, e.g. "pvalue_distribution,position_pvalue"
   basesize: 12
   pvalue_threshold: 0.01
   per_mirna_top_n: 12
@@ -125,4 +125,4 @@ plots:
   protein:
 
 #----- Where outputs should be generated -----#
-results_dir: Data/Results/predicted_all/
+results_dir: Data/Results/fixed_pvalue/predicted_all/

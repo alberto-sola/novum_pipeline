@@ -10,8 +10,12 @@ COLUMNS = [
     "Target_unmatches", "Target_matches", "miRNA_matches", "miRNA_unmatches",
 ]
 
+# RNAhybrid's scoring block, in report order. Spelled once here because the enhance reports
+# render it as its own block and OUTPUT_COLUMNS orders the CSV from it.
+ENERGY_COLUMNS = ["Energy", corrected_name("Energy"), "P_value"]
+
 OUTPUT_COLUMNS = [
-    "miRNA", "Gene", "Energy", corrected_name("Energy"), "P_value", "Gene_length", "Position",
+    "miRNA", "Gene", *ENERGY_COLUMNS, "Gene_length", "Position",
     "miRNA_unmatches", "miRNA_matches", "Target_matches", "Target_unmatches",
 ]
 
@@ -33,13 +37,9 @@ def tidy_rnahybrid(input_path, output_path):
         sep=":",
         header=None,
         names=COLUMNS,
-        dtype={"Gene": str, "miRNA": str},
+        dtype={"Gene": str, "miRNA": str, "Energy": float, "P_value": float, "Gene_length": int},
         keep_default_na=False,
     )
-
-    df["Energy"]      = df["Energy"].astype(float)
-    df["P_value"]     = df["P_value"].astype(float)
-    df["Gene_length"] = df["Gene_length"].astype(int)
 
     if (df["Gene_length"] <= 0).any():
         bad = df.loc[df["Gene_length"] <= 0, "Gene"].tolist()

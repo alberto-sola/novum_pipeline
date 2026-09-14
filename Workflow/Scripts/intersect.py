@@ -2,8 +2,9 @@ import sys
 import pandas as pd
 
 from _common import ensure_parent
-from _length import corrected_name
 from annotate import ANNOTATION_COLUMNS
+from tidy_intarna import OUTPUT_COLUMNS as INTARNA_TIDY_COLUMNS
+from tidy_rnahybrid import OUTPUT_COLUMNS as RNAHYBRID_TIDY_COLUMNS
 
 
 # Columns both arms already carry, taken once from the RNAhybrid side and dropped from IntaRNA
@@ -12,16 +13,29 @@ from annotate import ANNOTATION_COLUMNS
 # from the target FASTA, RNAhybrid's from its own output column 2.
 SHARED_ANNOTATION = [*ANNOTATION_COLUMNS, "Gene_length"]
 
-# Final consensus column order (minimal-rename: only Position is disambiguated).
+
+#----- One arm's tidy columns as the consensus carries them: the pair keys and the shared
+#      annotation drop out (kept once, above) and Position disambiguates to the arm -----#
+def _arm_columns(tidy_columns, position_name, after_position=()):
+    carried_once = {"miRNA", "Gene", *SHARED_ANNOTATION}
+    columns = []
+    for column in tidy_columns:
+        if column in carried_once:
+            continue
+        columns.append(position_name if column == "Position" else column)
+        if column == "Position":
+            columns.extend(after_position)
+    return columns
+
+
+# Final consensus column order (minimal-rename: only Position is disambiguated). Derived from
+# the two producers, so a column added to either tidy schema reaches the consensus instead of
+# being dropped by the reindex below without a word.
 CONSENSUS_COLUMNS = [
     "miRNA", "Gene",
     *SHARED_ANNOTATION,
-    "Energy", corrected_name("Energy"), "P_value", "Position_rnahybrid",
-    "miRNA_unmatches", "miRNA_matches", "Target_matches", "Target_unmatches",
-    "E", "E_hybrid", corrected_name("E_hybrid"), "ED1", "ED2", "Pu1", "Pu2",
-    "Start1", "End1", "Start2", "End2", "Position_intarna", "Site_offset_nt",
-    "subseqDP", "hybridDP",
-    "seedStart1", "seedEnd1", "seedE", "seedStart2", "seedEnd2",
+    *_arm_columns(RNAHYBRID_TIDY_COLUMNS, "Position_rnahybrid"),
+    *_arm_columns(INTARNA_TIDY_COLUMNS, "Position_intarna", ["Site_offset_nt"]),
 ]
 
 
@@ -44,8 +58,7 @@ def intersect_annotations(rnahybrid_csv, intarna_csv, output_csv):
     rh_best = rh_best.rename(columns={"Position": "Position_rnahybrid"})
     in_best = in_best.rename(columns={"Position": "Position_intarna"})
 
-    drop_from_intarna = [c for c in SHARED_ANNOTATION if c in in_best.columns]
-    in_best = in_best.drop(columns=drop_from_intarna)
+    in_best = in_best.drop(columns=SHARED_ANNOTATION, errors="ignore")
 
     merged = rh_best.merge(in_best, on=keys, how="inner")
 
@@ -64,7 +77,8 @@ def intersect_annotations(rnahybrid_csv, intarna_csv, output_csv):
         print(
             "intersect: consensus columns absent from inputs (filled NA): "
             + ", ".join(absent)
-            + " — trim intarna.output.columns less if you need this metadata.",
+            + " — expected when intarna.output.columns is trimmed, or when the top-level "
+              "seed is null and the seed columns are withheld.",
             file=sys.stderr,
         )
     merged = merged.reindex(columns=CONSENSUS_COLUMNS)
