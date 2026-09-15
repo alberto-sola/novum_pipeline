@@ -72,6 +72,107 @@ references:
     year: 2017
     doi: 10.1093/nar/gkx279
 
+  - type: article
+    title: "CopraRNA and IntaRNA: predicting small RNA targets, networks and interaction domains"
+    authors:
+      - family-names: Wright
+        given-names: Patrick R.
+      - family-names: Georg
+        given-names: Jens
+      - family-names: Mann
+        given-names: Martin
+      - family-names: Sorescu
+        given-names: Dragos A.
+      - family-names: Richter
+        given-names: Andreas S.
+      - family-names: Lott
+        given-names: Steffen
+      - family-names: Kleinkauf
+        given-names: Robert
+      - family-names: Hess
+        given-names: Wolfgang R.
+      - family-names: Backofen
+        given-names: Rolf
+    journal: Nucleic Acids Research
+    volume: 42
+    issue: "W1"
+    start: W119
+    end: W123
+    year: 2014
+    doi: 10.1093/nar/gku359
+
+  - type: article
+    title: "IntaRNA: efficient prediction of bacterial sRNA targets incorporating target site accessibility and seed regions"
+    authors:
+      - family-names: Busch
+        given-names: Anke
+      - family-names: Richter
+        given-names: Andreas S.
+      - family-names: Backofen
+        given-names: Rolf
+    journal: Bioinformatics
+    volume: 24
+    issue: "24"
+    start: "2849"
+    end: "2856"
+    year: 2008
+    doi: 10.1093/bioinformatics/btn544
+
+  - type: article
+    title: "Freiburg RNA tools: a central online resource for RNA-focused research and teaching"
+    authors:
+      - family-names: Raden
+        given-names: Martin
+      - family-names: Ali
+        given-names: Syed M.
+      - family-names: Alkhnbashi
+        given-names: Omer S.
+      - family-names: Busch
+        given-names: Anke
+      - family-names: Costa
+        given-names: Fabrizio
+      - family-names: Davis
+        given-names: Jason A.
+      - family-names: Eggenhofer
+        given-names: Florian
+      - family-names: Gelhausen
+        given-names: Rick
+      - family-names: Georg
+        given-names: Jens
+      - family-names: Heyne
+        given-names: Steffen
+      - family-names: Hiller
+        given-names: Michael
+      - family-names: Kundu
+        given-names: Kousik
+      - family-names: Kleinkauf
+        given-names: Robert
+      - family-names: Lott
+        given-names: Steffen C.
+      - family-names: Mohamed
+        given-names: Mostafa M.
+      - family-names: Mattheis
+        given-names: Alexander
+      - family-names: Miladi
+        given-names: Milad
+      - family-names: Richter
+        given-names: Andreas S.
+      - family-names: Will
+        given-names: Sebastian
+      - family-names: Wolff
+        given-names: Joachim
+      - family-names: Wright
+        given-names: Patrick R.
+      - family-names: Backofen
+        given-names: Rolf
+    journal: Nucleic Acids Research
+    volume: 46
+    issue: "W1"
+    start: W25
+    end: W29
+    year: 2018
+    doi: 10.1093/nar/gky329
+
   - type: software
     title: GNU Parallel
     authors:
